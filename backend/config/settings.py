@@ -110,8 +110,27 @@ AUTH_USER_MODEL = 'account.User'
 
 CORS_ALLOW_ALL_ORIGINS = True
 
-CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels.layers.InMemoryChannelLayer"
+# --- Channel Layer Configuration ---
+# Use USE_REDIS=True in .env to switch to RedisChannelLayer
+USE_REDIS = os.getenv('USE_REDIS', 'False') == 'True'
+
+if USE_REDIS:
+    REDIS_HOST = os.getenv('REDIS_HOST', '127.0.0.1')
+    REDIS_PORT = os.getenv('REDIS_PORT', '6379')
+    print(f"Using RedisChannelLayer at {REDIS_HOST}:{REDIS_PORT}")
+    
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            "CONFIG": {
+                "hosts": [(REDIS_HOST, int(REDIS_PORT))],
+            },
+        },
     }
-}
+else:
+    print("Using InMemoryChannelLayer (Development Mode)")
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels.layers.InMemoryChannelLayer"
+        }
+    }

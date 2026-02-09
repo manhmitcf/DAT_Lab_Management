@@ -1,7 +1,10 @@
-from django.urls import re_path, path
+from django.urls import path
 from . import consumers
 
 websocket_urlpatterns = [
-    # Use path() for simplicity and accuracy
+    # Endpoint for Edge Device to send data upstream
     path('ws/edge/data/', consumers.EdgeDeviceConsumer.as_asgi()),
+    
+    # Endpoint for Frontend to listen for realtime data
+    path('ws/frontend/feed/', consumers.FrontendConsumer.as_asgi()),
 ]
