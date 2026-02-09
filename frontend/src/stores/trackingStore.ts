@@ -34,6 +34,8 @@ const initialStats: SystemStats = {
     total_cameras: 12,
     person_count: 104,
     person_count_change: 5.2,
+    entry_today: 847,
+    exit_today: 743,
     metadata_rate: 120,
     inference_time: 12,
     behavior_distribution: {

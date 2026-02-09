@@ -5,10 +5,9 @@ import { usePathname } from 'next/navigation';
 import { useSidebarStore } from '@/stores/sidebarStore';
 
 const navItems = [
-    { href: '/dashboard', icon: 'dashboard', label: 'Dashboard' },
-    { href: '/', icon: 'videocam', label: 'Live Feeds' },
-    { href: '/analytics', icon: 'analytics', label: 'Analytics' },
+    { href: '/', icon: 'monitoring', label: 'Live Monitor' },
     { href: '/alerts', icon: 'notifications', label: 'Alerts', badge: 3 },
+    { href: '/analytics', icon: 'analytics', label: 'Analytics' },
 ];
 
 const bottomNavItems = [

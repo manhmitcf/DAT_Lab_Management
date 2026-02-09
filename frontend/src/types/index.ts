@@ -40,6 +40,8 @@ export interface SystemStats {
     total_cameras: number;
     person_count: number;
     person_count_change: number;
+    entry_today: number;
+    exit_today: number;
     metadata_rate: number;
     inference_time: number;
     behavior_distribution: {
