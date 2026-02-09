@@ -1,0 +1,81 @@
+@import "tailwindcss";
+
+/* Custom theme for EdgeSentinelAI */
+:root {
+  --primary: #137fec;
+  --background: #101922;
+  --background-dark: #0b0e11;
+  --surface: #111418;
+  --surface-hover: #1a2027;
+  --border: #283039;
+  --alert: #ef4444;
+  --warning: #f59e0b;
+  --success: #22c55e;
+  --foreground: #ffffff;
+  --foreground-muted: #9ca3af;
+}
+
+@theme inline {
+  --color-primary: var(--primary);
+  --color-background: var(--background);
+  --color-background-dark: var(--background-dark);
+  --color-surface: var(--surface);
+  --color-surface-hover: var(--surface-hover);
+  --color-border: var(--border);
+  --color-alert: var(--alert);
+  --color-warning: var(--warning);
+  --color-success: var(--success);
+  --color-foreground: var(--foreground);
+  --color-foreground-muted: var(--foreground-muted);
+  --font-display: "Inter", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--surface);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #374151;
+}
+
+/* Floor plan grid pattern */
+.floor-plan-grid {
+  background-image: radial-gradient(var(--border) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+/* Map marker glow effect */
+.map-marker {
+  box-shadow: 0 0 10px rgba(19, 127, 236, 0.5);
+}
+
+.map-marker-alert {
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
+}
+
+/* Pulse animation */
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Base body styles */
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: "Inter", sans-serif;
+  overflow: hidden;
+}
