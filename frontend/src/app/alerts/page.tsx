@@ -2,9 +2,20 @@
 
 import { useState } from 'react';
 import MainSidebar from '@/components/layout/MainSidebar';
+import Badge from '@/components/ui/Badge';
+import Button from '@/components/ui/Button';
+import StatusDot from '@/components/ui/StatusDot';
+import SegmentedControl from '@/components/ui/SegmentedControl';
 import { alerts } from '@/lib/mockData';
 
 type FilterType = 'all' | 'falls' | 'intrusions' | 'fighting';
+
+const filterOptions: { value: FilterType; label: string }[] = [
+    { value: 'all', label: 'All Events' },
+    { value: 'falls', label: 'Falls' },
+    { value: 'intrusions', label: 'Intrusions' },
+    { value: 'fighting', label: 'Fighting' },
+];
 
 export default function AlertsPage() {
     const [filter, setFilter] = useState<FilterType>('all');
@@ -25,145 +36,144 @@ export default function AlertsPage() {
         return matchesFilter && matchesSearch;
     });
 
-    const getAlertStyle = (type: string) => {
-        if (type === 'critical') {
-            return {
-                bg: 'bg-gradient-to-r from-red-500/15 to-transparent border-l-4 border-l-red-500',
-                badge: 'bg-red-500 text-white',
-                icon: 'text-red-500',
-            };
-        }
-        if (type === 'high') {
-            return {
-                bg: 'bg-gradient-to-r from-orange-500/10 to-transparent border-l-4 border-l-orange-500',
-                badge: 'bg-orange-500 text-white',
-                icon: 'text-orange-500',
-            };
-        }
-        return {
-            bg: 'bg-[#1B2431]',
-            badge: 'bg-slate-600 text-white',
-            icon: 'text-slate-400',
-        };
+    const getSeverityColor = (type: string) => {
+        if (type === 'critical') return 'bg-danger';
+        if (type === 'high') return 'bg-orange-500';
+        return 'bg-text-tertiary';
     };
 
-    const resolveAlert = (alertId: string) => {
-        console.log('Resolving alert:', alertId);
+    const getSeverityBg = (type: string) => {
+        if (type === 'critical') return 'bg-danger-muted';
+        if (type === 'high') return 'bg-warning-muted';
+        return 'bg-surface-2';
     };
 
     return (
-        <div className="flex h-screen w-full bg-[#101922]">
+        <div className="flex h-screen w-full bg-surface-0">
             <MainSidebar />
 
             <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-                {/* Filter Bar */}
-                <div className="px-6 py-4 bg-[#1B2431]/50 border-b border-[#2a3441] flex items-center justify-between gap-4">
+                {/* Toolbar */}
+                <div className="px-6 py-3.5 bg-surface-1 border-b border-border-default flex items-center justify-between gap-4 animate-fade-in">
                     <div className="flex items-center gap-4">
-                        <div className="flex items-center gap-2">
-                            <span className="material-symbols-outlined text-red-500">warning</span>
-                            <h1 className="text-lg font-bold text-white">Alert Management</h1>
-                            <span className="px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 text-xs font-bold">
-                                {activeAlerts.length} Active
-                            </span>
+                        <div className="flex items-center gap-2.5">
+                            <span className="material-symbols-outlined text-danger text-xl">warning</span>
+                            <h1 className="text-lg font-bold text-text-primary tracking-tight">Alert Management</h1>
+                            <Badge variant="danger">{activeAlerts.length} Active</Badge>
                         </div>
-                        <div className="h-6 w-px bg-[#2a3441]"></div>
-                        <div className="flex gap-2">
-                            {(['all', 'falls', 'intrusions', 'fighting'] as FilterType[]).map((f) => (
-                                <button
-                                    key={f}
-                                    onClick={() => setFilter(f)}
-                                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${filter === f
-                                        ? 'bg-white text-[#101922]'
-                                        : 'bg-[#1B2431] text-slate-400 hover:text-white border border-[#2a3441]'
-                                        }`}
-                                >
-                                    {f === 'all' ? 'All Events' : f.charAt(0).toUpperCase() + f.slice(1)}
-                                </button>
-                            ))}
-                        </div>
+
+                        <div className="h-5 w-px bg-border-subtle" />
+
+                        <SegmentedControl
+                            options={filterOptions}
+                            value={filter}
+                            onChange={setFilter}
+                        />
                     </div>
+
                     <div className="flex items-center gap-3">
-                        <div className="relative w-64">
-                            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">search</span>
+                        <div className="relative w-56">
+                            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-text-tertiary text-sm">search</span>
                             <input
                                 type="text"
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                className="w-full bg-[#101922] border border-[#2a3441] rounded-lg pl-9 pr-4 py-2 text-sm text-white focus:ring-1 focus:ring-[#137fec] focus:border-[#137fec] placeholder:text-slate-500"
+                                className="w-full bg-surface-0 border border-border-default rounded-[var(--radius-md)] pl-9 pr-4 py-2 text-sm text-text-primary focus:ring-1 focus:ring-accent focus:border-accent placeholder:text-text-tertiary transition-colors"
                                 placeholder="Search alerts..."
                             />
                         </div>
-                        <div className="flex items-center gap-2 px-3 py-2 bg-[#1B2431] border border-[#2a3441] rounded-lg text-xs font-medium text-slate-400">
-                            <span className="relative flex h-2 w-2">
-                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                            </span>
-                            System Online
-                        </div>
+                        <StatusDot status="online" label="System Online" />
                     </div>
                 </div>
 
-                {/* Alert List */}
+                {/* Timeline feed */}
                 <div className="flex-1 overflow-y-auto">
-                    <div className="flex flex-col">
-                        {filteredAlerts.map((alert) => {
-                            const style = getAlertStyle(alert.type);
-                            return (
-                                <div
-                                    key={alert.id}
-                                    className={`flex items-center px-6 py-4 border-b border-[#2a3441] group ${style.bg}`}
-                                >
-                                    <div className="flex-1 flex items-center gap-5">
-                                        <div className={`flex-shrink-0 w-11 h-11 rounded-xl flex items-center justify-center ${alert.type === 'critical' ? 'bg-red-500/20' :
-                                            alert.type === 'high' ? 'bg-orange-500/20' : 'bg-[#2a3441]'
-                                            }`}>
-                                            <span className={`material-symbols-outlined text-2xl ${style.icon}`}>
+                    <div className="max-w-5xl mx-auto pl-12 pr-6 py-4 relative stagger-children">
+                        {/* Vertical timeline line */}
+                        <div className="absolute left-[42px] top-0 bottom-0 w-px bg-border-default" />
+
+                        {filteredAlerts.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center py-20 text-center">
+                                <span className="material-symbols-outlined text-5xl text-text-tertiary mb-3">filter_alt_off</span>
+                                <p className="text-text-secondary text-sm">No alerts match your filter.</p>
+                                <p className="text-text-tertiary text-xs mt-1">Try adjusting your search or filter criteria.</p>
+                            </div>
+                        ) : (
+                            filteredAlerts.map((alert) => (
+                                <div key={alert.id} className="relative flex gap-5 mb-3 group">
+                                    {/* Timeline node */}
+                                    <div className="absolute left-[-18px] top-5 z-10">
+                                        <div className={`size-3 rounded-full ring-4 ring-surface-0 ${getSeverityColor(alert.type)}`} />
+                                    </div>
+
+                                    {/* Alert card */}
+                                    <div className={`
+                                        flex-1 flex items-center gap-5 px-5 py-4 rounded-[var(--radius-lg)]
+                                        border border-border-default
+                                        transition-all duration-[var(--duration-fast)]
+                                        hover:border-border-strong hover:shadow-md
+                                        ${getSeverityBg(alert.type)}
+                                    `}>
+                                        {/* Icon */}
+                                        <div className={`
+                                            shrink-0 size-11 rounded-[var(--radius-md)] flex items-center justify-center
+                                            ${alert.type === 'critical' ? 'bg-danger/20' :
+                                                alert.type === 'high' ? 'bg-orange-500/15' : 'bg-surface-3'}
+                                        `}>
+                                            <span className={`material-symbols-outlined text-2xl ${alert.type === 'critical' ? 'text-danger' :
+                                                    alert.type === 'high' ? 'text-orange-400' : 'text-text-secondary'
+                                                }`}>
                                                 {alert.icon}
                                             </span>
                                         </div>
-                                        <div className="flex-1">
-                                            <div className="flex items-center gap-3">
-                                                <h3 className="text-base font-bold text-white">{alert.event}</h3>
-                                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${style.badge}`}>
-                                                    {alert.type.toUpperCase()}
-                                                </span>
+
+                                        {/* Content */}
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-2.5 mb-1">
+                                                <h3 className="text-[15px] font-bold text-text-primary">{alert.event}</h3>
+                                                <Badge variant={
+                                                    alert.type === 'critical' ? 'danger' :
+                                                        alert.type === 'high' ? 'warning' : 'neutral'
+                                                }>
+                                                    {alert.type}
+                                                </Badge>
                                             </div>
-                                            <div className="flex items-center gap-3 mt-1">
-                                                <span className="text-sm text-slate-300">{alert.camera} • {alert.location}</span>
-                                                <span className="text-sm text-slate-500 font-mono">{alert.timestamp}</span>
-                                                <span className="text-xs text-slate-500">Confidence: {(alert.confidence * 100).toFixed(0)}%</span>
+                                            <div className="flex items-center gap-2 text-text-secondary text-sm">
+                                                <span>{alert.camera}</span>
+                                                <span className="text-text-tertiary">·</span>
+                                                <span>{alert.location}</span>
+                                                <span className="text-text-tertiary">·</span>
+                                                <span className="font-mono text-text-tertiary text-xs">{alert.timestamp}</span>
+                                                <span className="text-text-tertiary">·</span>
+                                                <span className="text-text-tertiary text-xs">{(alert.confidence * 100).toFixed(0)}%</span>
                                             </div>
                                         </div>
-                                    </div>
-                                    <div className="flex items-center gap-3">
-                                        <button className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#1B2431] border border-[#2a3441] text-white text-sm font-medium hover:bg-[#2d3b4e] transition-colors">
-                                            <span className="material-symbols-outlined text-lg">videocam</span>
-                                            View Clip
-                                        </button>
-                                        <button
-                                            onClick={() => resolveAlert(alert.id)}
-                                            className={`flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-bold transition-colors ${alert.type === 'critical' || alert.type === 'high'
-                                                ? 'bg-emerald-500 text-white hover:bg-emerald-400'
-                                                : 'bg-[#1B2431] border border-[#2a3441] text-slate-400 hover:text-white'
-                                                }`}
-                                        >
-                                            <span className="material-symbols-outlined text-lg">check_circle</span>
-                                            Resolve
-                                        </button>
+
+                                        {/* Actions — visible on hover */}
+                                        <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-[var(--duration-fast)]">
+                                            <Button icon="videocam" variant="secondary" size="sm">Clip</Button>
+                                            <Button
+                                                icon="check_circle"
+                                                variant={alert.type === 'critical' || alert.type === 'high' ? 'primary' : 'ghost'}
+                                                size="sm"
+                                            >
+                                                Resolve
+                                            </Button>
+                                        </div>
                                     </div>
                                 </div>
-                            );
-                        })}
+                            ))
+                        )}
                     </div>
                 </div>
 
                 {/* Footer */}
-                <footer className="flex-shrink-0 px-6 py-3 bg-[#1B2431] border-t border-[#2a3441] flex justify-between items-center text-xs text-slate-400">
+                <footer className="shrink-0 px-6 py-2.5 bg-surface-1 border-t border-border-default flex justify-between items-center text-xs text-text-secondary">
                     <div className="flex gap-6">
-                        <span className="flex items-center gap-1.5"><b className="text-white">128</b> Events Today</span>
-                        <span className="flex items-center gap-1.5"><b className="text-emerald-400">98%</b> Resolution Rate</span>
+                        <span className="flex items-center gap-1.5"><b className="text-text-primary font-semibold">128</b> Events Today</span>
+                        <span className="flex items-center gap-1.5"><b className="text-success font-semibold">98%</b> Resolution Rate</span>
                     </div>
-                    <div>Page 1 of 12</div>
+                    <div className="text-text-tertiary font-mono">Page 1 of 12</div>
                 </footer>
             </main>
         </div>

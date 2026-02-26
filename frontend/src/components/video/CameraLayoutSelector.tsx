@@ -15,16 +15,21 @@ const layouts = [
 
 export default function CameraLayoutSelector({ selectedLayout, onLayoutChange }: CameraLayoutSelectorProps) {
     return (
-        <div className="flex items-center gap-1 bg-[#1B2431] border border-[#2a3441] rounded-lg p-1">
+        <div className="flex items-center gap-0.5 bg-surface-1 border border-border-default rounded-[var(--radius-md)] p-1">
             {layouts.map((layout) => (
                 <button
                     key={layout.count}
                     onClick={() => onLayoutChange(layout.count)}
-                    className={`flex items-center justify-center size-9 rounded-md transition-all ${selectedLayout === layout.count
-                            ? 'bg-[#137fec] text-white shadow-lg shadow-[#137fec]/20'
-                            : 'text-slate-400 hover:bg-slate-700 hover:text-white'
-                        }`}
+                    className={`
+                        flex items-center justify-center size-8 rounded-[var(--radius-sm)] transition-all duration-[var(--duration-fast)]
+                        active:scale-95
+                        ${selectedLayout === layout.count
+                            ? 'bg-accent text-white shadow-sm'
+                            : 'text-text-tertiary hover:bg-surface-3 hover:text-text-primary'
+                        }
+                    `}
                     title={layout.label}
+                    aria-label={layout.label}
                 >
                     <span className="material-symbols-outlined text-lg">{layout.icon}</span>
                 </button>

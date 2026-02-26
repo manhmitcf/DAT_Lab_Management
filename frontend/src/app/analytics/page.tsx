@@ -2,348 +2,255 @@
 
 import { useState } from 'react';
 import MainSidebar from '@/components/layout/MainSidebar';
+import Card from '@/components/ui/Card';
+import Badge from '@/components/ui/Badge';
+import Button from '@/components/ui/Button';
+import StatusDot from '@/components/ui/StatusDot';
+import SegmentedControl from '@/components/ui/SegmentedControl';
+import ProgressBar from '@/components/ui/ProgressBar';
 import { analyticsData } from '@/lib/mockData';
 
-type TimeFrame = '1h' | 'today' | '7d' | '30d' | 'custom';
+type TimeFrame = '1h' | 'today' | '7d' | '30d';
+
+const timeFrameOptions: { value: TimeFrame; label: string }[] = [
+    { value: '1h', label: 'Last Hour' },
+    { value: 'today', label: 'Today' },
+    { value: '7d', label: '7 Days' },
+    { value: '30d', label: '30 Days' },
+];
 
 export default function AnalyticsPage() {
     const [timeFrame, setTimeFrame] = useState<TimeFrame>('today');
 
-    const timeFrameOptions: { value: TimeFrame; label: string }[] = [
-        { value: '1h', label: 'Last Hour' },
-        { value: 'today', label: 'Today' },
-        { value: '7d', label: '7 Days' },
-        { value: '30d', label: '30 Days' },
-    ];
-
-    // Dynamic data based on time frame (simulated)
-    const getMultiplier = () => {
-        switch (timeFrame) {
-            case '1h': return 0.04;
-            case 'today': return 1;
-            case '7d': return 7;
-            case '30d': return 30;
-            default: return 1;
-        }
-    };
-
-    const multiplier = getMultiplier();
+    const multiplier = timeFrame === '1h' ? 0.04 : timeFrame === '7d' ? 7 : timeFrame === '30d' ? 30 : 1;
     const totalEvents = Math.round(analyticsData.totalEventsToday * multiplier);
 
     return (
-        <div className="flex h-screen w-full bg-[#101922]">
+        <div className="flex h-screen w-full bg-surface-0">
             <MainSidebar />
 
             <div className="flex-1 flex flex-col min-h-screen overflow-hidden">
-                {/* Time Frame Selector Bar */}
-                <div className="px-6 py-4 bg-[#1B2431]/50 border-b border-[#2a3441] flex items-center justify-between">
+                {/* Toolbar */}
+                <div className="px-6 py-3.5 bg-surface-1 border-b border-border-default flex items-center justify-between animate-fade-in">
                     <div className="flex items-center gap-4">
-                        <div className="flex items-center gap-2">
-                            <span className="material-symbols-outlined text-[#137fec]">analytics</span>
-                            <h1 className="text-lg font-bold text-white">Analytics Dashboard</h1>
+                        <div className="flex items-center gap-2.5">
+                            <span className="material-symbols-outlined text-accent text-xl">analytics</span>
+                            <h1 className="text-lg font-bold text-text-primary tracking-tight">Analytics</h1>
                         </div>
-                        <div className="h-6 w-px bg-[#2a3441]"></div>
-                        <div className="flex bg-[#101922] rounded-lg p-1 border border-[#2a3441]">
-                            {timeFrameOptions.map((option) => (
-                                <button
-                                    key={option.value}
-                                    onClick={() => setTimeFrame(option.value)}
-                                    className={`px-4 py-1.5 text-xs font-medium rounded-md transition-all ${timeFrame === option.value
-                                        ? 'bg-[#137fec] text-white'
-                                        : 'text-slate-400 hover:text-white'
-                                        }`}
-                                >
-                                    {option.label}
-                                </button>
-                            ))}
-                        </div>
+                        <div className="h-5 w-px bg-border-subtle" />
+                        <SegmentedControl
+                            options={timeFrameOptions}
+                            value={timeFrame}
+                            onChange={setTimeFrame}
+                        />
                     </div>
                     <div className="flex items-center gap-3">
-                        <button className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[#1B2431] border border-[#2a3441] text-slate-400 hover:text-white transition-colors text-sm">
-                            <span className="material-symbols-outlined text-lg">download</span>
-                            Export Report
-                        </button>
-                        <div className="flex items-center gap-2 px-3 py-2 text-xs text-slate-400">
-                            <span className="relative flex h-2 w-2">
-                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                            </span>
-                            Real-time sync
-                        </div>
+                        <Button icon="download" variant="secondary" size="sm">Export</Button>
+                        <StatusDot status="online" label="Real-time sync" />
                     </div>
                 </div>
 
-                {/* Main Content */}
-                <main className="flex-grow flex flex-col p-6 gap-6 overflow-y-auto">
-                    {/* KPI Cards */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 shrink-0">
-                        {/* Total Events */}
-                        <div className="bg-[#1B2431] border border-[#2a3441] rounded-xl p-5 relative overflow-hidden group">
-                            <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
-                                <span className="material-symbols-outlined text-4xl text-[#137fec]">analytics</span>
+                {/* Content */}
+                <main className="flex-grow flex flex-col p-5 gap-5 overflow-y-auto">
+                    {/* KPI row — first card 2x wide (asymmetric) */}
+                    <div className="grid grid-cols-12 gap-4 shrink-0 stagger-children">
+                        {/* Featured: Total detections — span 5 */}
+                        <Card variant="featured" className="col-span-5 relative overflow-hidden group" hover>
+                            <div className="absolute -top-4 -right-4 opacity-[0.04] group-hover:opacity-[0.08] transition-opacity">
+                                <span className="material-symbols-outlined text-[80px] text-accent">analytics</span>
                             </div>
-                            <p className="text-slate-400 text-xs font-medium uppercase tracking-wide mb-1">Total Detections</p>
-                            <div className="flex items-baseline gap-2">
-                                <h2 className="text-3xl font-bold text-white">{totalEvents.toLocaleString()}</h2>
-                                <span className="text-emerald-400 text-xs font-medium flex items-center bg-emerald-500/10 px-2 py-0.5 rounded-full">
-                                    +{analyticsData.eventsChange}%
-                                </span>
+                            <p className="text-text-tertiary text-[11px] font-medium uppercase tracking-wider mb-2">Total Detections</p>
+                            <div className="flex items-baseline gap-3">
+                                <h2 className="text-4xl font-bold text-text-primary tracking-tight">{totalEvents.toLocaleString()}</h2>
+                                <Badge variant="success">+{analyticsData.eventsChange}%</Badge>
                             </div>
-                            <div className="mt-3 h-1 w-full bg-[#2a3441] rounded-full overflow-hidden">
-                                <div className="h-full bg-[#137fec]" style={{ width: '65%' }}></div>
+                            <div className="mt-4 h-1 w-full bg-surface-3 rounded-full overflow-hidden">
+                                <div className="h-full bg-accent rounded-full animate-bar-fill" style={{ width: '65%' }} />
                             </div>
-                        </div>
+                            <p className="text-[11px] text-text-tertiary mt-2">vs. previous period capacity</p>
+                        </Card>
 
-                        {/* Avg Confidence */}
-                        <div className="bg-[#1B2431] border border-[#2a3441] rounded-xl p-5 relative overflow-hidden group">
-                            <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
-                                <span className="material-symbols-outlined text-4xl text-emerald-500">verified</span>
-                            </div>
-                            <p className="text-slate-400 text-xs font-medium uppercase tracking-wide mb-1">Detection Accuracy</p>
+                        {/* Detection Accuracy — span 3 */}
+                        <Card className="col-span-3 relative overflow-hidden group" hover>
+                            <p className="text-text-tertiary text-[11px] font-medium uppercase tracking-wider mb-2">Detection Accuracy</p>
                             <div className="flex items-baseline gap-2">
-                                <h2 className="text-3xl font-bold text-white">
-                                    {analyticsData.avgConfidence}<span className="text-xl font-light text-slate-500">%</span>
+                                <h2 className="text-3xl font-bold text-text-primary">
+                                    {analyticsData.avgConfidence}<span className="text-xl text-text-tertiary font-light">%</span>
                                 </h2>
-                                <span className="text-orange-400 text-xs font-medium flex items-center bg-orange-500/10 px-2 py-0.5 rounded-full">
-                                    {analyticsData.confidenceChange}%
-                                </span>
+                                <Badge variant="warning">{analyticsData.confidenceChange}%</Badge>
                             </div>
-                            <div className="mt-3 h-1 w-full bg-[#2a3441] rounded-full overflow-hidden">
-                                <div className="h-full bg-emerald-500" style={{ width: `${analyticsData.avgConfidence}%` }}></div>
+                            <div className="mt-4 h-1 w-full bg-surface-3 rounded-full overflow-hidden">
+                                <div className="h-full bg-success rounded-full animate-bar-fill" style={{ width: `${analyticsData.avgConfidence}%` }} />
                             </div>
-                        </div>
+                        </Card>
 
-                        {/* Peak Occupancy */}
-                        <div className="bg-[#1B2431] border border-[#2a3441] rounded-xl p-5 relative overflow-hidden group border-l-4 border-l-[#137fec]">
-                            <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
-                                <span className="material-symbols-outlined text-4xl text-purple-500">schedule</span>
-                            </div>
-                            <p className="text-slate-400 text-xs font-medium uppercase tracking-wide mb-1">Peak Occupancy</p>
-                            <div className="flex items-baseline gap-2">
-                                <h2 className="text-3xl font-bold text-white">{analyticsData.peakTime}</h2>
-                                <span className="text-slate-400 text-xs">{analyticsData.peakOccupancy} people</span>
-                            </div>
-                            <p className="text-xs text-slate-500 mt-2">{analyticsData.peakZone} Zone</p>
-                        </div>
+                        {/* Peak Occupancy — span 2 */}
+                        <Card className="col-span-2 group" hover>
+                            <p className="text-text-tertiary text-[11px] font-medium uppercase tracking-wider mb-2">Peak</p>
+                            <h2 className="text-2xl font-bold text-text-primary">{analyticsData.peakTime}</h2>
+                            <p className="text-sm text-text-secondary mt-1">{analyticsData.peakOccupancy} people</p>
+                            <p className="text-[11px] text-text-tertiary mt-1">{analyticsData.peakZone}</p>
+                        </Card>
 
-                        {/* System Health */}
-                        <div className="bg-[#1B2431] border border-[#2a3441] rounded-xl p-5 relative overflow-hidden group">
-                            <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
-                                <span className="material-symbols-outlined text-4xl text-emerald-500">monitoring</span>
-                            </div>
-                            <p className="text-slate-400 text-xs font-medium uppercase tracking-wide mb-1">System Uptime</p>
+                        {/* Uptime — span 2 */}
+                        <Card className="col-span-2 group" hover>
+                            <p className="text-text-tertiary text-[11px] font-medium uppercase tracking-wider mb-2">Uptime</p>
                             <div className="flex items-center gap-2">
-                                <h2 className="text-3xl font-bold text-white">
-                                    {analyticsData.systemUptime}<span className="text-xl font-light text-slate-500">%</span>
+                                <h2 className="text-2xl font-bold text-text-primary">
+                                    {analyticsData.systemUptime}<span className="text-lg text-text-tertiary font-light">%</span>
                                 </h2>
-                                <div className="size-2.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]"></div>
+                                <div className="size-2 rounded-full bg-success animate-pulse shadow-[0_0_6px_var(--success)]" />
                             </div>
-                            <p className="text-xs text-emerald-400 mt-2 font-medium">All nodes operational</p>
-                        </div>
+                            <p className="text-[11px] text-success font-medium mt-2">All nodes OK</p>
+                        </Card>
                     </div>
 
-                    {/* Charts Grid */}
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-grow">
-                        {/* Occupancy Trends Chart */}
-                        <div className="lg:col-span-2 bg-[#1B2431] border border-[#2a3441] rounded-xl p-6 flex flex-col min-h-[400px]">
-                            <div className="flex justify-between items-start mb-6">
+                    {/* Section label */}
+                    <div className="flex items-center gap-3 pt-1">
+                        <span className="text-[11px] text-text-tertiary font-medium uppercase tracking-widest">Trends</span>
+                        <div className="flex-1 h-px bg-border-subtle" />
+                    </div>
+
+                    {/* Charts row — 2/3 + 1/3 */}
+                    <div className="grid grid-cols-3 gap-5 flex-grow stagger-children" style={{ minHeight: 380 }}>
+                        {/* Occupancy chart */}
+                        <Card className="col-span-2 flex flex-col" padding="lg">
+                            <div className="flex justify-between items-start mb-5">
                                 <div>
-                                    <h3 className="text-lg font-bold text-white mb-1">Occupancy Trends</h3>
-                                    <p className="text-sm text-slate-400">Real-time movement patterns across all zones</p>
+                                    <h3 className="text-base font-bold text-text-primary">Occupancy Trends</h3>
+                                    <p className="text-sm text-text-tertiary mt-0.5">Movement patterns across all zones</p>
                                 </div>
                                 <div className="flex gap-4">
-                                    <div className="flex items-center gap-2">
-                                        <div className="size-2.5 rounded-full bg-[#137fec]"></div>
-                                        <span className="text-xs text-slate-400">Occupancy</span>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <div className="size-2.5 rounded-full bg-emerald-500"></div>
-                                        <span className="text-xs text-slate-400">Ingress</span>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <div className="size-2.5 rounded-full bg-orange-500"></div>
-                                        <span className="text-xs text-slate-400">Egress</span>
-                                    </div>
+                                    {[
+                                        { color: 'bg-accent', label: 'Occupancy' },
+                                        { color: 'bg-success', label: 'Ingress' },
+                                        { color: 'bg-orange-500', label: 'Egress' },
+                                    ].map(l => (
+                                        <div key={l.label} className="flex items-center gap-1.5">
+                                            <div className={`size-2 rounded-full ${l.color}`} />
+                                            <span className="text-[11px] text-text-tertiary">{l.label}</span>
+                                        </div>
+                                    ))}
                                 </div>
                             </div>
                             <div className="flex-grow w-full relative">
                                 <svg className="w-full h-full" preserveAspectRatio="none" viewBox="0 0 1000 300">
                                     <defs>
-                                        <linearGradient id="occupancyGrad" x1="0" x2="0" y1="0" y2="1">
-                                            <stop offset="0%" stopColor="#137fec" stopOpacity="0.3"></stop>
-                                            <stop offset="100%" stopColor="#137fec" stopOpacity="0"></stop>
+                                        <linearGradient id="occGrad" x1="0" x2="0" y1="0" y2="1">
+                                            <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.25" />
+                                            <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
                                         </linearGradient>
                                     </defs>
-                                    {/* Grid lines */}
-                                    <line stroke="rgba(255,255,255,0.05)" x1="0" x2="1000" y1="60" y2="60"></line>
-                                    <line stroke="rgba(255,255,255,0.05)" x1="0" x2="1000" y1="120" y2="120"></line>
-                                    <line stroke="rgba(255,255,255,0.05)" x1="0" x2="1000" y1="180" y2="180"></line>
-                                    <line stroke="rgba(255,255,255,0.05)" x1="0" x2="1000" y1="240" y2="240"></line>
-                                    {/* Occupancy area */}
-                                    <path
-                                        d="M0,250 L100,220 L200,180 L300,200 L400,140 L500,160 L600,100 L700,120 L800,80 L900,110 L1000,90 V300 H0 Z"
-                                        fill="url(#occupancyGrad)"
-                                    ></path>
-                                    {/* Occupancy line */}
-                                    <path
-                                        d="M0,250 L100,220 L200,180 L300,200 L400,140 L500,160 L600,100 L700,120 L800,80 L900,110 L1000,90"
-                                        fill="none"
-                                        stroke="#137fec"
-                                        strokeWidth="3"
-                                        strokeLinejoin="round"
-                                    ></path>
-                                    {/* Ingress line */}
-                                    <path
-                                        d="M0,280 L100,260 L200,240 L300,250 L400,200 L500,210 L600,180 L700,190 L800,150 L900,170 L1000,160"
-                                        fill="none"
-                                        stroke="#10b981"
-                                        strokeWidth="2"
-                                        strokeDasharray="5,5"
-                                    ></path>
-                                    {/* Egress line */}
-                                    <path
-                                        d="M0,290 L100,275 L200,260 L300,270 L400,235 L500,245 L600,220 L700,230 L800,200 L900,215 L1000,205"
-                                        fill="none"
-                                        stroke="#f97316"
-                                        strokeWidth="2"
-                                        strokeDasharray="5,5"
-                                    ></path>
+                                    {[75, 150, 225].map(y => (
+                                        <line key={y} stroke="var(--border-subtle)" x1="0" x2="1000" y1={y} y2={y} />
+                                    ))}
+                                    <path d="M0,250 L100,220 L200,180 L300,200 L400,140 L500,160 L600,100 L700,120 L800,80 L900,110 L1000,90 V300 H0 Z" fill="url(#occGrad)" />
+                                    <path d="M0,250 L100,220 L200,180 L300,200 L400,140 L500,160 L600,100 L700,120 L800,80 L900,110 L1000,90" fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinejoin="round" />
+                                    <path d="M0,280 L100,260 L200,240 L300,250 L400,200 L500,210 L600,180 L700,190 L800,150 L900,170 L1000,160" fill="none" stroke="var(--success)" strokeWidth="1.5" strokeDasharray="6,4" />
+                                    <path d="M0,290 L100,275 L200,260 L300,270 L400,235 L500,245 L600,220 L700,230 L800,200 L900,215 L1000,205" fill="none" stroke="#f97316" strokeWidth="1.5" strokeDasharray="6,4" />
                                 </svg>
-                                <div className="flex justify-between mt-4 px-2">
-                                    <span className="text-xs text-slate-500 font-mono">00:00</span>
-                                    <span className="text-xs text-slate-500 font-mono">06:00</span>
-                                    <span className="text-xs text-slate-500 font-mono">12:00</span>
-                                    <span className="text-xs text-slate-500 font-mono">18:00</span>
-                                    <span className="text-xs text-slate-500 font-mono">Now</span>
+                                <div className="flex justify-between mt-3">
+                                    {['00:00', '06:00', '12:00', '18:00', 'Now'].map(t => (
+                                        <span key={t} className="text-[10px] text-text-tertiary font-mono">{t}</span>
+                                    ))}
                                 </div>
                             </div>
-                        </div>
+                        </Card>
 
-                        {/* Alert Distribution */}
-                        <div className="bg-[#1B2431] border border-[#2a3441] rounded-xl p-6 flex flex-col min-h-[400px]">
-                            <h3 className="text-lg font-bold text-white mb-1">Alert Distribution</h3>
-                            <p className="text-sm text-slate-400 mb-6">Incident breakdown by category</p>
+                        {/* Alert distribution */}
+                        <Card className="flex flex-col" padding="lg">
+                            <h3 className="text-base font-bold text-text-primary">Incident Distribution</h3>
+                            <p className="text-sm text-text-tertiary mt-0.5 mb-5">By category</p>
 
-                            {/* Donut Chart */}
-                            <div className="flex-grow flex items-center justify-center relative mb-6">
-                                <div className="relative size-44 rounded-full border-[12px] border-[#2a3441] flex items-center justify-center">
-                                    <div className="absolute inset-0 rounded-full border-[12px] border-[#137fec] border-t-transparent border-l-transparent rotate-[45deg]"></div>
-                                    <div className="absolute inset-0 rounded-full border-[12px] border-amber-500 border-b-transparent border-r-transparent border-l-transparent -rotate-[15deg]"></div>
-                                    <div className="absolute inset-0 rounded-full border-[12px] border-red-500 border-r-transparent border-b-transparent border-t-transparent rotate-[180deg]"></div>
+                            <div className="flex-grow flex items-center justify-center relative mb-5">
+                                <div className="relative size-40 rounded-full border-[10px] border-surface-3 flex items-center justify-center">
+                                    <div className="absolute inset-0 rounded-full border-[10px] border-accent border-t-transparent border-l-transparent rotate-45" />
+                                    <div className="absolute inset-0 rounded-full border-[10px] border-warning border-b-transparent border-r-transparent border-l-transparent -rotate-[15deg]" />
+                                    <div className="absolute inset-0 rounded-full border-[10px] border-danger border-r-transparent border-b-transparent border-t-transparent rotate-180" />
                                     <div className="text-center">
-                                        <span className="block text-3xl font-bold text-white">1,240</span>
-                                        <span className="text-[10px] uppercase text-slate-400 font-medium">Total</span>
+                                        <span className="block text-2xl font-bold text-text-primary">1,240</span>
+                                        <span className="text-[10px] uppercase text-text-tertiary font-medium tracking-wider">Total</span>
                                     </div>
                                 </div>
                             </div>
 
-                            {/* Legend */}
-                            <div className="space-y-3">
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-3">
-                                        <div className="size-3 rounded-sm bg-amber-500"></div>
-                                        <span className="text-sm text-slate-300">Loitering</span>
+                            <div className="space-y-2.5">
+                                {[
+                                    { color: 'bg-warning', label: 'Loitering', data: analyticsData.alertDistribution.loitering },
+                                    { color: 'bg-danger', label: 'Fall Detection', data: analyticsData.alertDistribution.fall },
+                                    { color: 'bg-accent', label: 'Zone Breach', data: analyticsData.alertDistribution.areaBreach },
+                                    { color: 'bg-text-tertiary', label: 'Other', data: analyticsData.alertDistribution.other },
+                                ].map(item => (
+                                    <div key={item.label} className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2.5">
+                                            <span className={`size-2.5 rounded-sm ${item.color}`} />
+                                            <span className="text-[13px] text-text-secondary">{item.label}</span>
+                                        </div>
+                                        <span className="text-[13px] font-medium text-text-primary font-mono">
+                                            {item.data.count} <span className="text-text-tertiary text-[11px]">({item.data.percentage}%)</span>
+                                        </span>
                                     </div>
-                                    <span className="text-sm font-medium text-white">
-                                        {analyticsData.alertDistribution.loitering.count} ({analyticsData.alertDistribution.loitering.percentage}%)
-                                    </span>
-                                </div>
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-3">
-                                        <div className="size-3 rounded-sm bg-red-500"></div>
-                                        <span className="text-sm text-slate-300">Fall Detection</span>
-                                    </div>
-                                    <span className="text-sm font-medium text-white">
-                                        {analyticsData.alertDistribution.fall.count} ({analyticsData.alertDistribution.fall.percentage}%)
-                                    </span>
-                                </div>
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-3">
-                                        <div className="size-3 rounded-sm bg-[#137fec]"></div>
-                                        <span className="text-sm text-slate-300">Zone Breach</span>
-                                    </div>
-                                    <span className="text-sm font-medium text-white">
-                                        {analyticsData.alertDistribution.areaBreach.count} ({analyticsData.alertDistribution.areaBreach.percentage}%)
-                                    </span>
-                                </div>
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-3">
-                                        <div className="size-3 rounded-sm bg-slate-500"></div>
-                                        <span className="text-sm text-slate-300">Other</span>
-                                    </div>
-                                    <span className="text-sm font-medium text-white">
-                                        {analyticsData.alertDistribution.other.count} ({analyticsData.alertDistribution.other.percentage}%)
-                                    </span>
-                                </div>
+                                ))}
                             </div>
-                        </div>
+                        </Card>
                     </div>
 
-                    {/* Bottom Row Charts */}
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        {/* Hourly Activity Heatmap */}
-                        <div className="bg-[#1B2431] border border-[#2a3441] rounded-xl p-6">
-                            <h3 className="text-lg font-bold text-white mb-1">Hourly Activity</h3>
-                            <p className="text-sm text-slate-400 mb-4">Peak hours analysis</p>
-                            <div className="grid grid-cols-12 gap-1">
+                    {/* Section label */}
+                    <div className="flex items-center gap-3 pt-1">
+                        <span className="text-[11px] text-text-tertiary font-medium uppercase tracking-widest">Breakdown</span>
+                        <div className="flex-1 h-px bg-border-subtle" />
+                    </div>
+
+                    {/* Bottom row — 7/5 (intentional asymmetry) */}
+                    <div className="grid grid-cols-12 gap-5 stagger-children">
+                        {/* Hourly heatmap — span 7 */}
+                        <Card className="col-span-7" padding="lg">
+                            <h3 className="text-base font-bold text-text-primary">Hourly Activity</h3>
+                            <p className="text-sm text-text-tertiary mt-0.5 mb-4">Peak hours analysis</p>
+                            <div className="grid grid-cols-12 gap-1.5">
                                 {Array.from({ length: 24 }, (_, i) => {
-                                    const intensity = Math.random();
+                                    const intensities = [0.15, 0.08, 0.05, 0.06, 0.12, 0.35, 0.55, 0.72, 0.85, 0.92, 0.88, 0.78, 0.82, 0.75, 0.68, 0.62, 0.7, 0.65, 0.45, 0.38, 0.3, 0.22, 0.18, 0.12];
+                                    const intensity = intensities[i];
                                     return (
                                         <div key={i} className="flex flex-col items-center gap-1">
                                             <div
-                                                className="w-full aspect-square rounded"
-                                                style={{
-                                                    backgroundColor: `rgba(19, 127, 236, ${0.1 + intensity * 0.9})`,
-                                                }}
-                                            ></div>
-                                            {i % 4 === 0 && (
-                                                <span className="text-[9px] text-slate-500">{i}:00</span>
+                                                className="w-full aspect-square rounded-[3px] transition-colors hover:ring-1 hover:ring-accent/50"
+                                                style={{ backgroundColor: `rgba(59, 130, 246, ${0.08 + intensity * 0.85})` }}
+                                                title={`${i}:00 — ${Math.round(intensity * 100)}% activity`}
+                                            />
+                                            {i % 6 === 0 && (
+                                                <span className="text-[9px] text-text-tertiary font-mono">{i}h</span>
                                             )}
                                         </div>
                                     );
                                 })}
                             </div>
                             <div className="flex items-center justify-between mt-4">
-                                <span className="text-xs text-slate-500">Low activity</span>
-                                <div className="flex gap-1">
-                                    {[0.1, 0.3, 0.5, 0.7, 0.9].map((opacity, i) => (
-                                        <div
-                                            key={i}
-                                            className="w-4 h-2 rounded"
-                                            style={{ backgroundColor: `rgba(19, 127, 236, ${opacity})` }}
-                                        ></div>
+                                <span className="text-[10px] text-text-tertiary">Low</span>
+                                <div className="flex gap-0.5">
+                                    {[0.1, 0.3, 0.5, 0.7, 0.9].map((op, i) => (
+                                        <div key={i} className="w-5 h-2 rounded-sm" style={{ backgroundColor: `rgba(59, 130, 246, ${op})` }} />
                                     ))}
                                 </div>
-                                <span className="text-xs text-slate-500">High activity</span>
+                                <span className="text-[10px] text-text-tertiary">High</span>
                             </div>
-                        </div>
+                        </Card>
 
-                        {/* Behavior Classification */}
-                        <div className="bg-[#1B2431] border border-[#2a3441] rounded-xl p-6">
-                            <h3 className="text-lg font-bold text-white mb-1">Behavior Classification</h3>
-                            <p className="text-sm text-slate-400 mb-4">AI-detected behavior distribution</p>
-                            <div className="space-y-4">
+                        {/* Behavior classification — span 5 */}
+                        <Card className="col-span-5" padding="lg">
+                            <h3 className="text-base font-bold text-text-primary">Behavior Classification</h3>
+                            <p className="text-sm text-text-tertiary mt-0.5 mb-5">AI-detected distribution</p>
+                            <div className="space-y-5">
                                 {[
-                                    { label: 'Walking', value: 68, color: '#137fec' },
-                                    { label: 'Standing', value: 24, color: '#10b981' },
-                                    { label: 'Sitting', value: 5, color: '#8b5cf6' },
-                                    { label: 'Loitering', value: 3, color: '#f59e0b' },
-                                ].map((behavior) => (
-                                    <div key={behavior.label}>
-                                        <div className="flex justify-between items-center mb-1">
-                                            <span className="text-sm text-slate-300">{behavior.label}</span>
-                                            <span className="text-sm font-medium text-white">{behavior.value}%</span>
-                                        </div>
-                                        <div className="h-2 bg-[#2a3441] rounded-full overflow-hidden">
-                                            <div
-                                                className="h-full rounded-full transition-all duration-500"
-                                                style={{ width: `${behavior.value}%`, backgroundColor: behavior.color }}
-                                            ></div>
-                                        </div>
-                                    </div>
+                                    { label: 'Walking', value: 68, color: 'var(--accent)' },
+                                    { label: 'Standing', value: 24, color: 'var(--success)' },
+                                    { label: 'Sitting', value: 5, color: '#a78bfa' },
+                                    { label: 'Loitering', value: 3, color: 'var(--warning)' },
+                                ].map((b) => (
+                                    <ProgressBar key={b.label} label={b.label} value={b.value} color={b.color} />
                                 ))}
                             </div>
-                        </div>
+                        </Card>
                     </div>
                 </main>
             </div>
