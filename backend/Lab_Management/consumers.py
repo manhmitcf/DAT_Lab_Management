@@ -2,7 +2,9 @@ import json
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
 from datetime import datetime
+from pydantic import ValidationError
 from .models import FrameData, ObjectDetection
+from .schemas import FrameData as FrameDataSchema
 import logging
 
 logger = logging.getLogger(__name__)
@@ -52,10 +54,23 @@ class EdgeDeviceConsumer(AsyncWebsocketConsumer):
 
     async def receive(self, text_data):
         try:
-            data = json.loads(text_data)
+            raw_data = json.loads(text_data)
             
+            # --- PYDANTIC VALIDATION ---
+            try:
+                # Validate incoming JSON against the schema
+                validated_frame = FrameDataSchema.model_validate(raw_data)
+                
+                # Convert back to dict for processing (using by_alias to keep 'class' field if needed)
+                data = validated_frame.model_dump(mode='json', by_alias=True)
+                
+            except ValidationError as e:
+                logger.error(f"Validation Error: {e.json()}")
+                # Optionally send error back to Edge Device
+                # await self.send(text_data=json.dumps({"error": "Invalid Data", "details": e.errors()}))
+                return
+
             # 1. PUSH REALTIME: Immediately broadcast to Frontend (via Group)
-            # No need to wait for DB save, reducing display latency
             if self.channel_layer:
                 await self.channel_layer.group_send(
                     MONITOR_GROUP_NAME,
@@ -66,8 +81,8 @@ class EdgeDeviceConsumer(AsyncWebsocketConsumer):
                 )
 
             # 2. SAVE TO DATABASE: Check save_to_db flag
-            if data.get('save_to_db', False):
-                await self.save_frame_data(data)
+            if validated_frame.save_to_db:
+                await self.save_frame_data(validated_frame)
 
         except json.JSONDecodeError:
             logger.error("Invalid JSON received")
@@ -75,39 +90,31 @@ class EdgeDeviceConsumer(AsyncWebsocketConsumer):
             logger.error(f"Error processing message: {str(e)}")
 
     @database_sync_to_async
-    def save_frame_data(self, data):
+    def save_frame_data(self, frame_schema: FrameDataSchema):
         try:
-            # Parse timestamp
-            timestamp_str = data.get('timestamp')
-            if timestamp_str:
-                try:
-                    timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
-                except ValueError:
-                    timestamp = datetime.utcnow()
-            else:
-                timestamp = datetime.utcnow()
-
-            # Create FrameData instance
+            # Create FrameData instance (Django Model)
             frame = FrameData.objects.create(
-                frame_id=data.get('frame_id'),
-                timestamp=timestamp,
-                count_in=data.get('count_in', 0),
-                count_out=data.get('count_out', 0)
+                frame_id=frame_schema.frame_id,
+                timestamp=frame_schema.timestamp,
+                count_in=frame_schema.count_in,
+                count_out=frame_schema.count_out,
+                alert=frame_schema.alert,
+                height_frame=frame_schema.height_frame,
+                width_frame=frame_schema.width_frame,
+                height_2D=frame_schema.height_2D,
+                width_2D=frame_schema.width_2D
             )
 
             # Create ObjectDetection instances
-            objects_data = data.get('objects', [])
             object_instances = []
-            for obj in objects_data:
+            for obj in frame_schema.objects:
                 object_instances.append(ObjectDetection(
                     frame_data=frame,
-                    track_id=obj.get('track_id'),
-                    class_name=obj.get('class', 'person'), # Handle alias
-                    conf=obj.get('conf'),
-                    bbox=obj.get('bbox'),
-                    coordinates=obj.get('coordinates'),
-                    height=obj.get('height'),
-                    width=obj.get('width')
+                    track_id=obj.track_id,
+                    class_name=obj.class_name, 
+                    conf=obj.conf,
+                    bbox=obj.bbox,
+                    coordinates_2D=obj.coordinates_2D
                 ))
             
             if object_instances:
