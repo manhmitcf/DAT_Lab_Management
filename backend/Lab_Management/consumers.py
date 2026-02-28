@@ -3,6 +3,7 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
 from datetime import datetime
 from pydantic import ValidationError
+from django.db import transaction
 from .models import FrameData, ObjectDetection
 from .schemas import FrameData as FrameDataSchema
 import logging
@@ -12,10 +13,12 @@ logger = logging.getLogger(__name__)
 # Shared Group name for Frontend to join and Edge to broadcast to
 MONITOR_GROUP_NAME = "lab_monitor"
 
+
 class FrontendConsumer(AsyncWebsocketConsumer):
     """
     Consumer for Frontend (Next.js/React) to receive realtime data.
     """
+
     async def connect(self):
         # When Frontend connects, add to "lab_monitor" group
         await self.channel_layer.group_add(
@@ -44,6 +47,7 @@ class EdgeDeviceConsumer(AsyncWebsocketConsumer):
     """
     Consumer for Edge Device to send data upstream.
     """
+
     async def connect(self):
         # Authenticate edge device here if needed
         await self.accept()
@@ -55,15 +59,15 @@ class EdgeDeviceConsumer(AsyncWebsocketConsumer):
     async def receive(self, text_data):
         try:
             raw_data = json.loads(text_data)
-            
+
             # --- PYDANTIC VALIDATION ---
             try:
                 # Validate incoming JSON against the schema
                 validated_frame = FrameDataSchema.model_validate(raw_data)
-                
+
                 # Convert back to dict for processing (using by_alias to keep 'class' field if needed)
                 data = validated_frame.model_dump(mode='json', by_alias=True)
-                
+
             except ValidationError as e:
                 logger.error(f"Validation Error: {e.json()}")
                 # Optionally send error back to Edge Device
@@ -75,7 +79,7 @@ class EdgeDeviceConsumer(AsyncWebsocketConsumer):
                 await self.channel_layer.group_send(
                     MONITOR_GROUP_NAME,
                     {
-                        "type": "broadcast_frame", # Handler name in FrontendConsumer
+                        "type": "broadcast_frame",  # Handler name in FrontendConsumer
                         "message": data
                     }
                 )
@@ -92,35 +96,36 @@ class EdgeDeviceConsumer(AsyncWebsocketConsumer):
     @database_sync_to_async
     def save_frame_data(self, frame_schema: FrameDataSchema):
         try:
-            # Create FrameData instance (Django Model)
-            frame = FrameData.objects.create(
-                frame_id=frame_schema.frame_id,
-                timestamp=frame_schema.timestamp,
-                count_in=frame_schema.count_in,
-                count_out=frame_schema.count_out,
-                alert=frame_schema.alert,
-                height_frame=frame_schema.height_frame,
-                width_frame=frame_schema.width_frame,
-                height_2D=frame_schema.height_2D,
-                width_2D=frame_schema.width_2D
-            )
+            with transaction.atomic():
+                # Create FrameData instance (Django Model)
+                frame = FrameData.objects.create(
+                    frame_id=frame_schema.frame_id,
+                    timestamp=frame_schema.timestamp,
+                    count_in=frame_schema.count_in,
+                    count_out=frame_schema.count_out,
+                    alert=frame_schema.alert,
+                    height_frame=frame_schema.height_frame,
+                    width_frame=frame_schema.width_frame,
+                    height_2D=frame_schema.height_2D,
+                    width_2D=frame_schema.width_2D
+                )
 
-            # Create ObjectDetection instances
-            object_instances = []
-            for obj in frame_schema.objects:
-                object_instances.append(ObjectDetection(
-                    frame_data=frame,
-                    track_id=obj.track_id,
-                    class_name=obj.class_name, 
-                    conf=obj.conf,
-                    bbox=obj.bbox,
-                    coordinates_2D=obj.coordinates_2D
-                ))
-            
-            if object_instances:
-                ObjectDetection.objects.bulk_create(object_instances)
-                
-            logger.info(f"Saved frame {frame.frame_id} with {len(object_instances)} objects")
+                # Create ObjectDetection instances
+                object_instances = []
+                for obj in frame_schema.objects:
+                    object_instances.append(ObjectDetection(
+                        frame_data=frame,
+                        track_id=obj.track_id,
+                        class_name=obj.class_name,
+                        conf=obj.conf,
+                        bbox=obj.bbox,
+                        coordinates_2D=obj.coordinates_2D
+                    ))
+
+                if object_instances:
+                    ObjectDetection.objects.bulk_create(object_instances)
+
+                logger.info(f"Saved frame {frame.frame_id} with {len(object_instances)} objects")
 
         except Exception as e:
             logger.error(f"Error saving to database: {str(e)}")
