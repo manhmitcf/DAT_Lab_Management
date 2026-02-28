@@ -247,34 +247,101 @@ Cập nhật realtime vị trí marker. Events: `marker_update`, `marker_remove`
 
 ---
 
-## 1.6 Realtime Detections
+## 1.6 Realtime Frame Data
 
-### `WebSocket /ws/detections`
+### `WebSocket /ws/frames`
 
-Stream sự kiện phát hiện realtime cho **BoundingBox overlay** trên video và **Detection Log** panel.
+**Đây là endpoint chính** — BE gửi toàn bộ dữ liệu xử lý của mỗi frame qua WebSocket. FE sử dụng payload này để cập nhật:
+- **Camera Grid** — hiển thị frame ảnh (`frame_image`)
+- **Stats Bar** — occupancy count, ingress/egress (`count_in`, `count_out`)
+- **BoundingBox overlay** — vẽ bbox lên video (`objects[].bbox`)
+- **Floor Plan** — vị trí trên bản đồ 2D (`objects[].coordinates_2D`)
 
-**Message:**
+**Payload (BE → FE):**
 ```json
 {
-  "type": "detection",
-  "data": {
-    "id": "det-12345",
-    "track_id": 42,
-    "camera_id": "cam-01",
-    "event": "Person Detected",
-    "location": "Main Lobby",
-    "confidence": 0.94,
-    "bbox": { "x": 0.12, "y": 0.08, "width": 0.045, "height": 0.12 },
-    "behavior": "walking",
-    "pose_keypoints": [[0.5, 0.1], [0.5, 0.3], ...],
-    "timestamp": "2026-02-09T10:45:00.123Z"
-  }
+  "frame_id": 1001,
+  "timestamp": "2023-10-27T10:00:00.123Z",
+  "count_in": 15,
+  "count_out": 8,
+  "alert": false,
+  "save_to_db": true,
+
+  "height_frame": 720,
+  "width_frame": 1280,
+  "height_2D": 500,
+  "width_2D": 500,
+
+  "frame_image": "/9j/4AAQSkZJRg...",
+
+  "objects": [
+    {
+      "track_id": 101,
+      "class": "person",
+      "conf": 0.95,
+      "bbox": [100, 200, 150, 300],
+      "coordinates_2D": [125, 250]
+    }
+  ]
 }
 ```
 
-> **Lưu ý:** `bbox` dùng tọa độ normalized (0–1), không phải pixel. FE sẽ chuyển đổi sang pixel dựa trên kích thước video container.
+### Field Reference
 
-**Behavior types:** `walking` · `standing` · `running` · `sitting` · `falling` · `loitering` · `fighting`
+| Field | Type | FE sử dụng | Mô tả |
+|-------|------|-----------|--------|
+| `frame_id` | int | Internal tracking | ID frame duy nhất |
+| `timestamp` | string (ISO 8601) | Video overlay, Detection Log | Thời điểm xử lý frame |
+| `count_in` | int | Stats Bar → "Ingress" | Tổng lượt vào tính đến frame này |
+| `count_out` | int | Stats Bar → "Egress" | Tổng lượt ra tính đến frame này |
+| `alert` | bool | Alert panel, badge pulse | `true` = frame chứa sự kiện bất thường |
+| `save_to_db` | bool | — (metadata) | `true` = BE đã lưu vào DB, `false` = chỉ forward realtime |
+| `height_frame` | int | BoundingBox tính toán | Chiều cao ảnh gốc (pixels) |
+| `width_frame` | int | BoundingBox tính toán | Chiều rộng ảnh gốc (pixels) |
+| `height_2D` | int | Floor Plan tính toán | Chiều cao bản đồ 2D (pixels) |
+| `width_2D` | int | Floor Plan tính toán | Chiều rộng bản đồ 2D (pixels) |
+| `frame_image` | string (base64) | Camera Grid — hiển thị frame | JPEG base64, optional |
+
+### Objects Array
+
+| Field | Type | FE sử dụng | Mô tả |
+|-------|------|-----------|--------|
+| `track_id` | int | BoundingBox label `HUMAN #101` | ID tracking duy nhất cho mỗi người |
+| `class` | string | Filter / Badge | Loại vật thể (`person`, ...) |
+| `conf` | float (0–1) | BoundingBox label, confidence bar | Độ tin cậy phát hiện |
+| `bbox` | int[4] | BoundingBox overlay | `[x1, y1, x2, y2]` — tọa độ pixel trên ảnh gốc |
+| `coordinates_2D` | int[2] | Floor Plan markers | `[x, y]` — tọa độ pixel trên bản đồ 2D |
+
+> [!IMPORTANT]
+> **BBox format:** `[x1, y1, x2, y2]` là tọa độ **pixel tuyệt đối** trên ảnh gốc (không phải normalized).  
+> FE cần chia cho `width_frame` / `height_frame` để chuyển sang tỉ lệ phần trăm khi render overlay.
+
+> [!IMPORTANT]
+> **Coordinates_2D format:** `[x, y]` là tọa độ **pixel** trên bản đồ 2D.  
+> FE cần chia cho `width_2D` / `height_2D` để chuyển sang phần trăm khi render lên Floor Plan.
+
+### FE Processing Logic
+
+```
+// BoundingBox: pixel → normalized
+bbox_normalized = {
+  x:      bbox[0] / width_frame,
+  y:      bbox[1] / height_frame,
+  width:  (bbox[2] - bbox[0]) / width_frame,
+  height: (bbox[3] - bbox[1]) / height_frame
+}
+
+// Floor Plan: pixel → percentage
+marker = {
+  x: (coordinates_2D[0] / width_2D) * 100,
+  y: (coordinates_2D[1] / height_2D) * 100
+}
+
+// Stats: cập nhật trực tiếp
+stats.entry_today = count_in
+stats.exit_today = count_out
+stats.person_count = objects.length
+```
 
 ---
 
@@ -452,11 +519,11 @@ Invalidate token. Nút "Logout" trong sidebar.
 
 # WebSocket Summary
 
-| Endpoint | Events | Tần suất | Trang sử dụng |
-|----------|--------|----------|----------------|
-| `/ws/stats` | `stats_update` | 1s | Live Monitor (stats bar) |
-| `/ws/detections` | `detection` · `alert` · `entry` · `exit` | Realtime | Live Monitor (bounding box, detection log) |
-| `/ws/floorplan` | `marker_update` · `marker_remove` | Realtime | Live Monitor (floor plan) |
+| Endpoint | Dữ liệu | Tần suất | Trang sử dụng |
+|----------|---------|----------|----------------|
+| **`/ws/frames`** | Frame data (bbox, 2D coords, count, image) | Mỗi frame (~30fps) | Live Monitor (camera, bbox, floor plan, stats) |
+| `/ws/stats` | `stats_update` | 1s | Live Monitor (stats bar — bổ sung/fallback) |
+| `/ws/floorplan` | `marker_update` · `marker_remove` | Realtime | Live Monitor (floor plan — bổ sung/fallback) |
 
 ---
 
