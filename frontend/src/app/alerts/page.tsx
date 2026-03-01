@@ -8,44 +8,55 @@ import StatusDot from '@/components/ui/StatusDot';
 import SegmentedControl from '@/components/ui/SegmentedControl';
 import { alerts } from '@/lib/mockData';
 
-type FilterType = 'all' | 'falls' | 'intrusions' | 'fighting';
+type FilterType = 'all' | 'critical' | 'warning' | 'info';
 
 const filterOptions: { value: FilterType; label: string }[] = [
-    { value: 'all', label: 'All Events' },
-    { value: 'falls', label: 'Falls' },
-    { value: 'intrusions', label: 'Intrusions' },
-    { value: 'fighting', label: 'Fighting' },
+    { value: 'all', label: 'All' },
+    { value: 'critical', label: 'Critical' },
+    { value: 'warning', label: 'Warning' },
+    { value: 'info', label: 'Info' },
 ];
+
+function formatTime(iso: string) {
+    return new Date(iso).toLocaleTimeString('en-US', {
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true,
+    });
+}
+
+function formatDate(iso: string) {
+    return new Date(iso).toLocaleDateString('en-US', {
+        month: 'short', day: 'numeric', year: 'numeric',
+    });
+}
+
+function getDuration(start: string, end: string) {
+    const diff = Math.round((new Date(end).getTime() - new Date(start).getTime()) / 1000);
+    const m = Math.floor(diff / 60);
+    const s = diff % 60;
+    return m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
 
 export default function AlertsPage() {
     const [filter, setFilter] = useState<FilterType>('all');
-    const [searchQuery, setSearchQuery] = useState('');
 
-    const activeAlerts = alerts.filter(a => !a.resolved);
-
-    const filteredAlerts = alerts.filter((alert) => {
-        const matchesFilter = filter === 'all' ||
-            (filter === 'falls' && alert.event.toLowerCase().includes('fall')) ||
-            (filter === 'intrusions' && alert.event.toLowerCase().includes('intrusion')) ||
-            (filter === 'fighting' && alert.event.toLowerCase().includes('fighting'));
-
-        const matchesSearch = searchQuery === '' ||
-            alert.event.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            alert.location.toLowerCase().includes(searchQuery.toLowerCase());
-
-        return matchesFilter && matchesSearch;
-    });
+    const filteredAlerts = alerts.filter(a => filter === 'all' || a.type === filter);
 
     const getSeverityColor = (type: string) => {
         if (type === 'critical') return 'bg-danger';
-        if (type === 'high') return 'bg-orange-500';
-        return 'bg-text-tertiary';
+        if (type === 'warning') return 'bg-orange-500';
+        return 'bg-accent';
     };
 
     const getSeverityBg = (type: string) => {
         if (type === 'critical') return 'bg-danger-muted';
-        if (type === 'high') return 'bg-warning-muted';
+        if (type === 'warning') return 'bg-warning-muted';
         return 'bg-surface-2';
+    };
+
+    const getSeverityIcon = (type: string) => {
+        if (type === 'critical') return 'error';
+        if (type === 'warning') return 'warning';
+        return 'info';
     };
 
     return (
@@ -59,7 +70,7 @@ export default function AlertsPage() {
                         <div className="flex items-center gap-2.5">
                             <span className="material-symbols-outlined text-danger text-xl">warning</span>
                             <h1 className="text-lg font-bold text-text-primary tracking-tight">Alert Management</h1>
-                            <Badge variant="danger">{activeAlerts.length} Active</Badge>
+                            <Badge variant="danger">{alerts.length} Total</Badge>
                         </div>
 
                         <div className="h-5 w-px bg-border-subtle" />
@@ -71,19 +82,7 @@ export default function AlertsPage() {
                         />
                     </div>
 
-                    <div className="flex items-center gap-3">
-                        <div className="relative w-56">
-                            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-text-tertiary text-sm">search</span>
-                            <input
-                                type="text"
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                                className="w-full bg-surface-0 border border-border-default rounded-[var(--radius-md)] pl-9 pr-4 py-2 text-sm text-text-primary focus:ring-1 focus:ring-accent focus:border-accent placeholder:text-text-tertiary transition-colors"
-                                placeholder="Search alerts..."
-                            />
-                        </div>
-                        <StatusDot status="online" label="System Online" />
-                    </div>
+                    <StatusDot status="online" label="System Online" />
                 </div>
 
                 {/* Timeline feed */}
@@ -96,7 +95,6 @@ export default function AlertsPage() {
                             <div className="flex flex-col items-center justify-center py-20 text-center">
                                 <span className="material-symbols-outlined text-5xl text-text-tertiary mb-3">filter_alt_off</span>
                                 <p className="text-text-secondary text-sm">No alerts match your filter.</p>
-                                <p className="text-text-tertiary text-xs mt-1">Try adjusting your search or filter criteria.</p>
                             </div>
                         ) : (
                             filteredAlerts.map((alert) => (
@@ -118,12 +116,12 @@ export default function AlertsPage() {
                                         <div className={`
                                             shrink-0 size-11 rounded-[var(--radius-md)] flex items-center justify-center
                                             ${alert.type === 'critical' ? 'bg-danger/20' :
-                                                alert.type === 'high' ? 'bg-orange-500/15' : 'bg-surface-3'}
+                                                alert.type === 'warning' ? 'bg-orange-500/15' : 'bg-accent/15'}
                                         `}>
                                             <span className={`material-symbols-outlined text-2xl ${alert.type === 'critical' ? 'text-danger' :
-                                                    alert.type === 'high' ? 'text-orange-400' : 'text-text-secondary'
+                                                alert.type === 'warning' ? 'text-orange-400' : 'text-accent'
                                                 }`}>
-                                                {alert.icon}
+                                                {getSeverityIcon(alert.type)}
                                             </span>
                                         </div>
 
@@ -133,32 +131,23 @@ export default function AlertsPage() {
                                                 <h3 className="text-[15px] font-bold text-text-primary">{alert.event}</h3>
                                                 <Badge variant={
                                                     alert.type === 'critical' ? 'danger' :
-                                                        alert.type === 'high' ? 'warning' : 'neutral'
+                                                        alert.type === 'warning' ? 'warning' : 'neutral'
                                                 }>
                                                     {alert.type}
                                                 </Badge>
                                             </div>
                                             <div className="flex items-center gap-2 text-text-secondary text-sm">
-                                                <span>{alert.camera}</span>
+                                                <span className="font-mono text-text-tertiary text-xs">{formatDate(alert.start_time)}</span>
                                                 <span className="text-text-tertiary">·</span>
-                                                <span>{alert.location}</span>
+                                                <span className="font-mono text-xs">{formatTime(alert.start_time)} — {formatTime(alert.end_time)}</span>
                                                 <span className="text-text-tertiary">·</span>
-                                                <span className="font-mono text-text-tertiary text-xs">{alert.timestamp}</span>
-                                                <span className="text-text-tertiary">·</span>
-                                                <span className="text-text-tertiary text-xs">{(alert.confidence * 100).toFixed(0)}%</span>
+                                                <span className="text-xs text-text-tertiary">Duration: <b className="text-text-secondary">{getDuration(alert.start_time, alert.end_time)}</b></span>
                                             </div>
                                         </div>
 
                                         {/* Actions — visible on hover */}
                                         <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-[var(--duration-fast)]">
-                                            <Button icon="videocam" variant="secondary" size="sm">Clip</Button>
-                                            <Button
-                                                icon="check_circle"
-                                                variant={alert.type === 'critical' || alert.type === 'high' ? 'primary' : 'ghost'}
-                                                size="sm"
-                                            >
-                                                Resolve
-                                            </Button>
+                                            <Button icon="videocam" variant="secondary" size="sm">Video</Button>
                                         </div>
                                     </div>
                                 </div>
@@ -170,10 +159,11 @@ export default function AlertsPage() {
                 {/* Footer */}
                 <footer className="shrink-0 px-6 py-2.5 bg-surface-1 border-t border-border-default flex justify-between items-center text-xs text-text-secondary">
                     <div className="flex gap-6">
-                        <span className="flex items-center gap-1.5"><b className="text-text-primary font-semibold">128</b> Events Today</span>
-                        <span className="flex items-center gap-1.5"><b className="text-success font-semibold">98%</b> Resolution Rate</span>
+                        <span className="flex items-center gap-1.5"><b className="text-text-primary font-semibold">{alerts.length}</b> Total Alerts</span>
+                        <span className="flex items-center gap-1.5"><b className="text-danger font-semibold">{alerts.filter(a => a.type === 'critical').length}</b> Critical</span>
+                        <span className="flex items-center gap-1.5"><b className="text-orange-400 font-semibold">{alerts.filter(a => a.type === 'warning').length}</b> Warning</span>
                     </div>
-                    <div className="text-text-tertiary font-mono">Page 1 of 12</div>
+                    <div className="text-text-tertiary font-mono">DAT Lab</div>
                 </footer>
             </main>
         </div>

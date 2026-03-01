@@ -98,14 +98,10 @@ export interface EdgeDevice {
 
 export interface Alert {
     id: string;
-    type: 'critical' | 'high' | 'low';
+    type: 'critical' | 'warning' | 'info';
     event: string;
-    icon: string;
-    camera: string;
-    location: string;
-    timestamp: string;
-    confidence: number;
-    resolved: boolean;
+    start_time: string;
+    end_time: string;
 }
 
 export interface CameraFeed {

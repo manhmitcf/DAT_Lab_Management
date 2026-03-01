@@ -1,6 +1,6 @@
 # EdgeSentinelAI — API Documentation
 
-> **Version:** 2.2.0 · **Base URL:** `/api/v1` · **Auth:** Bearer JWT · **Format:** JSON  
+> **Version:** 2.3.0 · **Base URL:** `/api/lab_management` · **Auth:** Bearer JWT · **Format:** JSON  
 > **Lưu ý:** Hệ thống sử dụng **1 camera duy nhất**. Không cần endpoint quản lý nhiều camera.
 
 ---
@@ -11,7 +11,7 @@ Trang chính, hiển thị realtime: video feed, bounding box, floor plan 2D, st
 
 ---
 
-## WebSocket `/ws/frames` ⭐ Core
+## WebSocket `/api/lab_management/ws/frames` ⭐ Core
 
 **Endpoint quan trọng nhất.** BE gửi từng frame đã xử lý qua WebSocket. FE dùng payload này để vẽ toàn bộ giao diện Live Monitor.
 
@@ -72,7 +72,7 @@ Trang chính, hiển thị realtime: video feed, bounding box, floor plan 2D, st
 
 ---
 
-## `GET /stats`
+## `GET /api/lab_management/stats`
 
 Fallback cho Stats Bar khi chưa có WebSocket.
 
@@ -102,7 +102,7 @@ Dashboard phân tích với KPI cards, biểu đồ, heatmap.
 
 ---
 
-## `GET /analytics?period={period}`
+## `GET /api/lab_management/analytics?period={period}`
 
 `period`: `1h` · `today` · `7d` · `30d`
 
@@ -135,7 +135,7 @@ Dashboard phân tích với KPI cards, biểu đồ, heatmap.
 
 ---
 
-## `GET /analytics/occupancy-trends?period={period}`
+## `GET /api/lab_management/analytics/occupancy-trends?period={period}`
 
 Line chart 3 đường (occupancy, ingress, egress).
 
@@ -150,7 +150,7 @@ Line chart 3 đường (occupancy, ingress, egress).
 
 ---
 
-## `GET /analytics/activity-heatmap?period={period}`
+## `GET /api/lab_management/analytics/activity-heatmap?period={period}`
 
 Heatmap 24 ô (hourly activity). `intensity`: 0.0 → 1.0.
 
@@ -165,7 +165,7 @@ Heatmap 24 ô (hourly activity). `intensity`: 0.0 → 1.0.
 
 ---
 
-## `GET /analytics/behavior-distribution?period={period}`
+## `GET /api/lab_management/analytics/behavior-distribution?period={period}`
 
 Progress bars phân loại hành vi.
 
@@ -188,47 +188,104 @@ Quản lý sự kiện bất thường. Timeline view.
 
 ---
 
-## `GET /alerts`
+## `GET /api/lab_management/alerts`
+
+Lấy danh sách cảnh báo. Hệ thống lab chủ yếu phát hiện **đông đúc** (crowded) — khi số người vượt ngưỡng.
+
+> [!NOTE]
+> Endpoint này **không trả video**. Chỉ trả metadata + ảnh thumbnail. Video được trích xuất on-demand qua endpoint riêng.
+
+**Query Parameters:**
 
 | Param | Type | Mô tả |
 |-------|------|--------|
-| `type` | string | `critical` · `high` · `low` |
-| `event` | string | `falls` · `intrusions` · `fighting` |
-| `search` | string | Tìm theo event/location |
-| `resolved` | bool | Lọc trạng thái |
-| `limit` | int | Default: 50 |
-| `offset` | int | Phân trang |
+| `type` | string | `critical` · `warning` · `info` (default: all) |
+| `from` | string | ISO datetime bắt đầu (vd: `2026-02-28T00:00:00Z`) |
+| `to` | string | ISO datetime kết thúc |
+
+**Response:**
 
 ```json
 {
-  "total": 128,
-  "resolution_rate": 98,
-  "total_pages": 12,
+  "total": 12,
   "alerts": [
     {
       "id": "alert-001",
       "type": "critical",
-      "event": "Fighting Detected",
-      "icon": "sports_mma",
-      "location": "DAT Lab",
-      "timestamp": "2026-02-09T10:42:35Z",
-      "confidence": 0.96,
-      "resolved": false,
-      "clip_url": "/clips/alert-001.mp4"
+      "event": "Crowded",
+      "start_time": "2026-02-28T14:32:15Z",
+      "end_time": "2026-02-28T14:35:15Z"
+    },
+    {
+      "id": "alert-002",
+      "type": "warning",
+      "event": "Crowded",
+      "start_time": "2026-02-28T10:15:42Z",
+      "end_time": "2026-02-28T10:16:42Z"
     }
   ]
 }
 ```
 
-Footer: `total` Events Today · `resolution_rate`% Resolution · Page X of `total_pages`
+### Field Reference
+
+| Field | Type | Mô tả |
+|-------|------|--------|
+| `id` | string | ID duy nhất của alert |
+| `type` | string | `critical` · `warning` · `info` |
+| `event` | string | Loại sự kiện (mặc định: `Crowded`) |
+| `start_time` | string | Thời điểm bắt đầu tình trạng alert |
+| `end_time` | string | Thời điểm kết thúc tình trạng alert |
+
+> [!IMPORTANT]
+> FE hiển thị thời lượng bằng cách tính `end_time - start_time`.
 
 ---
 
-## `PATCH /alerts/{id}`
+## `GET /api/lab_management/alerts/{id}/video`
+
+BE nhận `id` → tra DB lấy `start_time` và `end_time` → trích xuất đoạn video tương ứng từ recording → trả về stream.
+
+**Flow:**
+```
+FE gọi: GET /api/lab_management/alerts/alert-001/video
+        ↓
+BE tra DB: alert-001 → start=14:32:15, end=14:35:15
+        ↓
+BE trích xuất video từ recording (ffmpeg hoặc tương tự)
+        ↓
+Response: video/mp4 stream
+```
+
+> [!NOTE]
+> Video **không lưu sẵn**, chỉ trích xuất khi user yêu cầu → tiết kiệm storage.
+
+---
+
+## `PUT /api/lab_management/alerts/threshold`
+
+Cấu hình ngưỡng cảnh báo. Tách 2 mức để BE phân loại chính xác.
 
 ```json
-{ "resolved": true }
+// Request
+{
+  "warning_threshold": 30,
+  "critical_threshold": 45
+}
+
+// Response
+{
+  "warning_threshold": 30,
+  "critical_threshold": 45,
+  "updated_at": "2026-02-28T15:00:00Z"
+}
 ```
+
+| Mức | Điều kiện | Ví dụ |
+|-----|-----------|-------|
+| `info` | Đông bất thường nhưng chưa vượt ngưỡng | 25 người (< 30) |
+| `warning` | `person_count >= warning_threshold` | 35 người (≥ 30) |
+| `critical` | `person_count >= critical_threshold` | 50 người (≥ 45) |
 
 ---
 
@@ -238,7 +295,7 @@ Xem lại video và stats trong quá khứ. Chỉ 1 camera — không cần filt
 
 ---
 
-## `GET /history/recordings`
+## `GET /api/lab_management/history/recordings`
 
 | Param | Type | Mô tả |
 |-------|------|--------|
@@ -268,13 +325,13 @@ Xem lại video và stats trong quá khứ. Chỉ 1 camera — không cần filt
 
 ---
 
-## `GET /history/recordings/{id}/stream`
+## `GET /api/lab_management/history/recordings/{id}/stream`
 
 Video playback. Response: video/mp4 hoặc HLS.
 
 ---
 
-## `GET /history/recordings/{id}/stats`
+## `GET /api/lab_management/history/recordings/{id}/stats`
 
 Stats chi tiết tại thời điểm recording.
 
@@ -293,9 +350,9 @@ Stats chi tiết tại thời điểm recording.
 
 ---
 
-## `GET /history/recordings/{id}/frames`
+## `GET /api/lab_management/history/recordings/{id}/frames`
 
-Lấy lại frames đã lưu (`save_to_db: true`). Format giống `/ws/frames`.
+Lấy lại frames đã lưu (`save_to_db: true`). Format giống `/api/lab_management/ws/frames`.
 
 **Query:** `?from=08:00:00&to=08:30:00&interval=5s`
 
@@ -320,7 +377,7 @@ Lấy lại frames đã lưu (`save_to_db: true`). Format giống `/ws/frames`.
 
 | Endpoint | Dữ liệu | Tần suất |
 |----------|---------|----------|
-| **`/ws/frames`** | Frame data (ảnh, bbox, 2D, count) | ~30fps |
+| **`/api/lab_management/ws/frames`** | Frame data (ảnh, bbox, 2D, count) | ~30fps |
 
 ## Rate Limits
 
