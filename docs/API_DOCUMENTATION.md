@@ -21,6 +21,7 @@ Trang chính, hiển thị realtime: video feed, bounding box, floor plan 2D, st
   "timestamp": "2023-10-27T10:00:00.123Z",
   "count_in": 15,
   "count_out": 8,
+  "fps": 30,
   "alert": false,
   "save_to_db": true,
 
@@ -53,6 +54,7 @@ Trang chính, hiển thị realtime: video feed, bounding box, floor plan 2D, st
 | **Occupancy** | `objects.length` | Đếm số objects |
 | **Ingress** | `count_in` | Hiển thị trực tiếp |
 | **Egress** | `count_out` | Hiển thị trực tiếp |
+| **FPS** | `fps` | Hiển thị trực tiếp |
 
 ### Objects Array
 
@@ -69,30 +71,6 @@ Trang chính, hiển thị realtime: video feed, bounding box, floor plan 2D, st
 
 > [!NOTE]
 > `save_to_db: true` = BE đã lưu vào DB (cho History). `false` = chỉ forward realtime.
-
----
-
-## `GET /api/lab_management/stats`
-
-Fallback cho Stats Bar khi chưa có WebSocket.
-
-```json
-{
-  "person_count": 104,
-  "person_count_change": 5.2,
-  "entry_today": 847,
-  "exit_today": 743,
-  "fps": 30
-}
-```
-
-| Field | UI | Mô tả |
-|-------|-----|--------|
-| `person_count` | "Occupancy" | Số người hiện tại |
-| `person_count_change` | Badge `+5.2%` | % thay đổi |
-| `entry_today` | "Ingress" | Tổng lượt vào hôm nay |
-| `exit_today` | "Egress" | Tổng lượt ra hôm nay |
-| `fps` | "FPS" | Khung hình/giây hiện tại |
 
 ---
 
@@ -297,15 +275,19 @@ Xem lại video và stats trong quá khứ. Chỉ 1 camera — không cần filt
 
 ## `GET /api/lab_management/history/recordings`
 
+Lấy danh sách recordings trong ngày. Cho phép chọn khoảng giờ bất kỳ. Video trả về giới hạn tối đa **1 tiếng**.
+
 | Param | Type | Mô tả |
 |-------|------|--------|
 | `date` | string | ISO date (`2026-02-28`) |
-| `limit` | int | Default: 50 |
-| `offset` | int | Phân trang |
+| `from` | string | Giờ bắt đầu (`08:00`) |
+| `to` | string | Giờ kết thúc (`09:00`, tối đa cách `from` 1h) |
+
+> [!IMPORTANT]
+> Khoảng cách `from` → `to` tối đa **60 phút**. BE trả lỗi nếu vượt quá.
 
 ```json
 {
-  "total": 24,
   "recordings": [
     {
       "id": "rec-001",
@@ -327,34 +309,7 @@ Xem lại video và stats trong quá khứ. Chỉ 1 camera — không cần filt
 
 ## `GET /api/lab_management/history/recordings/{id}/stream`
 
-Video playback. Response: video/mp4 hoặc HLS.
-
----
-
-## `GET /api/lab_management/history/recordings/{id}/stats`
-
-Stats chi tiết tại thời điểm recording.
-
-```json
-{
-  "events": 12,
-  "peak_occupancy": 34,
-  "alerts": 1,
-  "duration": "30:00",
-  "occupancy_timeline": [
-    { "time": "08:00", "count": 12 },
-    { "time": "08:05", "count": 18 }
-  ]
-}
-```
-
----
-
-## `GET /api/lab_management/history/recordings/{id}/frames`
-
-Lấy lại frames đã lưu (`save_to_db: true`). Format giống `/api/lab_management/ws/frames`.
-
-**Query:** `?from=08:00:00&to=08:30:00&interval=5s`
+Video playback. Response: `video/mp4` hoặc HLS.
 
 ---
 

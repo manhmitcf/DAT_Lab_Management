@@ -36,14 +36,11 @@ export interface Detection {
 
 // System statistics
 export interface SystemStats {
-    active_cameras: number;
-    total_cameras: number;
     person_count: number;
     person_count_change: number;
     entry_today: number;
     exit_today: number;
-    metadata_rate: number;
-    inference_time: number;
+    fps: number;
     behavior_distribution: {
         walking: number;
         standing: number;

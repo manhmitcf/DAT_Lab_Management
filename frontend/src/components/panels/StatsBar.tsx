@@ -29,7 +29,7 @@ export default function StatsBar() {
 
                 <div className="px-6 py-4">
                     <MetricCard label="FPS" icon="speed" iconColor="text-purple-400">
-                        <span className="text-lg font-mono">30</span>
+                        <span className="text-lg font-mono">{stats.fps}</span>
                     </MetricCard>
                 </div>
 

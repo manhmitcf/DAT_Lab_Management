@@ -22,10 +22,10 @@ export default function Analytics() {
                 {/* KPI Cards */}
                 <div className="grid grid-cols-2 gap-3">
                     <div className="bg-[#1a2027] border border-[#283039] p-3 rounded-lg">
-                        <p className="text-[9px] text-gray-500 uppercase font-bold mb-1">Active Cameras</p>
+                        <p className="text-[9px] text-gray-500 uppercase font-bold mb-1">FPS</p>
                         <div className="flex items-end gap-2">
-                            <span className="text-lg font-bold text-white leading-none">{stats.active_cameras}</span>
-                            <span className="text-[10px] text-green-500 font-mono mb-0.5">ONLINE</span>
+                            <span className="text-lg font-bold text-white leading-none">{stats.fps}</span>
+                            <span className="text-[10px] text-green-500 font-mono mb-0.5">LIVE</span>
                         </div>
                     </div>
                     <div className="bg-[#1a2027] border border-[#283039] p-3 rounded-lg">
@@ -93,8 +93,8 @@ export default function Analytics() {
                             <div
                                 key={index}
                                 className={`flex-1 rounded-t-sm ${value > 90 ? 'bg-[#ef4444]/40' :
-                                        value > 60 ? 'bg-[#137fec]/60' :
-                                            value > 40 ? 'bg-[#137fec]/40' : 'bg-[#137fec]/20'
+                                    value > 60 ? 'bg-[#137fec]/60' :
+                                        value > 40 ? 'bg-[#137fec]/40' : 'bg-[#137fec]/20'
                                     }`}
                                 style={{ height: `${value}%` }}
                             ></div>

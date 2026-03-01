@@ -61,13 +61,8 @@ export default function VideoPlayer({
             <div className="absolute bottom-4 left-4 right-4 flex justify-between items-end">
                 <div className="bg-black/60 backdrop-blur-md p-3 rounded-[var(--radius-md)] border border-white/10 flex gap-4">
                     <div>
-                        <p className="text-[9px] text-text-tertiary uppercase font-bold tracking-wider">Metadata Rate</p>
-                        <p className="text-xs font-mono text-text-primary">{stats.metadata_rate} msg/s</p>
-                    </div>
-                    <div className="w-px bg-white/10 h-8" />
-                    <div>
-                        <p className="text-[9px] text-text-tertiary uppercase font-bold tracking-wider">Inference</p>
-                        <p className="text-xs font-mono text-text-primary">{stats.inference_time}ms</p>
+                        <p className="text-[9px] text-text-tertiary uppercase font-bold tracking-wider">FPS</p>
+                        <p className="text-xs font-mono text-text-primary">{stats.fps}</p>
                     </div>
                 </div>
                 <div className="bg-black/60 backdrop-blur-md p-3 rounded-[var(--radius-md)] border border-white/10">

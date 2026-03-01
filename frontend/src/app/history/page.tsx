@@ -7,7 +7,6 @@ import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
 import StatusDot from '@/components/ui/StatusDot';
 import SegmentedControl from '@/components/ui/SegmentedControl';
-import { alerts as mockAlerts } from '@/lib/mockData';
 
 type ViewMode = 'timeline' | 'gallery';
 
@@ -83,9 +82,16 @@ const historyRecordings = [
 export default function HistoryPage() {
     const [viewMode, setViewMode] = useState<ViewMode>('timeline');
     const [selectedDate, setSelectedDate] = useState('2026-02-28');
+    const [fromTime, setFromTime] = useState('08:00');
+    const [toTime, setToTime] = useState('09:00');
     const [selectedRecording, setSelectedRecording] = useState<string | null>(null);
 
-    const filteredRecordings = historyRecordings.filter(r => r.date === selectedDate);
+    const filteredRecordings = historyRecordings.filter(r => {
+        if (r.date !== selectedDate) return false;
+        const recStart = r.time_start.slice(0, 5);
+        const recEnd = r.time_end.slice(0, 5);
+        return recStart >= fromTime && recEnd <= toTime;
+    });
 
     const selected = historyRecordings.find(r => r.id === selectedRecording);
 
@@ -114,6 +120,26 @@ export default function HistoryPage() {
 
                         <div className="h-5 w-px bg-border-subtle" />
 
+                        {/* Time range pickers */}
+                        <div className="flex items-center gap-2">
+                            <input
+                                type="time"
+                                value={fromTime}
+                                onChange={(e) => setFromTime(e.target.value)}
+                                className="bg-surface-0 border border-border-default rounded-[var(--radius-md)] px-2 py-1.5 text-sm text-text-primary focus:ring-1 focus:ring-accent font-mono"
+                            />
+                            <span className="text-text-tertiary text-xs">→</span>
+                            <input
+                                type="time"
+                                value={toTime}
+                                onChange={(e) => setToTime(e.target.value)}
+                                className="bg-surface-0 border border-border-default rounded-[var(--radius-md)] px-2 py-1.5 text-sm text-text-primary focus:ring-1 focus:ring-accent font-mono"
+                            />
+                            <span className="text-[10px] text-text-tertiary font-mono">(max 1h)</span>
+                        </div>
+
+                        <div className="h-5 w-px bg-border-subtle" />
+
                         <SegmentedControl options={viewOptions} value={viewMode} onChange={setViewMode} />
                     </div>
 
@@ -131,7 +157,7 @@ export default function HistoryPage() {
                             <div className="flex flex-col items-center justify-center py-20 text-center">
                                 <span className="material-symbols-outlined text-5xl text-text-tertiary mb-3">video_library</span>
                                 <p className="text-text-secondary text-sm">No recordings found for this date.</p>
-                                <p className="text-text-tertiary text-xs mt-1">Try selecting a different date.</p>
+                                <p className="text-text-tertiary text-xs mt-1">Try selecting a different date or time range.</p>
                             </div>
                         ) : (
                             <div className={`${viewMode === 'gallery' && !selectedRecording ? 'grid grid-cols-3 gap-4' : 'space-y-3'} stagger-children`}>
