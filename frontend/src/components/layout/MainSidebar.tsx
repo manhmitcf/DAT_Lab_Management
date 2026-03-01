@@ -6,8 +6,9 @@ import { useSidebarStore } from '@/stores/sidebarStore';
 
 const navItems = [
     { href: '/', icon: 'monitoring', label: 'Live Monitor' },
-    { href: '/alerts', icon: 'notifications', label: 'Alerts', badge: 3 },
     { href: '/analytics', icon: 'analytics', label: 'Analytics' },
+    { href: '/alerts', icon: 'notifications', label: 'Alerts', badge: 3 },
+    { href: '/history', icon: 'history', label: 'History' },
 ];
 
 const bottomNavItems = [
