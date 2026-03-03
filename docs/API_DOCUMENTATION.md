@@ -17,28 +17,27 @@ Trang chính, hiển thị realtime: video feed, bounding box, floor plan 2D, st
 
 ```json
 {
-  "frame_id": 1001,
-  "timestamp": "2023-10-27T10:00:00.123Z",
-  "count_in": 15,
-  "count_out": 8,
-  "fps": 30,
-  "alert": false,
-  "save_to_db": true,
+  "timestamp": "2023-10-27T10:00:00.123Z", // Thời gian thực (UTC)
+  "count_in": 15,                          // Tổng số người vào
+  "count_out": 8,                          // Tổng số người ra
+  "alert": "none",                         // Cấp độ cảnh báo: "none" | "info" | "warning" | "critical"
+  "save_to_db": true,                      // True: Đã lưu vào DB (History)
 
+  // Kích thước để Frontend vẽ tỉ lệ
   "height_frame": 720,
   "width_frame": 1280,
   "height_2D": 500,
   "width_2D": 500,
 
+  // Hình ảnh (Base64) - Dùng để hiển thị video
   "frame_image": "/9j/4AAQSkZJRg...",
 
+  // Danh sách vật thể phát hiện được
   "objects": [
     {
-      "track_id": 101,
-      "class": "person",
-      "conf": 0.95,
-      "bbox": [100, 200, 150, 300],
-      "coordinates_2D": [125, 250]
+      "track_id": 101,             // ID theo dõi (duy nhất cho mỗi người)
+      "bbox": [100, 200, 150, 300], // Tọa độ khung bao [x1, y1, x2, y2] (pixel)
+      "coordinates_2D": [125, 250]  // Tọa độ trên bản đồ 2D [x, y] (pixel)
     }
   ]
 }
@@ -54,17 +53,24 @@ Trang chính, hiển thị realtime: video feed, bounding box, floor plan 2D, st
 | **Occupancy** | `objects.length` | Đếm số objects |
 | **Ingress** | `count_in` | Hiển thị trực tiếp |
 | **Egress** | `count_out` | Hiển thị trực tiếp |
-| **FPS** | `fps` | Hiển thị trực tiếp |
+| **Alert** | `alert` | Hiển thị cấp độ cảnh báo |
 
 ### Objects Array
 
 | Field | Type | Mô tả |
 |-------|------|--------|
-| `track_id` | int | ID tracking (label: `HUMAN #101`) |
-| `class` | string | Loại vật thể (`person`) |
-| `conf` | float | Độ tin cậy (0–1) |
+| `track_id` | int | ID theo dõi duy nhất cho mỗi người (`HUMAN #101`) |
 | `bbox` | int[4] | `[x1, y1, x2, y2]` — pixel tuyệt đối trên ảnh gốc |
 | `coordinates_2D` | int[2] | `[x, y]` — pixel trên bản đồ 2D |
+
+### Alert Levels
+
+| Value | Mô tả |
+|-------|--------|
+| `"none"` | Bình thường |
+| `"info"` | Ghi nhận bất thường |
+| `"warning"` | Số người ≥ warning threshold |
+| `"critical"` | Số người ≥ critical threshold |
 
 > [!IMPORTANT]
 > `bbox` và `coordinates_2D` đều là tọa độ **pixel**. FE chia cho kích thước tương ứng để chuyển sang %.
