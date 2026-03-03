@@ -16,6 +16,20 @@ services:
     depends_on:
       - redis
 
+  celery_worker:
+    build: .
+    container_name: lab_celery
+    command: celery -A config worker -l info
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings
+    depends_on:
+      - redis
+      - backend
+
   redis:
     image: redis:7-alpine
     container_name: lab_redis
