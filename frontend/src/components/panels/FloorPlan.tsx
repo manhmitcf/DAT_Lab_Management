@@ -39,19 +39,20 @@ export default function FloorPlan() {
 
             {/* Map */}
             <div className="flex-1 relative bg-surface-0 p-4 overflow-hidden flex items-center justify-center">
-                <div
-                    className="relative w-full h-full max-w-full max-h-full"
-                    style={{ aspectRatio: '1165 / 960', maxHeight: '100%' }}
-                >
+                {/* 
+                    Use inline-flex to perfectly shrink-wrap to the image's computed dimensions.
+                    This guarantees the marker overlay boundaries exactly match the visible map. 
+                */}
+                <div className="relative inline-flex max-w-full max-h-full">
                     {/* SVG Map Background */}
                     <img
                         src="/labmap.svg"
                         alt="Laboratory Floor Plan"
-                        className="absolute inset-0 w-full h-full object-contain drop-shadow-sm pointer-events-none"
+                        className="block max-w-full max-h-full object-contain drop-shadow-sm pointer-events-none"
                     />
 
                     {/* Markers Overlay */}
-                    <div className="absolute inset-0 z-10">
+                    <div className="absolute inset-0 z-10 w-full h-full">
                         {markers.map((marker) => (
                             <div
                                 key={marker.id}
