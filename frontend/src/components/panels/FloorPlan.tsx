@@ -38,28 +38,37 @@ export default function FloorPlan() {
             </div>
 
             {/* Map */}
-            <div className="flex-1 relative bg-surface-0 floor-plan-grid p-6 overflow-hidden">
-                <div className="absolute inset-10 border-4 border-border-subtle rounded-[var(--radius-md)] pointer-events-none">
-                    <div className="absolute top-0 left-1/2 w-1 h-20 bg-border-subtle" />
-                    <div className="absolute bottom-0 left-1/4 w-1 h-32 bg-border-subtle" />
-                    <div className="absolute right-0 top-1/2 h-1 w-24 bg-border-subtle" />
-                </div>
+            <div className="flex-1 relative bg-surface-0 p-4 overflow-hidden flex items-center justify-center">
+                <div
+                    className="relative w-full h-full max-w-full max-h-full"
+                    style={{ aspectRatio: '1165 / 960', maxHeight: '100%' }}
+                >
+                    {/* SVG Map Background */}
+                    <img
+                        src="/labmap.svg"
+                        alt="Laboratory Floor Plan"
+                        className="absolute inset-0 w-full h-full object-contain drop-shadow-sm pointer-events-none"
+                    />
 
-                {markers.map((marker) => (
-                    <div
-                        key={marker.id}
-                        className="absolute group cursor-pointer"
-                        style={{ top: `${marker.y}%`, left: `${marker.x}%` }}
-                        onClick={() => setSelectedPersonId(marker.id)}
-                    >
-                        <div className={`size-3 rounded-full transition-transform hover:scale-150 ${getMarkerStyle(marker)}`} />
-                        {marker.label && (
-                            <div className="absolute top-4 -left-4 hidden group-hover:block bg-surface-0/95 border border-border-default px-2 py-1 rounded-[var(--radius-sm)] text-[10px] whitespace-nowrap z-10 shadow-md text-text-primary">
-                                {marker.label}
+                    {/* Markers Overlay */}
+                    <div className="absolute inset-0 z-10">
+                        {markers.map((marker) => (
+                            <div
+                                key={marker.id}
+                                className="absolute group cursor-pointer -translate-x-1/2 -translate-y-1/2"
+                                style={{ top: `${marker.y}%`, left: `${marker.x}%` }}
+                                onClick={() => setSelectedPersonId(marker.id)}
+                            >
+                                <div className={`size-3 rounded-full transition-transform hover:scale-150 ${getMarkerStyle(marker)}`} />
+                                {marker.label && (
+                                    <div className="absolute top-4 -left-4 hidden group-hover:block bg-surface-0/95 border border-border-default px-2 py-1 rounded-[var(--radius-sm)] text-[10px] whitespace-nowrap z-20 shadow-md text-text-primary">
+                                        {marker.label}
+                                    </div>
+                                )}
                             </div>
-                        )}
+                        ))}
                     </div>
-                ))}
+                </div>
             </div>
 
             {/* Legend */}
