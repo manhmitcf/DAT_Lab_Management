@@ -154,25 +154,75 @@ export const detectionActivity = [
 
 // Analytics data
 export const analyticsData = {
-    totalEventsToday: 12482,
-    eventsChange: 12.4,
-    avgConfidence: 98.2,
-    confidenceChange: -0.5,
-    peakTime: '14:30',
-    peakOccupancy: 84,
-    peakZone: 'Main Atrium',
-    systemUptime: 99.9,
-    alertDistribution: {
-        loitering: { count: 482, percentage: 40 },
-        fall: { count: 124, percentage: 10 },
-        areaBreach: { count: 434, percentage: 35 },
-        other: { count: 200, percentage: 15 },
+    // GET /analytics/summary
+    summary: {
+        current_occupancy: 42,
+        peak_occupancy: 84,
+        peak_time: '14:30',
+        avg_dwell_time_minutes: 23.5,
+        total_in: 847,
+        total_out: 743,
+        net_flow: 104,
     },
-    behaviorTrends: [
-        { time: '00:00', walking: 250, standing: 50, falls: 10 },
-        { time: '06:00', walking: 180, standing: 120, falls: 5 },
-        { time: '12:00', walking: 40, standing: 260, falls: 5 },
-        { time: '18:00', walking: 60, standing: 190, falls: 20 },
-        { time: '23:59', walking: 250, standing: 50, falls: 10 },
+    // GET /analytics/occupancy-trends
+    occupancyTrends: {
+        current: [
+            { time: '00:00', occupancy: 12, ingress: 5, egress: 3 },
+            { time: '02:00', occupancy: 8, ingress: 2, egress: 6 },
+            { time: '04:00', occupancy: 5, ingress: 1, egress: 4 },
+            { time: '06:00', occupancy: 15, ingress: 12, egress: 2 },
+            { time: '08:00', occupancy: 45, ingress: 35, egress: 5 },
+            { time: '10:00', occupancy: 68, ingress: 28, egress: 5 },
+            { time: '12:00', occupancy: 52, ingress: 10, egress: 26 },
+            { time: '14:00', occupancy: 84, ingress: 42, egress: 10 },
+            { time: '16:00', occupancy: 62, ingress: 8, egress: 30 },
+            { time: '18:00', occupancy: 35, ingress: 5, egress: 32 },
+            { time: '20:00', occupancy: 18, ingress: 3, egress: 20 },
+            { time: '22:00', occupancy: 10, ingress: 2, egress: 10 },
+        ],
+        previous: [
+            { time: '00:00', occupancy: 15, ingress: 7, egress: 4 },
+            { time: '02:00', occupancy: 10, ingress: 3, egress: 8 },
+            { time: '04:00', occupancy: 6, ingress: 2, egress: 6 },
+            { time: '06:00', occupancy: 18, ingress: 14, egress: 2 },
+            { time: '08:00', occupancy: 50, ingress: 38, egress: 6 },
+            { time: '10:00', occupancy: 72, ingress: 30, egress: 8 },
+            { time: '12:00', occupancy: 55, ingress: 12, egress: 29 },
+            { time: '14:00', occupancy: 78, ingress: 35, egress: 12 },
+            { time: '16:00', occupancy: 58, ingress: 10, egress: 30 },
+            { time: '18:00', occupancy: 30, ingress: 4, egress: 32 },
+            { time: '20:00', occupancy: 15, ingress: 2, egress: 17 },
+            { time: '22:00', occupancy: 8, ingress: 1, egress: 8 },
+        ],
+    },
+    // GET /analytics/heatmap
+    heatmap: [
+        { day: 'Mon', hours: [0.05, 0.03, 0.02, 0.02, 0.08, 0.25, 0.55, 0.72, 0.85, 0.92, 0.88, 0.78, 0.82, 0.75, 0.68, 0.62, 0.70, 0.65, 0.45, 0.38, 0.30, 0.22, 0.15, 0.08] },
+        { day: 'Tue', hours: [0.04, 0.02, 0.01, 0.02, 0.10, 0.30, 0.60, 0.75, 0.88, 0.95, 0.90, 0.80, 0.85, 0.78, 0.70, 0.65, 0.72, 0.68, 0.48, 0.40, 0.32, 0.25, 0.18, 0.10] },
+        { day: 'Wed', hours: [0.06, 0.04, 0.02, 0.03, 0.12, 0.35, 0.62, 0.80, 0.90, 0.98, 0.92, 0.85, 0.88, 0.82, 0.75, 0.70, 0.78, 0.72, 0.52, 0.42, 0.35, 0.28, 0.20, 0.12] },
+        { day: 'Thu', hours: [0.05, 0.03, 0.02, 0.02, 0.10, 0.28, 0.58, 0.74, 0.86, 0.94, 0.88, 0.80, 0.84, 0.76, 0.70, 0.64, 0.72, 0.66, 0.46, 0.38, 0.30, 0.24, 0.16, 0.09] },
+        { day: 'Fri', hours: [0.06, 0.04, 0.03, 0.03, 0.12, 0.32, 0.60, 0.78, 0.88, 0.96, 0.90, 0.82, 0.86, 0.80, 0.72, 0.68, 0.75, 0.70, 0.50, 0.42, 0.34, 0.26, 0.18, 0.10] },
+        { day: 'Sat', hours: [0.03, 0.02, 0.01, 0.01, 0.05, 0.15, 0.30, 0.42, 0.50, 0.55, 0.52, 0.48, 0.50, 0.46, 0.40, 0.35, 0.38, 0.32, 0.25, 0.20, 0.15, 0.10, 0.08, 0.05] },
+        { day: 'Sun', hours: [0.02, 0.01, 0.01, 0.01, 0.03, 0.10, 0.20, 0.30, 0.35, 0.40, 0.38, 0.35, 0.36, 0.32, 0.28, 0.25, 0.28, 0.24, 0.18, 0.14, 0.10, 0.08, 0.05, 0.03] },
     ],
+    // GET /analytics/traffic-daily
+    trafficDaily: [
+        { day: 'Mon', total_in: 120, total_out: 115 },
+        { day: 'Tue', total_in: 145, total_out: 138 },
+        { day: 'Wed', total_in: 160, total_out: 152 },
+        { day: 'Thu', total_in: 135, total_out: 128 },
+        { day: 'Fri', total_in: 155, total_out: 148 },
+        { day: 'Sat', total_in: 75, total_out: 70 },
+        { day: 'Sun', total_in: 55, total_out: 50 },
+    ],
+    // GET /analytics/flow-ratio
+    flowRatio: {
+        entry_exit: { total_in: 847, total_out: 743, in_percentage: 53.3, out_percentage: 46.7 },
+        dwell_distribution: [
+            { range: '< 5 min', percentage: 25 },
+            { range: '5-15 min', percentage: 35 },
+            { range: '15-30 min', percentage: 25 },
+            { range: '> 30 min', percentage: 15 },
+        ],
+    },
 };

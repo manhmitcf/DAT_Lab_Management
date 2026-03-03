@@ -76,84 +76,111 @@ Trang chính, hiển thị realtime: video feed, bounding box, floor plan 2D, st
 
 # Tab 2 — Analytics (`/analytics`)
 
-Dashboard phân tích với KPI cards, biểu đồ, heatmap.
+Dashboard phân tích occupancy, traffic patterns, và heatmap.
+
+> [!NOTE]
+> Layout khuyến nghị: **Top** = KPI Cards → **Middle** = Line Chart + Donut → **Bottom** = Heatmap + Bar Chart
 
 ---
 
-## `GET /api/lab_management/analytics?period={period}`
+## `GET /api/lab_management/analytics/summary?period={period}`
 
-`period`: `1h` · `today` · `7d` · `30d`
+KPI cards tổng quan. `period`: `1h` · `today` · `7d` · `30d`
 
 ```json
 {
-  "total_events": 12482,
-  "events_change": 12.4,
-  "avg_confidence": 98.2,
-  "confidence_change": -0.5,
-  "peak_time": "14:30",
+  "current_occupancy": 42,
   "peak_occupancy": 84,
-  "peak_zone": "Main Atrium",
-  "system_uptime": 99.9,
-  "alert_distribution": {
-    "loitering": { "count": 482, "percentage": 40 },
-    "fall": { "count": 124, "percentage": 10 },
-    "area_breach": { "count": 434, "percentage": 35 },
-    "other": { "count": 200, "percentage": 15 }
-  }
+  "peak_time": "14:30",
+  "avg_dwell_time_minutes": 23.5,
+  "total_in": 847,
+  "total_out": 743,
+  "net_flow": 104
 }
 ```
 
 | Field → UI |
 |------------|
-| `total_events` → KPI "Total Detections" (featured card) |
-| `avg_confidence` → KPI "Detection Accuracy" |
-| `peak_time` + `peak_occupancy` → KPI "Peak" |
-| `system_uptime` → KPI "Uptime" |
-| `alert_distribution` → Donut chart |
+| `current_occupancy` → KPI "Current Occupancy" (featured) |
+| `peak_occupancy` + `peak_time` → KPI "Peak Hour" |
+| `avg_dwell_time_minutes` → KPI "Avg Dwell Time" |
+| `net_flow` (`total_in - total_out`) → KPI "Net Flow" |
 
 ---
 
 ## `GET /api/lab_management/analytics/occupancy-trends?period={period}`
 
-Line chart 3 đường (occupancy, ingress, egress).
+Line chart: occupancy, ingress, egress theo thời gian. Hỗ trợ so sánh hôm nay vs hôm qua.
+
+```json
+{
+  "current": [
+    { "time": "00:00", "occupancy": 12, "ingress": 5, "egress": 3 },
+    { "time": "01:00", "occupancy": 8, "ingress": 2, "egress": 6 }
+  ],
+  "previous": [
+    { "time": "00:00", "occupancy": 15, "ingress": 7, "egress": 4 },
+    { "time": "01:00", "occupancy": 10, "ingress": 3, "egress": 8 }
+  ]
+}
+```
+
+> [!TIP]
+> FE vẽ `current` nét liền, `previous` nét đứt mờ → dễ dàng so sánh trend.
+
+---
+
+## `GET /api/lab_management/analytics/heatmap?period={period}`
+
+Heatmap 24h × 7 ngày. `intensity`: 0.0 → 1.0.
 
 ```json
 {
   "data": [
-    { "time": "00:00", "occupancy": 35, "ingress": 12, "egress": 8 },
-    { "time": "01:00", "occupancy": 28, "ingress": 5, "egress": 12 }
+    { "day": "Mon", "hours": [0.05, 0.03, 0.02, 0.02, 0.08, 0.25, 0.55, 0.72, 0.85, 0.92, 0.88, 0.78, 0.82, 0.75, 0.68, 0.62, 0.70, 0.65, 0.45, 0.38, 0.30, 0.22, 0.15, 0.08] },
+    { "day": "Tue", "hours": [0.04, 0.02, 0.01, 0.02, 0.10, 0.30, 0.60, 0.75, 0.88, 0.95, 0.90, 0.80, 0.85, 0.78, 0.70, 0.65, 0.72, 0.68, 0.48, 0.40, 0.32, 0.25, 0.18, 0.10] }
+  ]
+}
+```
+
+> [!NOTE]
+> Mỗi `hours` array có 24 phần tử (0h → 23h). Heatmap grid: rows = ngày, cols = giờ.
+
+---
+
+## `GET /api/lab_management/analytics/traffic-daily?period={period}`
+
+Bar chart: traffic theo từng ngày trong tuần.
+
+```json
+{
+  "data": [
+    { "day": "Mon", "total_in": 120, "total_out": 115 },
+    { "day": "Tue", "total_in": 145, "total_out": 138 },
+    { "day": "Wed", "total_in": 160, "total_out": 152 }
   ]
 }
 ```
 
 ---
 
-## `GET /api/lab_management/analytics/activity-heatmap?period={period}`
+## `GET /api/lab_management/analytics/flow-ratio?period={period}`
 
-Heatmap 24 ô (hourly activity). `intensity`: 0.0 → 1.0.
-
-```json
-{
-  "data": [
-    { "hour": 0, "intensity": 0.15 },
-    { "hour": 1, "intensity": 0.08 }
-  ]
-}
-```
-
----
-
-## `GET /api/lab_management/analytics/behavior-distribution?period={period}`
-
-Progress bars phân loại hành vi.
+Donut chart: tỷ lệ Entry vs Exit và phân tích dwell time.
 
 ```json
 {
-  "data": [
-    { "behavior": "walking", "percentage": 68 },
-    { "behavior": "standing", "percentage": 24 },
-    { "behavior": "sitting", "percentage": 5 },
-    { "behavior": "loitering", "percentage": 3 }
+  "entry_exit": {
+    "total_in": 847,
+    "total_out": 743,
+    "in_percentage": 53.3,
+    "out_percentage": 46.7
+  },
+  "dwell_distribution": [
+    { "range": "< 5 min", "percentage": 25 },
+    { "range": "5-15 min", "percentage": 35 },
+    { "range": "15-30 min", "percentage": 25 },
+    { "range": "> 30 min", "percentage": 15 }
   ]
 }
 ```

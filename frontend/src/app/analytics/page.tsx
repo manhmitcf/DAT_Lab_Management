@@ -7,7 +7,6 @@ import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
 import StatusDot from '@/components/ui/StatusDot';
 import SegmentedControl from '@/components/ui/SegmentedControl';
-import ProgressBar from '@/components/ui/ProgressBar';
 import { analyticsData } from '@/lib/mockData';
 
 type TimeFrame = '1h' | 'today' | '7d' | '30d';
@@ -19,11 +18,26 @@ const timeFrameOptions: { value: TimeFrame; label: string }[] = [
     { value: '30d', label: '30 Days' },
 ];
 
+const { summary, occupancyTrends, heatmap, trafficDaily, flowRatio } = analyticsData;
+
 export default function AnalyticsPage() {
     const [timeFrame, setTimeFrame] = useState<TimeFrame>('today');
 
-    const multiplier = timeFrame === '1h' ? 0.04 : timeFrame === '7d' ? 7 : timeFrame === '30d' ? 30 : 1;
-    const totalEvents = Math.round(analyticsData.totalEventsToday * multiplier);
+    // Generate SVG path from occupancy trend data
+    const maxOcc = Math.max(...occupancyTrends.current.map(d => d.occupancy));
+    const trendToPath = (data: typeof occupancyTrends.current) => {
+        return data.map((d, i) => {
+            const x = (i / (data.length - 1)) * 1000;
+            const y = 280 - (d.occupancy / maxOcc) * 250;
+            return `${i === 0 ? 'M' : 'L'}${x},${y}`;
+        }).join(' ');
+    };
+    const currentPath = trendToPath(occupancyTrends.current);
+    const previousPath = trendToPath(occupancyTrends.previous);
+    const areaPath = currentPath + ' L1000,280 L0,280 Z';
+
+    // Traffic bar chart max
+    const maxTraffic = Math.max(...trafficDaily.map(d => Math.max(d.total_in, d.total_out)));
 
     return (
         <div className="flex h-screen w-full bg-surface-0">
@@ -52,82 +66,75 @@ export default function AnalyticsPage() {
 
                 {/* Content */}
                 <main className="flex-grow flex flex-col p-5 gap-5 overflow-y-auto">
-                    {/* KPI row — first card 2x wide (asymmetric) */}
-                    <div className="grid grid-cols-12 gap-4 shrink-0 stagger-children">
-                        {/* Featured: Total detections — span 5 */}
-                        <Card variant="featured" className="col-span-5 relative overflow-hidden group" hover>
+                    {/* ====== TOP ROW: KPI Cards ====== */}
+                    <div className="grid grid-cols-4 gap-4 shrink-0 stagger-children">
+                        {/* Current Occupancy — featured */}
+                        <Card variant="featured" className="relative overflow-hidden group" hover>
                             <div className="absolute -top-4 -right-4 opacity-[0.04] group-hover:opacity-[0.08] transition-opacity">
-                                <span className="material-symbols-outlined text-[80px] text-accent">analytics</span>
+                                <span className="material-symbols-outlined text-[80px] text-accent">groups</span>
                             </div>
-                            <p className="text-text-tertiary text-[11px] font-medium uppercase tracking-wider mb-2">Total Detections</p>
-                            <div className="flex items-baseline gap-3">
-                                <h2 className="text-4xl font-bold text-text-primary tracking-tight">{totalEvents.toLocaleString()}</h2>
-                                <Badge variant="success">+{analyticsData.eventsChange}%</Badge>
-                            </div>
-                            <div className="mt-4 h-1 w-full bg-surface-3 rounded-full overflow-hidden">
-                                <div className="h-full bg-accent rounded-full animate-bar-fill" style={{ width: '65%' }} />
-                            </div>
-                            <p className="text-[11px] text-text-tertiary mt-2">vs. previous period capacity</p>
+                            <p className="text-text-tertiary text-[11px] font-medium uppercase tracking-wider mb-2">Current Occupancy</p>
+                            <h2 className="text-4xl font-bold text-text-primary tracking-tight">{summary.current_occupancy}</h2>
+                            <p className="text-[11px] text-text-tertiary mt-2">people in lab right now</p>
                         </Card>
 
-                        {/* Detection Accuracy — span 3 */}
-                        <Card className="col-span-3 relative overflow-hidden group" hover>
-                            <p className="text-text-tertiary text-[11px] font-medium uppercase tracking-wider mb-2">Detection Accuracy</p>
+                        {/* Peak Hour */}
+                        <Card className="group" hover>
+                            <p className="text-text-tertiary text-[11px] font-medium uppercase tracking-wider mb-2">Peak Hour</p>
+                            <h2 className="text-2xl font-bold text-text-primary">{summary.peak_time}</h2>
+                            <p className="text-sm text-text-secondary mt-1">{summary.peak_occupancy} people</p>
+                            <div className="mt-3 flex items-center gap-1.5">
+                                <span className="material-symbols-outlined text-warning text-sm">trending_up</span>
+                                <span className="text-[11px] text-warning font-medium">Highest today</span>
+                            </div>
+                        </Card>
+
+                        {/* Avg Dwell Time */}
+                        <Card className="group" hover>
+                            <p className="text-text-tertiary text-[11px] font-medium uppercase tracking-wider mb-2">Avg Dwell Time</p>
+                            <div className="flex items-baseline gap-1">
+                                <h2 className="text-2xl font-bold text-text-primary">{summary.avg_dwell_time_minutes}</h2>
+                                <span className="text-lg text-text-tertiary font-light">min</span>
+                            </div>
+                            <div className="mt-3 h-1 w-full bg-surface-3 rounded-full overflow-hidden">
+                                <div className="h-full bg-accent rounded-full animate-bar-fill" style={{ width: `${Math.min((summary.avg_dwell_time_minutes / 60) * 100, 100)}%` }} />
+                            </div>
+                        </Card>
+
+                        {/* Net Flow */}
+                        <Card className="group" hover>
+                            <p className="text-text-tertiary text-[11px] font-medium uppercase tracking-wider mb-2">Net Flow</p>
                             <div className="flex items-baseline gap-2">
-                                <h2 className="text-3xl font-bold text-text-primary">
-                                    {analyticsData.avgConfidence}<span className="text-xl text-text-tertiary font-light">%</span>
-                                </h2>
-                                <Badge variant="warning">{analyticsData.confidenceChange}%</Badge>
+                                <h2 className="text-2xl font-bold text-success">+{summary.net_flow}</h2>
                             </div>
-                            <div className="mt-4 h-1 w-full bg-surface-3 rounded-full overflow-hidden">
-                                <div className="h-full bg-success rounded-full animate-bar-fill" style={{ width: `${analyticsData.avgConfidence}%` }} />
+                            <div className="flex items-center gap-3 mt-2 text-[11px]">
+                                <span className="text-success font-mono">▲ {summary.total_in} in</span>
+                                <span className="text-orange-400 font-mono">▼ {summary.total_out} out</span>
                             </div>
-                        </Card>
-
-                        {/* Peak Occupancy — span 2 */}
-                        <Card className="col-span-2 group" hover>
-                            <p className="text-text-tertiary text-[11px] font-medium uppercase tracking-wider mb-2">Peak</p>
-                            <h2 className="text-2xl font-bold text-text-primary">{analyticsData.peakTime}</h2>
-                            <p className="text-sm text-text-secondary mt-1">{analyticsData.peakOccupancy} people</p>
-                            <p className="text-[11px] text-text-tertiary mt-1">{analyticsData.peakZone}</p>
-                        </Card>
-
-                        {/* Uptime — span 2 */}
-                        <Card className="col-span-2 group" hover>
-                            <p className="text-text-tertiary text-[11px] font-medium uppercase tracking-wider mb-2">Uptime</p>
-                            <div className="flex items-center gap-2">
-                                <h2 className="text-2xl font-bold text-text-primary">
-                                    {analyticsData.systemUptime}<span className="text-lg text-text-tertiary font-light">%</span>
-                                </h2>
-                                <div className="size-2 rounded-full bg-success animate-pulse shadow-[0_0_6px_var(--success)]" />
-                            </div>
-                            <p className="text-[11px] text-success font-medium mt-2">All nodes OK</p>
                         </Card>
                     </div>
 
-                    {/* Section label */}
+                    {/* ====== MIDDLE ROW: Line Chart + Donut ====== */}
                     <div className="flex items-center gap-3 pt-1">
                         <span className="text-[11px] text-text-tertiary font-medium uppercase tracking-widest">Trends</span>
                         <div className="flex-1 h-px bg-border-subtle" />
                     </div>
 
-                    {/* Charts row — 2/3 + 1/3 */}
-                    <div className="grid grid-cols-3 gap-5 flex-grow stagger-children" style={{ minHeight: 380 }}>
-                        {/* Occupancy chart */}
+                    <div className="grid grid-cols-3 gap-5 stagger-children" style={{ minHeight: 360 }}>
+                        {/* Occupancy Trend Line Chart */}
                         <Card className="col-span-2 flex flex-col" padding="lg">
                             <div className="flex justify-between items-start mb-5">
                                 <div>
                                     <h3 className="text-base font-bold text-text-primary">Occupancy Trends</h3>
-                                    <p className="text-sm text-text-tertiary mt-0.5">Movement patterns across all zones</p>
+                                    <p className="text-sm text-text-tertiary mt-0.5">Today vs previous period</p>
                                 </div>
                                 <div className="flex gap-4">
                                     {[
-                                        { color: 'bg-accent', label: 'Occupancy' },
-                                        { color: 'bg-success', label: 'Ingress' },
-                                        { color: 'bg-orange-500', label: 'Egress' },
+                                        { color: 'bg-accent', label: 'Today', style: 'solid' },
+                                        { color: 'bg-accent/40', label: 'Yesterday', style: 'dashed' },
                                     ].map(l => (
                                         <div key={l.label} className="flex items-center gap-1.5">
-                                            <div className={`size-2 rounded-full ${l.color}`} />
+                                            <div className={`w-4 h-0.5 rounded ${l.color} ${l.style === 'dashed' ? 'border-t border-dashed border-accent/40' : ''}`} />
                                             <span className="text-[11px] text-text-tertiary">{l.label}</span>
                                         </div>
                                     ))}
@@ -137,95 +144,110 @@ export default function AnalyticsPage() {
                                 <svg className="w-full h-full" preserveAspectRatio="none" viewBox="0 0 1000 300">
                                     <defs>
                                         <linearGradient id="occGrad" x1="0" x2="0" y1="0" y2="1">
-                                            <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.25" />
+                                            <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.2" />
                                             <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
                                         </linearGradient>
                                     </defs>
-                                    {[75, 150, 225].map(y => (
+                                    {[70, 140, 210].map(y => (
                                         <line key={y} stroke="var(--border-subtle)" x1="0" x2="1000" y1={y} y2={y} />
                                     ))}
-                                    <path d="M0,250 L100,220 L200,180 L300,200 L400,140 L500,160 L600,100 L700,120 L800,80 L900,110 L1000,90 V300 H0 Z" fill="url(#occGrad)" />
-                                    <path d="M0,250 L100,220 L200,180 L300,200 L400,140 L500,160 L600,100 L700,120 L800,80 L900,110 L1000,90" fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinejoin="round" />
-                                    <path d="M0,280 L100,260 L200,240 L300,250 L400,200 L500,210 L600,180 L700,190 L800,150 L900,170 L1000,160" fill="none" stroke="var(--success)" strokeWidth="1.5" strokeDasharray="6,4" />
-                                    <path d="M0,290 L100,275 L200,260 L300,270 L400,235 L500,245 L600,220 L700,230 L800,200 L900,215 L1000,205" fill="none" stroke="#f97316" strokeWidth="1.5" strokeDasharray="6,4" />
+                                    <path d={areaPath} fill="url(#occGrad)" />
+                                    <path d={currentPath} fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinejoin="round" />
+                                    <path d={previousPath} fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeDasharray="6,4" opacity="0.35" />
                                 </svg>
                                 <div className="flex justify-between mt-3">
-                                    {['00:00', '06:00', '12:00', '18:00', 'Now'].map(t => (
-                                        <span key={t} className="text-[10px] text-text-tertiary font-mono">{t}</span>
+                                    {occupancyTrends.current.filter((_, i) => i % 2 === 0).map(d => (
+                                        <span key={d.time} className="text-[10px] text-text-tertiary font-mono">{d.time}</span>
                                     ))}
                                 </div>
                             </div>
                         </Card>
 
-                        {/* Alert distribution */}
+                        {/* Entry/Exit Donut + Dwell Distribution */}
                         <Card className="flex flex-col" padding="lg">
-                            <h3 className="text-base font-bold text-text-primary">Incident Distribution</h3>
-                            <p className="text-sm text-text-tertiary mt-0.5 mb-5">By category</p>
+                            <h3 className="text-base font-bold text-text-primary">Flow Ratio</h3>
+                            <p className="text-sm text-text-tertiary mt-0.5 mb-4">Entry vs Exit</p>
 
-                            <div className="flex-grow flex items-center justify-center relative mb-5">
-                                <div className="relative size-40 rounded-full border-[10px] border-surface-3 flex items-center justify-center">
-                                    <div className="absolute inset-0 rounded-full border-[10px] border-accent border-t-transparent border-l-transparent rotate-45" />
-                                    <div className="absolute inset-0 rounded-full border-[10px] border-warning border-b-transparent border-r-transparent border-l-transparent -rotate-[15deg]" />
-                                    <div className="absolute inset-0 rounded-full border-[10px] border-danger border-r-transparent border-b-transparent border-t-transparent rotate-180" />
-                                    <div className="text-center">
-                                        <span className="block text-2xl font-bold text-text-primary">1,240</span>
-                                        <span className="text-[10px] uppercase text-text-tertiary font-medium tracking-wider">Total</span>
+                            <div className="flex items-center justify-center relative mb-4">
+                                <div className="relative size-36">
+                                    <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
+                                        <circle cx="50" cy="50" r="40" fill="none" stroke="var(--surface-3)" strokeWidth="10" />
+                                        <circle cx="50" cy="50" r="40" fill="none" stroke="var(--success)" strokeWidth="10"
+                                            strokeDasharray={`${flowRatio.entry_exit.in_percentage * 2.51} ${100 * 2.51}`} />
+                                        <circle cx="50" cy="50" r="40" fill="none" stroke="#f97316" strokeWidth="10"
+                                            strokeDasharray={`${flowRatio.entry_exit.out_percentage * 2.51} ${100 * 2.51}`}
+                                            strokeDashoffset={`-${flowRatio.entry_exit.in_percentage * 2.51}`} />
+                                    </svg>
+                                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                                        <span className="text-lg font-bold text-text-primary">{summary.total_in + summary.total_out}</span>
+                                        <span className="text-[9px] text-text-tertiary uppercase tracking-wider">Total</span>
                                     </div>
                                 </div>
                             </div>
 
-                            <div className="space-y-2.5">
-                                {[
-                                    { color: 'bg-warning', label: 'Loitering', data: analyticsData.alertDistribution.loitering },
-                                    { color: 'bg-danger', label: 'Fall Detection', data: analyticsData.alertDistribution.fall },
-                                    { color: 'bg-accent', label: 'Zone Breach', data: analyticsData.alertDistribution.areaBreach },
-                                    { color: 'bg-text-tertiary', label: 'Other', data: analyticsData.alertDistribution.other },
-                                ].map(item => (
-                                    <div key={item.label} className="flex items-center justify-between">
-                                        <div className="flex items-center gap-2.5">
-                                            <span className={`size-2.5 rounded-sm ${item.color}`} />
-                                            <span className="text-[13px] text-text-secondary">{item.label}</span>
+                            <div className="flex justify-center gap-6 mb-5">
+                                <div className="flex items-center gap-1.5">
+                                    <div className="size-2.5 rounded-sm bg-success" />
+                                    <span className="text-[12px] text-text-secondary">In {flowRatio.entry_exit.in_percentage}%</span>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                    <div className="size-2.5 rounded-sm bg-orange-500" />
+                                    <span className="text-[12px] text-text-secondary">Out {flowRatio.entry_exit.out_percentage}%</span>
+                                </div>
+                            </div>
+
+                            <div className="border-t border-border-subtle pt-4">
+                                <p className="text-[11px] text-text-tertiary uppercase tracking-wider font-medium mb-3">Dwell Distribution</p>
+                                <div className="space-y-2">
+                                    {flowRatio.dwell_distribution.map(d => (
+                                        <div key={d.range} className="flex items-center gap-3">
+                                            <span className="text-[11px] text-text-secondary w-16 shrink-0">{d.range}</span>
+                                            <div className="flex-1 h-1.5 bg-surface-3 rounded-full overflow-hidden">
+                                                <div className="h-full bg-accent/60 rounded-full transition-all" style={{ width: `${d.percentage}%` }} />
+                                            </div>
+                                            <span className="text-[11px] text-text-primary font-mono w-8 text-right">{d.percentage}%</span>
                                         </div>
-                                        <span className="text-[13px] font-medium text-text-primary font-mono">
-                                            {item.data.count} <span className="text-text-tertiary text-[11px]">({item.data.percentage}%)</span>
-                                        </span>
-                                    </div>
-                                ))}
+                                    ))}
+                                </div>
                             </div>
                         </Card>
                     </div>
 
-                    {/* Section label */}
+                    {/* ====== BOTTOM ROW: Heatmap + Traffic Bar ====== */}
                     <div className="flex items-center gap-3 pt-1">
                         <span className="text-[11px] text-text-tertiary font-medium uppercase tracking-widest">Breakdown</span>
                         <div className="flex-1 h-px bg-border-subtle" />
                     </div>
 
-                    {/* Bottom row — 7/5 (intentional asymmetry) */}
                     <div className="grid grid-cols-12 gap-5 stagger-children">
-                        {/* Hourly heatmap — span 7 */}
+                        {/* 24h×7d Heatmap — span 7 */}
                         <Card className="col-span-7" padding="lg">
-                            <h3 className="text-base font-bold text-text-primary">Hourly Activity</h3>
-                            <p className="text-sm text-text-tertiary mt-0.5 mb-4">Peak hours analysis</p>
-                            <div className="grid grid-cols-12 gap-1.5">
-                                {Array.from({ length: 24 }, (_, i) => {
-                                    const intensities = [0.15, 0.08, 0.05, 0.06, 0.12, 0.35, 0.55, 0.72, 0.85, 0.92, 0.88, 0.78, 0.82, 0.75, 0.68, 0.62, 0.7, 0.65, 0.45, 0.38, 0.3, 0.22, 0.18, 0.12];
-                                    const intensity = intensities[i];
-                                    return (
-                                        <div key={i} className="flex flex-col items-center gap-1">
-                                            <div
-                                                className="w-full aspect-square rounded-[3px] transition-colors hover:ring-1 hover:ring-accent/50"
-                                                style={{ backgroundColor: `rgba(59, 130, 246, ${0.08 + intensity * 0.85})` }}
-                                                title={`${i}:00 — ${Math.round(intensity * 100)}% activity`}
-                                            />
-                                            {i % 6 === 0 && (
-                                                <span className="text-[9px] text-text-tertiary font-mono">{i}h</span>
-                                            )}
+                            <h3 className="text-base font-bold text-text-primary">Weekly Heatmap</h3>
+                            <p className="text-sm text-text-tertiary mt-0.5 mb-4">24h × 7 days activity pattern</p>
+                            <div className="space-y-1">
+                                {heatmap.map(row => (
+                                    <div key={row.day} className="flex items-center gap-2">
+                                        <span className="text-[10px] text-text-tertiary font-mono w-7 shrink-0">{row.day}</span>
+                                        <div className="flex gap-[2px] flex-1">
+                                            {row.hours.map((intensity, h) => (
+                                                <div
+                                                    key={h}
+                                                    className="flex-1 aspect-square rounded-[2px] hover:ring-1 hover:ring-accent/50 transition-all cursor-crosshair"
+                                                    style={{ backgroundColor: `rgba(59, 130, 246, ${0.06 + intensity * 0.88})` }}
+                                                    title={`${row.day} ${h}:00 — ${Math.round(intensity * 100)}%`}
+                                                />
+                                            ))}
                                         </div>
-                                    );
-                                })}
+                                    </div>
+                                ))}
                             </div>
-                            <div className="flex items-center justify-between mt-4">
+                            {/* Hour labels */}
+                            <div className="flex mt-2 ml-9">
+                                {[0, 4, 8, 12, 16, 20].map(h => (
+                                    <span key={h} className="text-[9px] text-text-tertiary font-mono" style={{ marginLeft: h === 0 ? 0 : `${(4 / 24) * 100}%` }}>{h}h</span>
+                                ))}
+                            </div>
+                            <div className="flex items-center justify-between mt-3">
                                 <span className="text-[10px] text-text-tertiary">Low</span>
                                 <div className="flex gap-0.5">
                                     {[0.1, 0.3, 0.5, 0.7, 0.9].map((op, i) => (
@@ -236,19 +258,42 @@ export default function AnalyticsPage() {
                             </div>
                         </Card>
 
-                        {/* Behavior classification — span 5 */}
+                        {/* Daily Traffic Bar Chart — span 5 */}
                         <Card className="col-span-5" padding="lg">
-                            <h3 className="text-base font-bold text-text-primary">Behavior Classification</h3>
-                            <p className="text-sm text-text-tertiary mt-0.5 mb-5">AI-detected distribution</p>
-                            <div className="space-y-5">
-                                {[
-                                    { label: 'Walking', value: 68, color: 'var(--accent)' },
-                                    { label: 'Standing', value: 24, color: 'var(--success)' },
-                                    { label: 'Sitting', value: 5, color: '#a78bfa' },
-                                    { label: 'Loitering', value: 3, color: 'var(--warning)' },
-                                ].map((b) => (
-                                    <ProgressBar key={b.label} label={b.label} value={b.value} color={b.color} />
+                            <h3 className="text-base font-bold text-text-primary">Daily Traffic</h3>
+                            <p className="text-sm text-text-tertiary mt-0.5 mb-4">Entry vs Exit by day</p>
+                            <div className="flex items-end gap-3 flex-grow" style={{ minHeight: 200 }}>
+                                {trafficDaily.map(d => (
+                                    <div key={d.day} className="flex-1 flex flex-col items-center gap-1">
+                                        <div className="w-full flex gap-[2px] justify-center" style={{ height: 180 }}>
+                                            <div className="flex flex-col justify-end w-[45%]">
+                                                <div
+                                                    className="bg-success/70 rounded-t-sm hover:bg-success transition-colors"
+                                                    style={{ height: `${(d.total_in / maxTraffic) * 100}%` }}
+                                                    title={`In: ${d.total_in}`}
+                                                />
+                                            </div>
+                                            <div className="flex flex-col justify-end w-[45%]">
+                                                <div
+                                                    className="bg-orange-500/60 rounded-t-sm hover:bg-orange-500 transition-colors"
+                                                    style={{ height: `${(d.total_out / maxTraffic) * 100}%` }}
+                                                    title={`Out: ${d.total_out}`}
+                                                />
+                                            </div>
+                                        </div>
+                                        <span className="text-[10px] text-text-tertiary font-mono">{d.day}</span>
+                                    </div>
                                 ))}
+                            </div>
+                            <div className="flex justify-center gap-6 mt-4 pt-3 border-t border-border-subtle">
+                                <div className="flex items-center gap-1.5">
+                                    <div className="size-2.5 rounded-sm bg-success/70" />
+                                    <span className="text-[11px] text-text-secondary">Entry</span>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                    <div className="size-2.5 rounded-sm bg-orange-500/60" />
+                                    <span className="text-[11px] text-text-secondary">Exit</span>
+                                </div>
                             </div>
                         </Card>
                     </div>
