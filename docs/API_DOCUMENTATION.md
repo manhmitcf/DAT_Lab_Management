@@ -107,10 +107,11 @@ KPI cards tổng quan. `period`: `1h` · `today` · `7d` · `30d`
 
 | Field → UI |
 |------------|
-| `current_occupancy` → KPI "Current Occupancy" (featured) |
+| `total_in` → KPI "Entry In" |
+| `total_out` → KPI "Entry Out" |
 | `peak_occupancy` + `peak_time` → KPI "Peak Hour" |
+| `current_occupancy` → KPI "Occupancy" (featured) |
 | `avg_dwell_time_minutes` → KPI "Avg Dwell Time" |
-| `net_flow` (`total_in - total_out`) → KPI "Net Flow" |
 
 ---
 

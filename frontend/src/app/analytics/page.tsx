@@ -154,16 +154,22 @@ export default function AnalyticsPage() {
                 <main className="flex-1 overflow-y-auto p-6 space-y-6">
 
                     {/* ══════ ROW 1: KPI Cards ══════ */}
-                    <div className="grid grid-cols-4 gap-5 stagger-children">
-                        <Card variant="featured" className="relative overflow-hidden group" hover>
-                            <div className="absolute -top-4 -right-4 opacity-[0.04] group-hover:opacity-[0.08] transition-opacity">
-                                <span className="material-symbols-outlined text-[72px] text-accent">groups</span>
-                            </div>
-                            <p className="text-text-tertiary text-[11px] font-medium uppercase tracking-wider mb-2">Current Occupancy</p>
-                            <h2 className="text-4xl font-bold text-text-primary tracking-tight">{summary.current_occupancy}</h2>
-                            <p className="text-[11px] text-text-tertiary mt-3">people in lab now</p>
+                    <div className="grid grid-cols-5 gap-5 stagger-children">
+                        {/* 1. Entry In */}
+                        <Card className="group" hover>
+                            <p className="text-text-tertiary text-[11px] font-medium uppercase tracking-wider mb-2">Entry In</p>
+                            <h2 className="text-3xl font-bold text-success">+{summary.total_in}</h2>
+                            <p className="text-[11px] text-text-tertiary mt-3 uppercase tracking-widest font-mono">Total Ingress</p>
                         </Card>
 
+                        {/* 2. Entry Out */}
+                        <Card className="group" hover>
+                            <p className="text-text-tertiary text-[11px] font-medium uppercase tracking-wider mb-2">Entry Out</p>
+                            <h2 className="text-3xl font-bold text-orange-500">-{summary.total_out}</h2>
+                            <p className="text-[11px] text-text-tertiary mt-3 uppercase tracking-widest font-mono">Total Egress</p>
+                        </Card>
+
+                        {/* 3. Peak Hour */}
                         <Card className="group" hover>
                             <p className="text-text-tertiary text-[11px] font-medium uppercase tracking-wider mb-2">Peak Hour</p>
                             <h2 className="text-3xl font-bold text-text-primary">{summary.peak_time}</h2>
@@ -172,6 +178,17 @@ export default function AnalyticsPage() {
                             </div>
                         </Card>
 
+                        {/* 4. Occupancy */}
+                        <Card variant="featured" className="relative overflow-hidden group" hover>
+                            <div className="absolute -top-4 -right-4 opacity-[0.04] group-hover:opacity-[0.08] transition-opacity">
+                                <span className="material-symbols-outlined text-[72px] text-accent">groups</span>
+                            </div>
+                            <p className="text-text-tertiary text-[11px] font-medium uppercase tracking-wider mb-2">Occupancy</p>
+                            <h2 className="text-4xl font-bold text-text-primary tracking-tight">{summary.current_occupancy}</h2>
+                            <p className="text-[11px] text-text-tertiary mt-3">people in lab now</p>
+                        </Card>
+
+                        {/* 5. Avg Dwell Time */}
                         <Card className="group" hover>
                             <p className="text-text-tertiary text-[11px] font-medium uppercase tracking-wider mb-2">Avg Dwell Time</p>
                             <div className="flex items-baseline gap-1.5">
@@ -180,15 +197,6 @@ export default function AnalyticsPage() {
                             </div>
                             <div className="mt-3 h-1.5 w-full bg-surface-3 rounded-full overflow-hidden">
                                 <div className="h-full bg-accent rounded-full animate-bar-fill" style={{ width: `${Math.min((summary.avg_dwell_time_minutes / 60) * 100, 100)}%` }} />
-                            </div>
-                        </Card>
-
-                        <Card className="group" hover>
-                            <p className="text-text-tertiary text-[11px] font-medium uppercase tracking-wider mb-2">Net Flow</p>
-                            <h2 className="text-3xl font-bold text-success">+{summary.net_flow}</h2>
-                            <div className="flex items-center gap-4 mt-3 text-[12px]">
-                                <span className="text-success font-mono">▲ {summary.total_in}</span>
-                                <span className="text-orange-400 font-mono">▼ {summary.total_out}</span>
                             </div>
                         </Card>
                     </div>
