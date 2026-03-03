@@ -1,4 +1,5 @@
 import json
+import time
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
 from datetime import datetime
@@ -46,7 +47,17 @@ class FrontendConsumer(AsyncWebsocketConsumer):
 class EdgeDeviceConsumer(AsyncWebsocketConsumer):
     """
     Consumer for Edge Device to send data upstream.
+    Implements Smart Sampling: Saves Max/Min occupancy every 5 mins + All Alerts.
     """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # State variables for 5-minute window sampling
+        self.WINDOW_DURATION = 300  # 5 minutes in seconds
+        self.window_start_time = time.time()
+        self.max_occupancy_frame = None
+        self.min_occupancy_frame = None
+        self.max_occupancy_count = -1
+        self.min_occupancy_count = float('inf')
 
     async def connect(self):
         # Authenticate edge device here if needed
@@ -54,6 +65,8 @@ class EdgeDeviceConsumer(AsyncWebsocketConsumer):
         logger.info("Edge device connected")
 
     async def disconnect(self, close_code):
+        # Flush any remaining frames before disconnecting
+        await self.flush_window_frames()
         logger.info(f"Edge device disconnected with code {close_code}")
 
     async def receive(self, text_data):
@@ -70,8 +83,6 @@ class EdgeDeviceConsumer(AsyncWebsocketConsumer):
 
             except ValidationError as e:
                 logger.error(f"Validation Error: {e.json()}")
-                # Optionally send error back to Edge Device
-                # await self.send(text_data=json.dumps({"error": "Invalid Data", "details": e.errors()}))
                 return
 
             # 1. PUSH REALTIME: Immediately broadcast to Frontend (via Group)
@@ -84,22 +95,69 @@ class EdgeDeviceConsumer(AsyncWebsocketConsumer):
                     }
                 )
 
-            # 2. SAVE TO DATABASE: Check save_to_db flag
+            # 2. SAVE TO DATABASE (OPTIMIZED)
             if validated_frame.save_to_db:
-                await self.save_frame_data(validated_frame)
+                # A. Always save ALERT frames immediately
+                if validated_frame.alert != 'none':
+                    await self.save_frame_data(validated_frame, reason=f"Alert ({validated_frame.alert})")
+                
+                # B. Process for 5-minute window sampling (Max/Min)
+                await self.process_frame_for_window(validated_frame)
 
         except json.JSONDecodeError:
             logger.error("Invalid JSON received")
         except Exception as e:
             logger.error(f"Error processing message: {str(e)}")
 
+    async def process_frame_for_window(self, frame: FrameDataSchema):
+        current_time = time.time()
+        
+        # Check if the 5-minute window has passed
+        if current_time - self.window_start_time >= self.WINDOW_DURATION:
+            await self.flush_window_frames()
+        
+        # Update max/min occupancy frames within the current window
+        current_occupancy = len(frame.objects)
+        
+        # Update Max
+        if current_occupancy > self.max_occupancy_count:
+            self.max_occupancy_count = current_occupancy
+            self.max_occupancy_frame = frame
+            
+        # Update Min
+        if current_occupancy < self.min_occupancy_count:
+            self.min_occupancy_count = current_occupancy
+            self.min_occupancy_frame = frame
+
+    async def flush_window_frames(self):
+        """Saves the max and min frames of the completed window to the DB."""
+        saved_ids = set()
+
+        # Save Max Frame
+        if self.max_occupancy_frame:
+            await self.save_frame_data(self.max_occupancy_frame, reason=f"Max Occupancy ({self.max_occupancy_count})")
+            # We don't have frame_id anymore, so we can't use it to avoid duplicates.
+            # This is a minor issue, as max/min are unlikely to be the same frame.
+        
+        # Save Min Frame
+        if self.min_occupancy_frame:
+            # A simple check to see if the frames are identical might be enough
+            if self.min_occupancy_frame != self.max_occupancy_frame:
+                await self.save_frame_data(self.min_occupancy_frame, reason=f"Min Occupancy ({self.min_occupancy_count})")
+
+        # Reset for the new window
+        self.window_start_time = time.time()
+        self.max_occupancy_frame = None
+        self.min_occupancy_frame = None
+        self.max_occupancy_count = -1
+        self.min_occupancy_count = float('inf')
+
     @database_sync_to_async
-    def save_frame_data(self, frame_schema: FrameDataSchema):
+    def save_frame_data(self, frame_schema: FrameDataSchema, reason: str = "Unspecified"):
         try:
             with transaction.atomic():
                 # Create FrameData instance (Django Model)
                 frame = FrameData.objects.create(
-                    frame_id=frame_schema.frame_id,
                     timestamp=frame_schema.timestamp,
                     count_in=frame_schema.count_in,
                     count_out=frame_schema.count_out,
@@ -116,8 +174,6 @@ class EdgeDeviceConsumer(AsyncWebsocketConsumer):
                     object_instances.append(ObjectDetection(
                         frame_data=frame,
                         track_id=obj.track_id,
-                        class_name=obj.class_name,
-                        conf=obj.conf,
                         bbox=obj.bbox,
                         coordinates_2D=obj.coordinates_2D
                     ))
@@ -125,7 +181,7 @@ class EdgeDeviceConsumer(AsyncWebsocketConsumer):
                 if object_instances:
                     ObjectDetection.objects.bulk_create(object_instances)
 
-                logger.info(f"Saved frame {frame.frame_id} with {len(object_instances)} objects")
+                logger.info(f"Saved frame at {frame.timestamp} (Reason: {reason})")
 
         except Exception as e:
             logger.error(f"Error saving to database: {str(e)}")

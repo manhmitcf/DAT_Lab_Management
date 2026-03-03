@@ -1,6 +1,9 @@
 from pydantic import BaseModel, Field, ConfigDict
-from typing import List, Optional
+from typing import List, Optional, Literal
 from datetime import datetime, timezone
+
+# Define Alert Levels
+AlertType = Literal['none', 'info', 'warning', 'critical']
 
 class ObjectDetection(BaseModel):
     """
@@ -9,11 +12,6 @@ class ObjectDetection(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     track_id: int = Field(..., description="Unique tracking ID")
-
-    # Object class (person, vehicle, ...)
-    class_name: str = Field("person", alias="class", description="Object class name")
-
-    conf: float = Field(..., ge=0, le=1)
 
     # Pixel-based bounding box
     bbox: List[float] = Field(
@@ -37,9 +35,6 @@ class FrameData(BaseModel):
     Designed for a single-camera setup.
     Schema as per backend API requirements.
     """
-    # Sequential ID of the frame from the start of the stream
-    frame_id: int = Field(..., description="Sequential frame index")
-
     # UTC timestamp of the inference process
     # Use default_factory with lambda to get current time at instantiation
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="UTC inference timestamp")
@@ -48,8 +43,8 @@ class FrameData(BaseModel):
     count_in: int = Field(0, description="Cumulative count of entries")
     count_out: int = Field(0, description="Cumulative count of exits")
 
-    # Alert flag
-    alert: bool = Field(False, description="Alert flag for abnormal events")
+    # Alert level
+    alert: AlertType = Field('none', description="Alert level (none, info, warning, critical)")
 
     # Flag to signal the Backend to persist data in PostgreSQL for Heatmap/Analytics
     save_to_db: bool = Field(False, description="true = save to DB, false = forward realtime only")
@@ -67,3 +62,13 @@ class FrameData(BaseModel):
 
     # List of detected objects
     objects: List[ObjectDetection] = Field(default_factory=list)
+
+class StatsResponse(BaseModel):
+    """
+    Response schema for /stats endpoint.
+    """
+    person_count: int = Field(..., description="Current occupancy (number of people)")
+    person_count_change: float = Field(..., description="Percentage change compared to yesterday")
+    entry_today: int = Field(..., description="Total entries today")
+    exit_today: int = Field(..., description="Total exits today")
+    fps: int = Field(30, description="Current FPS (default 30)")
