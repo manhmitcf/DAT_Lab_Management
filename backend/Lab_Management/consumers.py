@@ -47,13 +47,26 @@ class FrontendConsumer(AsyncWebsocketConsumer):
 class EdgeDeviceConsumer(AsyncWebsocketConsumer):
     """
     Consumer for Edge Device to send data upstream.
-    Implements Smart Sampling: Saves Max/Min occupancy every 5 mins + All Alerts.
+    Implements Smart Sampling Strategy:
+    1. Alert (Warning/Critical) -> Save Immediately
+    2. Sudden Change (>5 people) -> Save Immediately
+    3. Start Frame (Every 1 min) -> Save Immediately
+    4. Max/Min Occupancy (Every 5 mins) -> Save at end of window
     """
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # State variables for 5-minute window sampling
-        self.WINDOW_DURATION = 300  # 5 minutes in seconds
-        self.window_start_time = time.time()
+        
+        # --- Sampling Configuration ---
+        self.WINDOW_DURATION_5M = 300  # 5 minutes
+        self.WINDOW_DURATION_1M = 60   # 1 minute
+        self.SUDDEN_CHANGE_THRESHOLD = 5 # People count difference
+        
+        # --- State Variables ---
+        self.window_start_5m = time.time()
+        self.last_saved_1m_time = 0
+        self.last_saved_occupancy = 0 # To track sudden changes
+        
+        # Max/Min tracking for 5-min window
         self.max_occupancy_frame = None
         self.min_occupancy_frame = None
         self.max_occupancy_count = -1
@@ -77,10 +90,7 @@ class EdgeDeviceConsumer(AsyncWebsocketConsumer):
             try:
                 # Validate incoming JSON against the schema
                 validated_frame = FrameDataSchema.model_validate(raw_data)
-
-                # Convert back to dict for processing (using by_alias to keep 'class' field if needed)
                 data = validated_frame.model_dump(mode='json', by_alias=True)
-
             except ValidationError as e:
                 logger.error(f"Validation Error: {e.json()}")
                 return
@@ -90,34 +100,54 @@ class EdgeDeviceConsumer(AsyncWebsocketConsumer):
                 await self.channel_layer.group_send(
                     MONITOR_GROUP_NAME,
                     {
-                        "type": "broadcast_frame",  # Handler name in FrontendConsumer
+                        "type": "broadcast_frame",
                         "message": data
                     }
                 )
 
-            # 2. SAVE TO DATABASE (OPTIMIZED)
+            # 2. SAVE TO DATABASE (SMART SAMPLING)
             if validated_frame.save_to_db:
-                # A. Always save ALERT frames immediately
-                if validated_frame.alert != 'none':
-                    await self.save_frame_data(validated_frame, reason=f"Alert ({validated_frame.alert})")
-                
-                # B. Process for 5-minute window sampling (Max/Min)
-                await self.process_frame_for_window(validated_frame)
+                await self.process_smart_sampling(validated_frame)
 
         except json.JSONDecodeError:
             logger.error("Invalid JSON received")
         except Exception as e:
             logger.error(f"Error processing message: {str(e)}")
 
-    async def process_frame_for_window(self, frame: FrameDataSchema):
+    async def process_smart_sampling(self, frame: FrameDataSchema):
         current_time = time.time()
-        
-        # Check if the 5-minute window has passed
-        if current_time - self.window_start_time >= self.WINDOW_DURATION:
-            await self.flush_window_frames()
-        
-        # Update max/min occupancy frames within the current window
         current_occupancy = len(frame.objects)
+        should_save_now = False
+        save_reason = ""
+
+        # A. Priority 1: Critical/Warning Alert
+        if frame.alert in ['warning', 'critical']:
+            should_save_now = True
+            save_reason = f"Alert ({frame.alert})"
+
+        # B. Priority 2: Sudden Change
+        # Compare with the last saved occupancy (to avoid noise)
+        elif abs(current_occupancy - self.last_saved_occupancy) > self.SUDDEN_CHANGE_THRESHOLD:
+            should_save_now = True
+            save_reason = f"Sudden Change ({self.last_saved_occupancy} -> {current_occupancy})"
+
+        # C. Priority 3: Start Frame (Every 1 minute)
+        elif current_time - self.last_saved_1m_time >= self.WINDOW_DURATION_1M:
+            should_save_now = True
+            save_reason = "Start Frame (1m)"
+            self.last_saved_1m_time = current_time
+
+        # --- Execute Save if needed ---
+        if should_save_now:
+            await self.save_frame_data(frame, reason=save_reason)
+            self.last_saved_occupancy = current_occupancy
+
+        # D. Priority 4: Max/Min Tracking (Every 5 minutes)
+        # Always update tracking state, regardless of whether we saved above
+        
+        # Check if 5-min window passed
+        if current_time - self.window_start_5m >= self.WINDOW_DURATION_5M:
+            await self.flush_window_frames()
         
         # Update Max
         if current_occupancy > self.max_occupancy_count:
@@ -130,23 +160,21 @@ class EdgeDeviceConsumer(AsyncWebsocketConsumer):
             self.min_occupancy_frame = frame
 
     async def flush_window_frames(self):
-        """Saves the max and min frames of the completed window to the DB."""
-        saved_ids = set()
-
+        """Saves the max and min frames of the completed 5-min window."""
         # Save Max Frame
         if self.max_occupancy_frame:
             await self.save_frame_data(self.max_occupancy_frame, reason=f"Max Occupancy ({self.max_occupancy_count})")
-            # We don't have frame_id anymore, so we can't use it to avoid duplicates.
-            # This is a minor issue, as max/min are unlikely to be the same frame.
         
-        # Save Min Frame
+        # Save Min Frame (only if different from Max)
         if self.min_occupancy_frame:
-            # A simple check to see if the frames are identical might be enough
-            if self.min_occupancy_frame != self.max_occupancy_frame:
+            # Simple object comparison might not work if timestamps differ slightly, 
+            # but here we care about the content. 
+            # If occupancy is different, definitely save.
+            if self.min_occupancy_count != self.max_occupancy_count:
                 await self.save_frame_data(self.min_occupancy_frame, reason=f"Min Occupancy ({self.min_occupancy_count})")
 
         # Reset for the new window
-        self.window_start_time = time.time()
+        self.window_start_5m = time.time()
         self.max_occupancy_frame = None
         self.min_occupancy_frame = None
         self.max_occupancy_count = -1
