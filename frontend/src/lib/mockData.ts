@@ -225,4 +225,41 @@ export const analyticsData = {
             { range: '> 30 min', percentage: 15 },
         ],
     },
+    // GET /analytics/peak-daily
+    peakDaily: [
+        { day: 'Mon', peak: 72, time: '14:30' },
+        { day: 'Tue', peak: 85, time: '10:15' },
+        { day: 'Wed', peak: 94, time: '14:00' },
+        { day: 'Thu', peak: 78, time: '11:30' },
+        { day: 'Fri', peak: 88, time: '15:00' },
+        { day: 'Sat', peak: 45, time: '12:00' },
+        { day: 'Sun', peak: 32, time: '10:30' },
+    ],
+    // GET /analytics/cumulative-traffic
+    cumulativeTraffic: [
+        { time: '00:00', cumulative_in: 0, cumulative_out: 0 },
+        { time: '02:00', cumulative_in: 12, cumulative_out: 8 },
+        { time: '04:00', cumulative_in: 18, cumulative_out: 15 },
+        { time: '06:00', cumulative_in: 45, cumulative_out: 28 },
+        { time: '08:00', cumulative_in: 150, cumulative_out: 82 },
+        { time: '10:00', cumulative_in: 320, cumulative_out: 195 },
+        { time: '12:00', cumulative_in: 480, cumulative_out: 350 },
+        { time: '14:00', cumulative_in: 620, cumulative_out: 475 },
+        { time: '16:00', cumulative_in: 720, cumulative_out: 590 },
+        { time: '18:00', cumulative_in: 790, cumulative_out: 680 },
+        { time: '20:00', cumulative_in: 825, cumulative_out: 720 },
+        { time: '22:00', cumulative_in: 847, cumulative_out: 743 },
+    ],
+    // GET /analytics/dwell-by-hour
+    dwellByHour: [
+        { time: '06:00', avg_dwell: 8 },
+        { time: '08:00', avg_dwell: 15 },
+        { time: '10:00', avg_dwell: 28 },
+        { time: '12:00', avg_dwell: 35 },
+        { time: '14:00', avg_dwell: 42 },
+        { time: '16:00', avg_dwell: 30 },
+        { time: '18:00', avg_dwell: 22 },
+        { time: '20:00', avg_dwell: 12 },
+        { time: '22:00', avg_dwell: 6 },
+    ],
 };

@@ -187,6 +187,63 @@ Donut chart: tỷ lệ Entry vs Exit và phân tích dwell time.
 
 ---
 
+## `GET /api/lab_management/analytics/peak-daily?period={period}`
+
+Bar chart: peak occupancy đạt được mỗi ngày. Highlight khi vượt threshold.
+
+```json
+{
+  "data": [
+    { "day": "Mon", "peak": 72, "time": "14:30" },
+    { "day": "Tue", "peak": 85, "time": "10:15" },
+    { "day": "Wed", "peak": 94, "time": "14:00" }
+  ]
+}
+```
+
+---
+
+## `GET /api/lab_management/analytics/cumulative-traffic?period={period}`
+
+Area chart: tích lũy entry/exit trong ngày — thể hiện tốc độ lấp đầy.
+
+```json
+{
+  "data": [
+    { "time": "00:00", "cumulative_in": 0, "cumulative_out": 0 },
+    { "time": "08:00", "cumulative_in": 150, "cumulative_out": 82 },
+    { "time": "14:00", "cumulative_in": 620, "cumulative_out": 475 }
+  ]
+}
+```
+
+---
+
+## `GET /api/lab_management/analytics/dwell-by-hour?period={period}`
+
+Line chart: avg dwell time theo giờ — tìm ra lúc nào visitors ở lại lâu nhất.
+
+```json
+{
+  "data": [
+    { "time": "06:00", "avg_dwell": 8 },
+    { "time": "10:00", "avg_dwell": 28 },
+    { "time": "14:00", "avg_dwell": 42 }
+  ]
+}
+```
+
+---
+
+## `GET /api/lab_management/analytics/export?period={period}`
+
+Export CSV report chứa tất cả analytics data.
+
+**Response:** `Content-Type: text/csv`, `Content-Disposition: attachment; filename="analytics_report_{period}_{date}.csv"`
+
+> [!NOTE]
+> FE cũng có thể tự tạo CSV client-side từ data đang có mà không cần gọi endpoint này.
+
 # Tab 3 — Alerts (`/alerts`)
 
 Quản lý sự kiện bất thường. Timeline view.
