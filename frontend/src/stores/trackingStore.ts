@@ -30,7 +30,7 @@ interface TrackingState {
     isOnline: boolean;
     setIsOnline: (status: boolean) => void;
 
-    // Live video frame from WebSocket (base64 data URL)
+    // Live video frame from WebSocket (blob URL from binary JPEG)
     currentFrame: string | null;
     setCurrentFrame: (frame: string | null) => void;
 
