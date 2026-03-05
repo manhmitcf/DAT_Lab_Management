@@ -9,10 +9,13 @@ ENV PYTHONUNBUFFERED 1
 WORKDIR /app
 
 # Install system dependencies
+# Added redis-server
 RUN apt-get update && apt-get install -y \
     build-essential \
     libpq-dev \
     gcc \
+    supervisor \
+    redis-server \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
@@ -23,8 +26,11 @@ RUN pip install -r requirements.txt
 # Copy project
 COPY . /app/
 
+# Copy supervisor configuration
+COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+
 # Expose port 8000
 EXPOSE 8000
 
-# Run Daphne (ASGI)
-CMD ["daphne", "-b", "0.0.0.0", "-p", "8000", "config.asgi:application"]
+# Run Supervisor to manage multiple processes (Redis, Daphne, Celery)
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
