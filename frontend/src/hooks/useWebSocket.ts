@@ -58,6 +58,8 @@ export function useWebSocket() {
         useTrackingStore.getState().setWsStatus('connecting');
 
         const ws = new WebSocket(WS_URL);
+        // Receive image frames as ArrayBuffer (raw binary JPEG)
+        ws.binaryType = 'arraybuffer';
         wsRef.current = ws;
 
         ws.onopen = () => {
@@ -69,61 +71,78 @@ export function useWebSocket() {
             useTrackingStore.getState().setWsStatus('connected');
         };
 
-        ws.onmessage = (event: MessageEvent<string>) => {
+        ws.onmessage = (event: MessageEvent) => {
             if (!mountedRef.current) return;
 
-            const fps = computeFps();
-
-            try {
-                const data: WsPayload = JSON.parse(event.data);
+            // ── Binary message → raw JPEG frame ──────────────────────────
+            if (event.data instanceof ArrayBuffer) {
+                const fps = computeFps();
                 const store = useTrackingStore.getState();
 
-                if (data.frame_image) {
-                    store.setCurrentFrame(`data:image/jpeg;base64,${data.frame_image}`);
+                // Revoke previous blob URL to avoid memory leak
+                const prevFrame = store.currentFrame;
+                if (prevFrame?.startsWith('blob:')) {
+                    URL.revokeObjectURL(prevFrame);
                 }
 
-                const objects = data.objects ?? [];
-                const frameW = data.width_frame ?? 1280;
-                const frameH = data.height_frame ?? 720;
-                const mapW = data.width_2D ?? 500;
-                const mapH = data.height_2D ?? 500;
+                const blob = new Blob([event.data], { type: 'image/jpeg' });
+                store.setCurrentFrame(URL.createObjectURL(blob));
 
-                const persons: Person[] = objects.map((obj) => ({
-                    track_id: obj.track_id,
-                    bbox: {
-                        x: obj.bbox[0] / frameW,
-                        y: obj.bbox[1] / frameH,
-                        width: (obj.bbox[2] - obj.bbox[0]) / frameW,
-                        height: (obj.bbox[3] - obj.bbox[1]) / frameH,
-                    },
-                    keypoints: [],
-                    behavior: 'standing' as const,
-                    confidence: 0.9,
-                    timestamp: data.timestamp ?? new Date().toISOString(),
-                }));
+                // Update FPS in stats
+                store.setStats({ ...store.stats, fps });
+                return;
+            }
 
-                const markers: FloorPlanMarker[] = objects.map((obj) => ({
-                    id: obj.track_id,
-                    x: (obj.coordinates_2D[0] / mapW) * 100,
-                    y: (obj.coordinates_2D[1] / mapH) * 100,
-                    type: 'active' as const,
-                    label: `Person #${obj.track_id}`,
-                }));
+            // ── Text message → JSON metadata ──────────────────────────────
+            if (typeof event.data === 'string') {
+                try {
+                    const data: WsPayload = JSON.parse(event.data);
+                    const store = useTrackingStore.getState();
+                    const fps = computeFps();
 
-                store.setPersons(persons);
-                store.setMarkers(markers);
-                store.setAlertLevel(data.alert ?? 'none');
-                store.setStats({
-                    person_count: objects.length,
-                    person_count_change: 0,
-                    entry_today: data.count_in ?? 0,
-                    exit_today: data.count_out ?? 0,
-                    fps,
-                    behavior_distribution: { walking: 0, standing: 0, loitering: 0, other: 0 },
-                    throughput: store.stats.throughput,
-                });
-            } catch (err) {
-                console.error('[WS] parse error:', err);
+                    const objects = data.objects ?? [];
+                    const frameW = data.width_frame ?? 1280;
+                    const frameH = data.height_frame ?? 720;
+                    const mapW = data.width_2D ?? 500;
+                    const mapH = data.height_2D ?? 500;
+
+                    const persons: Person[] = objects.map((obj) => ({
+                        track_id: obj.track_id,
+                        bbox: {
+                            x: obj.bbox[0] / frameW,
+                            y: obj.bbox[1] / frameH,
+                            width: (obj.bbox[2] - obj.bbox[0]) / frameW,
+                            height: (obj.bbox[3] - obj.bbox[1]) / frameH,
+                        },
+                        keypoints: [],
+                        behavior: 'standing' as const,
+                        confidence: 0.9,
+                        timestamp: data.timestamp ?? new Date().toISOString(),
+                    }));
+
+                    const markers: FloorPlanMarker[] = objects.map((obj) => ({
+                        id: obj.track_id,
+                        x: (obj.coordinates_2D[0] / mapW) * 100,
+                        y: (obj.coordinates_2D[1] / mapH) * 100,
+                        type: 'active' as const,
+                        label: `Person #${obj.track_id}`,
+                    }));
+
+                    store.setPersons(persons);
+                    store.setMarkers(markers);
+                    store.setAlertLevel(data.alert ?? 'none');
+                    store.setStats({
+                        person_count: objects.length,
+                        person_count_change: 0,
+                        entry_today: data.count_in ?? 0,
+                        exit_today: data.count_out ?? 0,
+                        fps,
+                        behavior_distribution: { walking: 0, standing: 0, loitering: 0, other: 0 },
+                        throughput: store.stats.throughput,
+                    });
+                } catch (err) {
+                    console.error('[WS] parse error:', err);
+                }
             }
         };
 
@@ -148,6 +167,9 @@ export function useWebSocket() {
             mountedRef.current = false;
             clearTimeout(reconnectTimerRef.current);
             wsRef.current?.close();
+            // Revoke any remaining blob URL
+            const frame = useTrackingStore.getState().currentFrame;
+            if (frame?.startsWith('blob:')) URL.revokeObjectURL(frame);
         };
     }, [connect]);
 }
