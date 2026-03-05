@@ -9,6 +9,7 @@ import StatusDot from '@/components/ui/StatusDot';
 import SegmentedControl from '@/components/ui/SegmentedControl';
 import { analyticsData } from '@/lib/mockData';
 import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { toPng } from 'html-to-image';
 
 type TimeFrame = '1h' | 'today' | '7d' | '30d';
@@ -21,8 +22,6 @@ const timeFrameOptions: { value: TimeFrame; label: string }[] = [
 ];
 
 const { summary, occupancyTrends, heatmap, trafficDaily, flowRatio, peakDaily, cumulativeTraffic, dwellByHour } = analyticsData;
-
-// ── SVG helpers ──────────────────────────────────────────────────────────
 function dataToPath(data: { occupancy: number }[], maxVal: number) {
     return data.map((d, i) => {
         const x = (i / (data.length - 1)) * 1000;
@@ -35,6 +34,8 @@ export default function AnalyticsPage() {
     const [timeFrame, setTimeFrame] = useState<TimeFrame>('today');
     const [isExporting, setIsExporting] = useState(false);
     const reportRef = useRef<HTMLElement>(null);
+    const occupancyChartRef = useRef<HTMLDivElement>(null);
+    const flowChartRef = useRef<HTMLDivElement>(null);
 
     // ── Export CSV ────────────────────────────────────────────────────────
     const handleExportCSV = useCallback(() => {
@@ -104,35 +105,121 @@ export default function AnalyticsPage() {
         URL.revokeObjectURL(url);
     }, [timeFrame]);
 
-    // ── Export PDF ────────────────────────────────────────────────────────
+    // ── Export Pro PDF ────────────────────────────────────────────────────
     const handleExportPDF = async () => {
-        if (!reportRef.current) return;
         setIsExporting(true);
+        const doc = new jsPDF('p', 'pt', 'a4');
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const margin = 40;
+        let yPos = 50;
 
         try {
-            // Get current theme color from computed styles
-            const bgColor = getComputedStyle(document.body).backgroundColor || '#0a0d10';
+            // Helper: Capture chart
+            const captureChart = async (ref: React.RefObject<HTMLDivElement>) => {
+                if (!ref.current) return null;
+                return await toPng(ref.current, { pixelRatio: 2, backgroundColor: '#0a0d10' });
+            };
 
-            const dataUrl = await toPng(reportRef.current, {
-                pixelRatio: 2,
-                backgroundColor: bgColor,
-                quality: 1,
-                cacheBust: true,
+            // 1. HEADER & BRANDING
+            doc.setFillColor(59, 130, 246); // Accent color
+            doc.rect(0, 0, pageWidth, 80, 'F');
+            doc.setTextColor(255, 255, 255);
+            doc.setFontSize(22);
+            doc.setFont('helvetica', 'bold');
+            doc.text('EDGESENTINEL AI', margin, 45);
+            doc.setFontSize(10);
+            doc.setFont('helvetica', 'normal');
+            doc.text('LABORATORY ANALYTICS INTELLIGENCE REPORT', margin, 62);
+            doc.text(`Generated: ${new Date().toLocaleString()}`, pageWidth - margin - 10, 45, { align: 'right' });
+            doc.text(`Timeframe: ${timeFrame.toUpperCase()}`, pageWidth - margin - 10, 62, { align: 'right' });
+
+            yPos = 110;
+
+            // 2. EXECUTIVE SUMMARY
+            doc.setTextColor(59, 130, 246);
+            doc.setFontSize(16);
+            doc.text('Executive Summary', margin, yPos);
+            yPos += 25;
+
+            doc.setTextColor(100, 116, 139);
+            doc.setFontSize(10);
+            const summaryText = `This report provides an in-depth analysis of laboratory occupancy and visitor flow. During this period, we observed a peak occupancy of ${summary.peak_occupancy} individuals at ${summary.peak_time}. Total laboratory throughput reached ${summary.total_in} arrivals and ${summary.total_out} departures. All metrics were captured by the EdgeSentinelAI system.`;
+            const splitSummary = doc.splitTextToSize(summaryText, pageWidth - margin * 2);
+            doc.text(splitSummary, margin, yPos);
+            yPos += splitSummary.length * 14 + 15;
+
+            // 3. KPI GRID (Native Drawing)
+            const kpiWidth = (pageWidth - margin * 2 - 20) / 3;
+            const drawKPI = (label: string, value: string, x: number, y: number) => {
+                doc.setDrawColor(226, 232, 240);
+                doc.roundedRect(x, y, kpiWidth, 50, 4, 4, 'S');
+                doc.setTextColor(148, 163, 184);
+                doc.setFontSize(8);
+                doc.text(label.toUpperCase(), x + 10, y + 18);
+                doc.setTextColor(15, 23, 42);
+                doc.setFontSize(16);
+                doc.text(value, x + 10, y + 40);
+            };
+
+            drawKPI('Current Occupancy', summary.current_occupancy.toString(), margin, yPos);
+            drawKPI('Total Throughput', (summary.total_in + summary.total_out).toString(), margin + kpiWidth + 10, yPos);
+            drawKPI('Avg Dwell Time', `${summary.avg_dwell_time_minutes} min`, margin + (kpiWidth + 10) * 2, yPos);
+            yPos += 75;
+
+            // 4. EMBEDDED CHART: Occupancy Trends
+            doc.setTextColor(59, 130, 246);
+            doc.setFontSize(14);
+            doc.text('Occupancy Trends Analysis', margin, yPos);
+            yPos += 15;
+
+            const occupancyImg = await captureChart(occupancyChartRef as React.RefObject<HTMLDivElement>);
+            if (occupancyImg) {
+                const imgWidth = pageWidth - margin * 2;
+                const imgHeight = (imgWidth * 180) / 600;
+                doc.addImage(occupancyImg, 'PNG', margin, yPos, imgWidth, imgHeight);
+                yPos += imgHeight + 20;
+            }
+
+            // Insight logic
+            doc.setTextColor(100, 116, 139);
+            doc.setFontSize(9);
+            doc.setFont('helvetica', 'italic');
+            const occInsight = `Trend Insight: Peak activity was recorded at ${summary.peak_time}, indicating high demand during this window. Staffing adjustments or resource allocation should align with this data to maintain optimal laboratory throughput.`;
+            const splitInsight = doc.splitTextToSize(occInsight, pageWidth - margin * 2);
+            doc.text(splitInsight, margin, yPos);
+            yPos += splitInsight.length * 12 + 20;
+
+            // 5. DATA TABLES (New Page)
+            doc.addPage();
+            yPos = 50;
+            doc.setTextColor(59, 130, 246);
+            doc.setFontSize(14);
+            doc.text('Detailed Traffic Logs', margin, yPos);
+            yPos += 15;
+
+            autoTable(doc, {
+                startY: yPos,
+                head: [['Time Interval', 'Occupancy', 'Entry Count', 'Exit Count']],
+                body: occupancyTrends.current.map(d => [d.time, d.occupancy, `+${d.entry}`, `-${d.exit}`]),
+                margin: { left: margin, right: margin },
+                headStyles: { fillColor: [59, 130, 246], fontSize: 9 },
+                bodyStyles: { fontSize: 8 },
+                alternateRowStyles: { fillColor: [248, 250, 252] },
             });
 
-            const pdf = new jsPDF({
-                orientation: 'portrait',
-                unit: 'px',
-                format: 'a4',
-            });
+            // FOOTER
+            const pageCount = (doc as any).internal.getNumberOfPages();
+            for (let i = 1; i <= pageCount; i++) {
+                doc.setPage(i);
+                doc.setFontSize(8);
+                doc.setTextColor(148, 163, 184);
+                doc.text(`Page ${i} of ${pageCount}`, pageWidth / 2, doc.internal.pageSize.getHeight() - 20, { align: 'center' });
+                doc.text('EdgeSentinelAI Proprietary Analytics Report', margin, doc.internal.pageSize.getHeight() - 20);
+            }
 
-            const pdfWidth = pdf.internal.pageSize.getWidth();
-            const pdfHeight = (reportRef.current.offsetHeight * pdfWidth) / reportRef.current.offsetWidth;
-
-            pdf.addImage(dataUrl, 'PNG', 0, 0, pdfWidth, pdfHeight);
-            pdf.save(`dat-analytics-${timeFrame}-${new Date().toISOString().slice(0, 10)}.pdf`);
+            doc.save(`Professional_Analytics_Report_${timeFrame}_${new Date().toISOString().slice(0, 10)}.pdf`);
         } catch (error) {
-            console.error('Failed to export PDF:', error);
+            console.error('Failed to generate professional PDF:', error);
         } finally {
             setIsExporting(false);
         }
@@ -256,7 +343,7 @@ export default function AnalyticsPage() {
 
                     {/* ══════ ROW 2: Occupancy Line Chart + Flow Donut ══════ */}
                     <div className="grid grid-cols-3 gap-5">
-                        <Card className="col-span-2 flex flex-col" padding="lg">
+                        <Card ref={occupancyChartRef} className="col-span-2 flex flex-col" padding="lg">
                             <div className="flex justify-between items-start mb-4">
                                 <div>
                                     <h3 className="text-[15px] font-bold text-text-primary">Occupancy Trends</h3>

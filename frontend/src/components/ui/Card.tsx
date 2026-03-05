@@ -1,3 +1,5 @@
+import React, { forwardRef } from 'react';
+
 interface CardProps {
     children: React.ReactNode;
     variant?: 'default' | 'glass' | 'outlined' | 'featured';
@@ -19,15 +21,16 @@ const paddingStyles: Record<string, string> = {
     lg: 'p-6',
 };
 
-export default function Card({
+const Card = forwardRef<HTMLDivElement, CardProps>(({
     children,
     variant = 'default',
     className = '',
     hover = false,
     padding = 'md',
-}: CardProps) {
+}, ref) => {
     return (
         <div
+            ref={ref}
             className={`
                 rounded-[var(--radius-lg)]
                 ${variantStyles[variant]}
@@ -39,4 +42,8 @@ export default function Card({
             {children}
         </div>
     );
-}
+});
+
+Card.displayName = 'Card';
+
+export default Card;
