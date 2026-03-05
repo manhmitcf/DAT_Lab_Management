@@ -31,5 +31,5 @@ jobs:
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v2
         with:
-          app-name: 'DAT_Lab_Management'
+          app-name: 'labmanagementbackend'
           images: 'manhmitcf/dat_lab_management_backend:deploy'
