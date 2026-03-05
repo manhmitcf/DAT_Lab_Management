@@ -45,16 +45,23 @@ export default function MainSidebar() {
                     </span>
                 </button>
 
-                {/* Brand / User */}
-                <div className={`flex items-center gap-3 ${isCollapsed ? 'justify-center' : 'px-2'} mb-6`}>
-                    <div
-                        className="bg-center bg-no-repeat bg-cover rounded-full size-9 shrink-0 ring-2 ring-accent/30"
-                        style={{ backgroundImage: `url("https://ui-avatars.com/api/?name=AD&background=3b82f6&color=fff&font-size=0.4&bold=true")` }}
-                    />
+                {/* Brand / User Profile Section */}
+                <div className={`group flex items-center gap-3 ${isCollapsed ? 'justify-center' : 'px-2'} mb-8 cursor-pointer hover:bg-surface-2 p-1.5 rounded-[var(--radius-lg)] transition-all`}>
+                    <div className="relative shrink-0">
+                        <div
+                            className="bg-center bg-no-repeat bg-cover rounded-full size-10 ring-2 ring-accent/30 group-hover:ring-accent transition-all shadow-lg"
+                            style={{ backgroundImage: `url("https://ui-avatars.com/api/?name=Admin+User&background=3b82f6&color=fff&font-size=0.4&bold=true")` }}
+                        />
+                        <span className="absolute bottom-0 right-0 size-3 bg-success border-2 border-surface-1 rounded-full shadow-sm" title="Online" />
+                    </div>
                     {!isCollapsed && (
                         <div className="flex-col flex overflow-hidden">
-                            <h1 className="text-text-primary text-sm font-semibold leading-tight truncate">Admin User</h1>
-                            <p className="text-text-tertiary text-[11px] font-normal leading-tight truncate">System Admin</p>
+                            <h1 className="text-text-primary text-[13px] font-bold leading-tight truncate">Admin User</h1>
+                            <div className="flex items-center gap-1.5">
+                                <span className="text-accent text-[10px] font-bold uppercase tracking-tighter">System Admin</span>
+                                <span className="size-1 rounded-full bg-text-tertiary" />
+                                <span className="text-success text-[10px] font-medium">Online</span>
+                            </div>
                         </div>
                     )}
                 </div>
