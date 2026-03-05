@@ -43,7 +43,7 @@ export default function FloorPlan() {
                     Use inline-flex to perfectly shrink-wrap to the image's computed dimensions.
                     This guarantees the marker overlay boundaries exactly match the visible map. 
                 */}
-                <div className="relative inline-flex max-w-full max-h-full">
+                <div className="relative inline-flex max-w-full max-h-full rotate-90">
                     {/* SVG Map Background */}
                     <img
                         src="/labmap.svg"

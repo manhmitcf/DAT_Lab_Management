@@ -20,7 +20,7 @@ export default function StatsBar() {
                 </div>
 
                 <div className="px-6 py-4">
-                    <MetricCard label="Ingress / Egress" icon="swap_horiz" iconColor="text-accent-strong">
+                    <MetricCard label="Entry / Exit" icon="swap_horiz" iconColor="text-accent-strong">
                         <span className="text-success text-lg font-mono">{stats.entry_today}</span>
                         <span className="text-text-tertiary mx-1.5">/</span>
                         <span className="text-orange-400 text-lg font-mono">{stats.exit_today}</span>

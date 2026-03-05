@@ -54,9 +54,9 @@ export default function AnalyticsPage() {
 
         // Occupancy Trends
         lines.push('=== Occupancy Trends ===');
-        lines.push('Time,Occupancy,Ingress,Egress');
+        lines.push('Time,Occupancy,Entry,Exit');
         occupancyTrends.current.forEach(d => {
-            lines.push(`${d.time},${d.occupancy},${d.ingress},${d.egress}`);
+            lines.push(`${d.time},${d.occupancy},${d.entry},${d.exit}`);
         });
         lines.push('');
 
@@ -155,30 +155,21 @@ export default function AnalyticsPage() {
 
                     {/* ══════ ROW 1: KPI Cards ══════ */}
                     <div className="grid grid-cols-5 gap-5 stagger-children">
-                        {/* 1. Entry In */}
+                        {/* 1. Entry */}
                         <Card className="group" hover>
-                            <p className="text-text-tertiary text-[11px] font-medium uppercase tracking-wider mb-2">Entry In</p>
+                            <p className="text-text-tertiary text-[11px] font-medium uppercase tracking-wider mb-2">Entry</p>
                             <h2 className="text-3xl font-bold text-success">+{summary.total_in}</h2>
-                            <p className="text-[11px] text-text-tertiary mt-3 uppercase tracking-widest font-mono">Total Ingress</p>
+                            <p className="text-[11px] text-text-tertiary mt-3 uppercase tracking-widest font-mono">Cumulative In</p>
                         </Card>
 
-                        {/* 2. Entry Out */}
+                        {/* 2. Exit */}
                         <Card className="group" hover>
-                            <p className="text-text-tertiary text-[11px] font-medium uppercase tracking-wider mb-2">Entry Out</p>
+                            <p className="text-text-tertiary text-[11px] font-medium uppercase tracking-wider mb-2">Exit</p>
                             <h2 className="text-3xl font-bold text-orange-500">-{summary.total_out}</h2>
-                            <p className="text-[11px] text-text-tertiary mt-3 uppercase tracking-widest font-mono">Total Egress</p>
+                            <p className="text-[11px] text-text-tertiary mt-3 uppercase tracking-widest font-mono">Cumulative Out</p>
                         </Card>
 
-                        {/* 3. Peak Hour */}
-                        <Card className="group" hover>
-                            <p className="text-text-tertiary text-[11px] font-medium uppercase tracking-wider mb-2">Peak Hour</p>
-                            <h2 className="text-3xl font-bold text-text-primary">{summary.peak_time}</h2>
-                            <div className="flex items-center gap-2 mt-2">
-                                <Badge variant="warning">{summary.peak_occupancy} people</Badge>
-                            </div>
-                        </Card>
-
-                        {/* 4. Occupancy */}
+                        {/* 3. Occupancy */}
                         <Card variant="featured" className="relative overflow-hidden group" hover>
                             <div className="absolute -top-4 -right-4 opacity-[0.04] group-hover:opacity-[0.08] transition-opacity">
                                 <span className="material-symbols-outlined text-[72px] text-accent">groups</span>
@@ -186,6 +177,15 @@ export default function AnalyticsPage() {
                             <p className="text-text-tertiary text-[11px] font-medium uppercase tracking-wider mb-2">Occupancy</p>
                             <h2 className="text-4xl font-bold text-text-primary tracking-tight">{summary.current_occupancy}</h2>
                             <p className="text-[11px] text-text-tertiary mt-3">people in lab now</p>
+                        </Card>
+
+                        {/* 4. Peak Hour */}
+                        <Card className="group" hover>
+                            <p className="text-text-tertiary text-[11px] font-medium uppercase tracking-wider mb-2">Peak Hour</p>
+                            <h2 className="text-3xl font-bold text-text-primary">{summary.peak_time}</h2>
+                            <div className="flex items-center gap-2 mt-2">
+                                <Badge variant="warning">{summary.peak_occupancy} people</Badge>
+                            </div>
                         </Card>
 
                         {/* 5. Avg Dwell Time */}
