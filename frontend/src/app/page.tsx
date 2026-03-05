@@ -3,11 +3,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import MainSidebar from '@/components/layout/MainSidebar';
 import StatsBar from '@/components/panels/StatsBar';
-import CameraGrid from '@/components/video/CameraGrid';
+import VideoPlayer from '@/components/video/VideoPlayer';
 import FloorPlan from '@/components/panels/FloorPlan';
 import Badge from '@/components/ui/Badge';
+import { useWebSocket } from '@/hooks/useWebSocket';
 
 export default function LiveMonitorPage() {
+  useWebSocket();
   const [asideWidth, setAsideWidth] = useState(380);
   const [isResizing, setIsResizing] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -75,8 +77,8 @@ export default function LiveMonitorPage() {
         <div className={`flex-1 flex overflow-hidden animate-fade-in ${isResizing ? 'select-none' : ''}`}>
           {/* Main Content (Video) */}
           <main className="flex-1 relative overflow-hidden bg-black">
-            <div className="absolute inset-0 p-3">
-              <CameraGrid layout={1} />
+            <div className="absolute inset-0 p-3 flex">
+              <VideoPlayer />
             </div>
           </main>
 

@@ -1,6 +1,9 @@
 import { create } from 'zustand';
 import { Person, Detection, SystemStats, FloorPlanMarker } from '@/types';
 
+export type AlertLevel = 'none' | 'info' | 'warning' | 'critical';
+export type WsStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
+
 interface TrackingState {
     // Persons currently being tracked
     persons: Person[];
@@ -26,6 +29,18 @@ interface TrackingState {
     // System status
     isOnline: boolean;
     setIsOnline: (status: boolean) => void;
+
+    // Live video frame from WebSocket (base64 data URL)
+    currentFrame: string | null;
+    setCurrentFrame: (frame: string | null) => void;
+
+    // Alert level from WebSocket
+    alertLevel: AlertLevel;
+    setAlertLevel: (level: AlertLevel) => void;
+
+    // WebSocket connection status
+    wsStatus: WsStatus;
+    setWsStatus: (status: WsStatus) => void;
 }
 
 // Initial mock data
@@ -118,6 +133,15 @@ export const useTrackingStore = create<TrackingState>((set) => ({
     selectedPersonId: 42,
     setSelectedPersonId: (id) => set({ selectedPersonId: id }),
 
-    isOnline: true,
+    isOnline: false,
     setIsOnline: (status) => set({ isOnline: status }),
+
+    currentFrame: null,
+    setCurrentFrame: (frame) => set({ currentFrame: frame }),
+
+    alertLevel: 'none',
+    setAlertLevel: (level) => set({ alertLevel: level }),
+
+    wsStatus: 'disconnected',
+    setWsStatus: (status) => set({ wsStatus: status }),
 }));

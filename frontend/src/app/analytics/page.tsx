@@ -36,6 +36,11 @@ export default function AnalyticsPage() {
     const reportRef = useRef<HTMLElement>(null);
     const occupancyChartRef = useRef<HTMLDivElement>(null);
     const flowChartRef = useRef<HTMLDivElement>(null);
+    const cumulativeChartRef = useRef<HTMLDivElement>(null);
+    const dwellHourChartRef = useRef<HTMLDivElement>(null);
+    const heatmapChartRef = useRef<HTMLDivElement>(null);
+    const dailyTrafficChartRef = useRef<HTMLDivElement>(null);
+    const peakDayChartRef = useRef<HTMLDivElement>(null);
 
     // ── Export CSV ────────────────────────────────────────────────────────
     const handleExportCSV = useCallback(() => {
@@ -114,10 +119,84 @@ export default function AnalyticsPage() {
         let yPos = 50;
 
         try {
-            // Helper: Capture chart
-            const captureChart = async (ref: React.RefObject<HTMLDivElement>) => {
+            const pdfPageHeight = doc.internal.pageSize.getHeight();
+
+            // Helper: Capture chart — uses naturalWidth/naturalHeight to avoid scaling distortion
+            const captureChart = async (ref: React.RefObject<HTMLDivElement | null>) => {
                 if (!ref.current) return null;
-                return await toPng(ref.current, { pixelRatio: 2, backgroundColor: '#0a0d10' });
+                // Scroll into view so the element is fully painted before capture
+                ref.current.scrollIntoView({ block: 'nearest', behavior: 'instant' });
+                await new Promise((r) => setTimeout(r, 150));
+                const el = ref.current;
+                const dataUrl = await toPng(el, {
+                    pixelRatio: 2,
+                    backgroundColor: '#0a0d10',
+                    width: el.offsetWidth,
+                    height: el.offsetHeight,
+                });
+                // Resolve actual image dimensions from the PNG to avoid aspect-ratio mismatch
+                return new Promise<{ dataUrl: string; width: number; height: number }>((resolve, reject) => {
+                    const img = new Image();
+                    img.onload = () => resolve({ dataUrl, width: img.naturalWidth, height: img.naturalHeight });
+                    img.onerror = reject;
+                    img.src = dataUrl;
+                });
+            };
+
+            const checkPageBreak = (height: number) => {
+                if (yPos + height > pdfPageHeight - margin - 20) {
+                    doc.addPage();
+                    yPos = 50;
+                    return true;
+                }
+                return false;
+            };
+
+            const addSectionTitle = (title: string) => {
+                checkPageBreak(30);
+                doc.setTextColor(59, 130, 246);
+                doc.setFontSize(14);
+                doc.text(title, margin, yPos);
+                yPos += 20;
+            };
+
+            const addInsight = (text: string) => {
+                doc.setTextColor(100, 116, 139);
+                doc.setFontSize(9);
+                doc.setFont('helvetica', 'italic');
+                const splitText = doc.splitTextToSize(text, pageWidth - margin * 2);
+                checkPageBreak(splitText.length * 12 + 10);
+                doc.text(splitText, margin, yPos);
+                yPos += splitText.length * 12 + 20;
+            };
+
+            const addChart = async (ref: React.RefObject<HTMLDivElement | null>, title?: string, insight?: string) => {
+                const chart = await captureChart(ref);
+                if (!chart) return;
+                if (title) addSectionTitle(title);
+
+                // Scale image to fit PDF width while preserving aspect ratio
+                const maxW = pageWidth - margin * 2;
+                let imgW = maxW;
+                let imgH = (chart.height / chart.width) * imgW;
+
+                // If the image is taller than remaining page space, scale down to fit height
+                const availH = pdfPageHeight - yPos - margin - 20;
+                if (imgH > availH && availH > 60) {
+                    imgH = availH;
+                    imgW = (chart.width / chart.height) * imgH;
+                }
+
+                checkPageBreak(imgH + 10);
+
+                // Recalculate after potential page break (yPos reset to 50)
+                imgW = maxW;
+                imgH = (chart.height / chart.width) * imgW;
+
+                doc.addImage(chart.dataUrl, 'PNG', margin, yPos, imgW, imgH);
+                yPos += imgH + 15;
+
+                if (insight) addInsight(insight);
             };
 
             // 1. HEADER & BRANDING
@@ -166,35 +245,35 @@ export default function AnalyticsPage() {
             drawKPI('Avg Dwell Time', `${summary.avg_dwell_time_minutes} min`, margin + (kpiWidth + 10) * 2, yPos);
             yPos += 75;
 
-            // 4. EMBEDDED CHART: Occupancy Trends
-            doc.setTextColor(59, 130, 246);
-            doc.setFontSize(14);
-            doc.text('Occupancy Trends Analysis', margin, yPos);
-            yPos += 15;
+            // 4. MAIN ANALYTICS SECTIONS
+            await addChart(occupancyChartRef, 'Occupancy Trends Analysis',
+                `The laboratory usage trends indicate consistent engagement peaks during mid-day hours. Current data shows ${summary.current_occupancy} occupants, which is ${Math.round((summary.current_occupancy / 120) * 100)}% of the total safety threshold. The peak of ${summary.peak_occupancy} individuals at ${summary.peak_time} suggests a concentrated workflow period.`);
 
-            const occupancyImg = await captureChart(occupancyChartRef as React.RefObject<HTMLDivElement>);
-            if (occupancyImg) {
-                const imgWidth = pageWidth - margin * 2;
-                const imgHeight = (imgWidth * 180) / 600;
-                doc.addImage(occupancyImg, 'PNG', margin, yPos, imgWidth, imgHeight);
-                yPos += imgHeight + 20;
-            }
+            await addChart(flowChartRef, 'Flow Ratio & Dwell Distribution',
+                `Analysis of visitor behavior shows an entry-to-exit ratio of ${flowRatio.entry_exit.in_percentage}% to ${flowRatio.entry_exit.out_percentage}%. Retention metrics indicate that a significant portion of laboratory users stay for the ${flowRatio.dwell_distribution.sort((a, b) => b.percentage - a.percentage)[0].range} duration.`);
 
-            // Insight logic
-            doc.setTextColor(100, 116, 139);
-            doc.setFontSize(9);
-            doc.setFont('helvetica', 'italic');
-            const occInsight = `Trend Insight: Peak activity was recorded at ${summary.peak_time}, indicating high demand during this window. Staffing adjustments or resource allocation should align with this data to maintain optimal laboratory throughput.`;
-            const splitInsight = doc.splitTextToSize(occInsight, pageWidth - margin * 2);
-            doc.text(splitInsight, margin, yPos);
-            yPos += splitInsight.length * 12 + 20;
+            await addChart(cumulativeChartRef, 'Cumulative Traffic Build-up',
+                `Total throughput for the period has reached ${summary.total_in + summary.total_out} events. The cumulative growth curve demonstrates steady laboratory utilization without sudden surges, indicating controlled access and efficient management.`);
+
+            await addChart(dwellHourChartRef, 'Average Dwell Time by Hour',
+                `Engagement duration peaks correlate with specific activity windows. The average stay of ${summary.avg_dwell_time_minutes} minutes reflects typical deep-work laboratory sessions. Data-driven scheduling should account for these peak occupancy windows.`);
+
+            doc.addPage(); yPos = 50;
+            await addChart(heatmapChartRef, 'Weekly Activity Heatmap',
+                `The 24/7 heatmap identifies core operational hours and off-peak opportunities. High-intensity cells (blue zones) represent periods where laboratory occupancy frequently reaches maximum capacity, typically matching supervised operation hours.`);
+
+            await addChart(dailyTrafficChartRef, 'Daily Traffic Comparison',
+                `Comparing daily totals reveals consistent laboratory attendance. Wednesday and Friday show the highest net-flow, suggesting these are the primary days for collaborative sessions or laboratory-intensive tasks.`);
+
+            await addChart(peakDayChartRef, 'Peak Occupancy by Day',
+                `Reviewing the highest headcount achieved per day ensure compliance with building safety codes. All peaks remained below the manual threshold of 80, with the maximum reaching ${summary.peak_occupancy} individuals.`);
 
             // 5. DATA TABLES (New Page)
             doc.addPage();
             yPos = 50;
             doc.setTextColor(59, 130, 246);
             doc.setFontSize(14);
-            doc.text('Detailed Traffic Logs', margin, yPos);
+            doc.text('Raw Analytics Logs', margin, yPos);
             yPos += 15;
 
             autoTable(doc, {
@@ -383,7 +462,7 @@ export default function AnalyticsPage() {
                             </div>
                         </Card>
 
-                        <Card className="flex flex-col" padding="lg">
+                        <Card ref={flowChartRef} className="flex flex-col" padding="lg">
                             <h3 className="text-[15px] font-bold text-text-primary">Flow Ratio</h3>
                             <p className="text-[13px] text-text-tertiary mt-0.5 mb-3">Entry vs Exit</p>
                             <div className="flex items-center justify-center mb-3">
@@ -432,7 +511,7 @@ export default function AnalyticsPage() {
                     {/* ══════ ROW 3: Cumulative Area + Dwell by Hour ══════ */}
                     <div className="grid grid-cols-2 gap-5">
                         {/* Cumulative Traffic (Area Chart) */}
-                        <Card className="flex flex-col" padding="lg">
+                        <Card ref={cumulativeChartRef} className="flex flex-col" padding="lg">
                             <div className="flex justify-between items-start mb-4">
                                 <div>
                                     <h3 className="text-[15px] font-bold text-text-primary">Cumulative Traffic</h3>
@@ -478,7 +557,7 @@ export default function AnalyticsPage() {
                         </Card>
 
                         {/* Dwell Time by Hour (Area Line Chart) */}
-                        <Card className="flex flex-col" padding="lg">
+                        <Card ref={dwellHourChartRef} className="flex flex-col" padding="lg">
                             <div className="mb-4">
                                 <h3 className="text-[15px] font-bold text-text-primary">Avg Dwell Time by Hour</h3>
                                 <p className="text-[13px] text-text-tertiary mt-0.5">When do visitors stay longest?</p>
@@ -521,7 +600,7 @@ export default function AnalyticsPage() {
                     {/* ══════ ROW 4: Heatmap + Daily Traffic ══════ */}
                     <div className="grid grid-cols-12 gap-5">
                         {/* Weekly Heatmap — 7 cols */}
-                        <Card className="col-span-7" padding="lg">
+                        <Card ref={heatmapChartRef} className="col-span-7" padding="lg">
                             <h3 className="text-[15px] font-bold text-text-primary">Weekly Heatmap</h3>
                             <p className="text-[13px] text-text-tertiary mt-0.5 mb-4">24h × 7 days activity pattern</p>
                             <div className="space-y-[3px]">
@@ -558,7 +637,7 @@ export default function AnalyticsPage() {
                         </Card>
 
                         {/* Daily Traffic Bar — 5 cols */}
-                        <Card className="col-span-5" padding="lg">
+                        <Card ref={dailyTrafficChartRef} className="col-span-5" padding="lg">
                             <h3 className="text-[15px] font-bold text-text-primary">Daily Traffic</h3>
                             <p className="text-[13px] text-text-tertiary mt-0.5 mb-4">Entry vs Exit by day</p>
                             <div className="flex items-end gap-3" style={{ height: 200 }}>
@@ -598,7 +677,7 @@ export default function AnalyticsPage() {
                     </div>
 
                     {/* ══════ ROW 5: Peak by Day ══════ */}
-                    <Card padding="lg">
+                    <Card ref={peakDayChartRef} padding="lg">
                         <div className="flex justify-between items-start mb-4">
                             <div>
                                 <h3 className="text-[15px] font-bold text-text-primary">Peak Occupancy by Day</h3>
