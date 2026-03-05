@@ -55,7 +55,7 @@ export default function LiveMonitorPage() {
       <MainSidebar />
 
       <div className="flex-1 flex flex-col h-full overflow-hidden">
-        {/* ===== CONSOLIDATED HEADER ===== */}
+        {/* ===== ULTRA-MINIMALIST HEADER ===== */}
         <header className="shrink-0 bg-surface-1 border-b border-border-default animate-fade-in z-10 flex items-stretch h-14">
           {/* Group 1: Live Badge */}
           <div className="flex items-center gap-3 px-5 border-r border-border-subtle shrink-0">
@@ -68,26 +68,6 @@ export default function LiveMonitorPage() {
           {/* Group 2: Stats Metrics (from StatsBar) */}
           <div className="flex-1 min-w-0 flex items-center overflow-hidden">
             <StatsBar />
-          </div>
-
-          {/* Group 3: Activity Sparkline (Compact) */}
-          <div className="flex items-center gap-3 px-5 border-l border-border-subtle shrink-0 max-w-[200px]">
-            <div className="flex items-center gap-2">
-              <span className="material-symbols-outlined text-accent text-sm">show_chart</span>
-              <span className="text-[10px] font-bold text-text-secondary uppercase tracking-tighter">Activity</span>
-            </div>
-            <div className="w-24 h-6">
-              <svg className="w-full h-full overflow-visible" preserveAspectRatio="none" viewBox="0 0 200 32">
-                <defs>
-                  <linearGradient id="headerChartGrad" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.3" />
-                    <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
-                  </linearGradient>
-                </defs>
-                <path d="M0 28 L20 24 L40 26 L60 20 L80 14 L100 16 L120 8 L140 10 L160 5 L180 12 L200 8 V 32 H 0 Z" fill="url(#headerChartGrad)" />
-                <path d="M0 28 L20 24 L40 26 L60 20 L80 14 L100 16 L120 8 L140 10 L160 5 L180 12 L200 8" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinejoin="round" />
-              </svg>
-            </div>
           </div>
         </header>
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import MainSidebar from '@/components/layout/MainSidebar';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
@@ -8,6 +8,8 @@ import Button from '@/components/ui/Button';
 import StatusDot from '@/components/ui/StatusDot';
 import SegmentedControl from '@/components/ui/SegmentedControl';
 import { analyticsData } from '@/lib/mockData';
+import jsPDF from 'jspdf';
+import { toPng } from 'html-to-image';
 
 type TimeFrame = '1h' | 'today' | '7d' | '30d';
 
@@ -31,9 +33,11 @@ function dataToPath(data: { occupancy: number }[], maxVal: number) {
 
 export default function AnalyticsPage() {
     const [timeFrame, setTimeFrame] = useState<TimeFrame>('today');
+    const [isExporting, setIsExporting] = useState(false);
+    const reportRef = useRef<HTMLElement>(null);
 
     // ── Export CSV ────────────────────────────────────────────────────────
-    const handleExport = useCallback(() => {
+    const handleExportCSV = useCallback(() => {
         const lines: string[] = [];
         const now = new Date().toLocaleString();
         lines.push(`EdgeSentinelAI Analytics Report`);
@@ -100,6 +104,40 @@ export default function AnalyticsPage() {
         URL.revokeObjectURL(url);
     }, [timeFrame]);
 
+    // ── Export PDF ────────────────────────────────────────────────────────
+    const handleExportPDF = async () => {
+        if (!reportRef.current) return;
+        setIsExporting(true);
+
+        try {
+            // Get current theme color from computed styles
+            const bgColor = getComputedStyle(document.body).backgroundColor || '#0a0d10';
+
+            const dataUrl = await toPng(reportRef.current, {
+                pixelRatio: 2,
+                backgroundColor: bgColor,
+                quality: 1,
+                cacheBust: true,
+            });
+
+            const pdf = new jsPDF({
+                orientation: 'portrait',
+                unit: 'px',
+                format: 'a4',
+            });
+
+            const pdfWidth = pdf.internal.pageSize.getWidth();
+            const pdfHeight = (reportRef.current.offsetHeight * pdfWidth) / reportRef.current.offsetWidth;
+
+            pdf.addImage(dataUrl, 'PNG', 0, 0, pdfWidth, pdfHeight);
+            pdf.save(`dat-analytics-${timeFrame}-${new Date().toISOString().slice(0, 10)}.pdf`);
+        } catch (error) {
+            console.error('Failed to export PDF:', error);
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
     // ── Chart data ───────────────────────────────────────────────────────
     const maxOcc = Math.max(...occupancyTrends.current.map(d => d.occupancy), ...occupancyTrends.previous.map(d => d.occupancy));
     const currentPath = dataToPath(occupancyTrends.current, maxOcc);
@@ -145,13 +183,22 @@ export default function AnalyticsPage() {
                         <SegmentedControl options={timeFrameOptions} value={timeFrame} onChange={setTimeFrame} />
                     </div>
                     <div className="flex items-center gap-3">
-                        <Button icon="download" variant="secondary" size="sm" onClick={handleExport}>Export CSV</Button>
+                        <Button
+                            icon={isExporting ? 'sync' : 'picture_as_pdf'}
+                            variant="secondary"
+                            size="sm"
+                            onClick={handleExportPDF}
+                            disabled={isExporting}
+                        >
+                            {isExporting ? 'Processing...' : 'Export PDF'}
+                        </Button>
+                        <Button icon="download" variant="ghost" size="sm" onClick={handleExportCSV}>CSV</Button>
                         <StatusDot status="online" label="Real-time sync" />
                     </div>
                 </div>
 
                 {/* Scrollable Content */}
-                <main className="flex-1 overflow-y-auto p-6 space-y-6">
+                <main ref={reportRef} className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
 
                     {/* ══════ ROW 1: KPI Cards ══════ */}
                     <div className="grid grid-cols-5 gap-5 stagger-children">
