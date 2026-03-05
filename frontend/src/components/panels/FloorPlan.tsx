@@ -20,7 +20,7 @@ export default function FloorPlan() {
     };
 
     const renderMap = (isFull: boolean = false) => (
-        <div className={`relative inline-flex max-w-full max-h-full ${isFull ? 'scale-150 transition-transform duration-500' : ''}`}>
+        <div className={`relative inline-flex max-w-full max-h-full transition-all duration-500 ${isFull ? 'rotate-90 scale-[1.35]' : ''}`}>
             {/* SVG Map Background */}
             <img
                 src="/labmap.svg"
@@ -42,7 +42,7 @@ export default function FloorPlan() {
                     >
                         <div className={`size-3 rounded-full transition-transform hover:scale-150 ${getMarkerStyle(marker)}`} />
                         {marker.label && (
-                            <div className="absolute top-4 -left-4 hidden group-hover:block bg-surface-0/95 border border-border-default px-2 py-1 rounded-[var(--radius-sm)] text-[10px] whitespace-nowrap z-20 shadow-md text-text-primary">
+                            <div className={`absolute top-4 -left-4 hidden group-hover:block bg-surface-0/95 border border-border-default px-2 py-1 rounded-[var(--radius-sm)] text-[10px] whitespace-nowrap z-20 shadow-md text-text-primary ${isFull ? '-rotate-90 translate-x-1 translate-y-2' : ''}`}>
                                 {marker.label}
                             </div>
                         )}
@@ -78,11 +78,11 @@ export default function FloorPlan() {
 
             {/* Fullscreen Overlay */}
             {isFullscreen && (
-                <div className="fixed inset-0 z-[9999] bg-black/90 flex flex-col animate-fade-in backdrop-blur-sm">
+                <div className="fixed inset-0 z-[9999] bg-black/80 flex flex-col animate-fade-in backdrop-blur-md">
                     <div className="p-4 flex justify-between items-center bg-surface-1/10 backdrop-blur-md">
                         <div className="flex items-center gap-3">
                             <span className="material-symbols-outlined text-accent">map</span>
-                            <span className="text-white font-bold uppercase tracking-widest text-sm">Floor Plan View</span>
+                            <span className="text-white font-bold uppercase tracking-widest text-sm text-shadow">Floor Plan Landscape View</span>
                         </div>
                         <button
                             onClick={() => setIsFullscreen(false)}
@@ -91,8 +91,8 @@ export default function FloorPlan() {
                             <span className="material-symbols-outlined text-2xl">close</span>
                         </button>
                     </div>
-                    <div className="flex-1 overflow-auto p-10 flex items-center justify-center bg-[radial-gradient(circle_at_center,_var(--surface-2)_0%,_transparent_100%)]">
-                        <div className="max-w-[90vw] max-h-[80vh] flex items-center justify-center">
+                    <div className="flex-1 overflow-hidden p-10 flex items-center justify-center bg-[radial-gradient(circle_at_center,_var(--surface-2)_0%,_transparent_100%)]">
+                        <div className="w-full h-full flex items-center justify-center">
                             {renderMap(true)}
                         </div>
                     </div>
