@@ -93,12 +93,17 @@ export function useWebSocket() {
                 return;
             }
 
-            // ── Text message → JSON metadata ──────────────────────────────
+            // ── Text message → JSON (metadata + optional base64 frame) ───
             if (typeof event.data === 'string') {
                 try {
                     const data: WsPayload = JSON.parse(event.data);
                     const store = useTrackingStore.getState();
                     const fps = computeFps();
+
+                    // frame_image present as string → base64 encoded JPEG
+                    if (typeof data.frame_image === 'string' && data.frame_image.length > 0) {
+                        store.setCurrentFrame(`data:image/jpeg;base64,${data.frame_image}`);
+                    }
 
                     const objects = data.objects ?? [];
                     const frameW = data.width_frame ?? 1280;
