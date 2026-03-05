@@ -5,6 +5,7 @@ import { useTrackingStore } from '@/stores/trackingStore';
 export default function VideoPlayer() {
     const currentFrame = useTrackingStore((state) => state.currentFrame);
     const wsStatus = useTrackingStore((state) => state.wsStatus);
+    const currentTime = new Date().toISOString().replace('T', ' ').slice(0, 23);
 
     const isConnecting = wsStatus === 'connecting';
     const isDisconnected = wsStatus === 'disconnected' || wsStatus === 'error';
@@ -50,6 +51,13 @@ export default function VideoPlayer() {
                     )}
                 </div>
             )}
+
+            {/* Timestamp — bottom right */}
+            <div className="absolute bottom-4 right-4 z-10">
+                <div className="bg-black/60 backdrop-blur-md px-3 py-2 rounded-[var(--radius-md)] border border-white/10">
+                    <p className="text-xs font-mono text-text-primary tracking-widest">{currentTime}</p>
+                </div>
+            </div>
         </div>
     );
 }
