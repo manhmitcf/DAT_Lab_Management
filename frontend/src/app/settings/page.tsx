@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import MainSidebar from '@/components/layout/MainSidebar';
+import MappingCalibration from '@/components/panels/MappingCalibration';
 
 export default function SettingsPage() {
     const [theme, setTheme] = useState<'light' | 'dark'>('dark');
@@ -122,8 +123,24 @@ export default function SettingsPage() {
 
                     <hr className="border-border-subtle" />
 
-                    {/* --- NOTIFICATIONS --- */}
+                    {/* --- 2D MAPPING CALIBRATION --- */}
                     <section className="max-w-4xl animate-slide-up" style={{ animationDelay: '200ms' }}>
+                        <div className="mb-4">
+                            <h3 className="text-sm font-semibold text-accent uppercase tracking-wider">
+                                2D Mapping Calibration
+                            </h3>
+                            <p className="text-xs text-text-tertiary mt-1">
+                                Define point correspondences between the camera frame and the floor plan
+                                to calibrate the homography transform used by the backend.
+                            </p>
+                        </div>
+                        <MappingCalibration />
+                    </section>
+
+                    <hr className="border-border-subtle" />
+
+                    {/* --- NOTIFICATIONS --- */}
+                    <section className="max-w-4xl animate-slide-up" style={{ animationDelay: '300ms' }}>
                         <div className="mb-4">
                             <h3 className="text-sm font-semibold text-accent uppercase tracking-wider">Notification Channels</h3>
                             <p className="text-xs text-text-tertiary mt-1">Integrations for real-time security alerts.</p>
