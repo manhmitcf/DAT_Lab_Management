@@ -11,144 +11,187 @@ const API_BASE =
     'https://labmanagementbackend-hte4hyczd0fef4ah.eastasia-01.azurewebsites.net';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-type ToolType = 'point' | 'line' | 'circle';
+type ToolType = 'point' | 'line' | 'ellipse';
 interface NormPt { x: number; y: number; }
 interface Shape {
     id: number;
     type: ToolType;
-    camera: NormPt[];    // 1 pt (point) | 2 pts (line: start/end | circle: center/edge)
+    camera: NormPt[];    // point:1pt | line:2pts | ellipse:2pts (corner1,corner2)
     floorPlan: NormPt[];
 }
+// For click-based tools: how many clicks needed per side (ellipse=0, uses drag)
+const PTS_CLICK: Record<ToolType, number> = { point: 1, line: 2, ellipse: 0 };
+
 interface PickState {
     tool: ToolType;
-    side: 'camera' | 'floor';
-    pointIdx: number;
+    side: 'camera' | 'floor'; // which canvas is currently active
+    pointIdx: number;          // which click within that side
 }
 interface Pending { camera: NormPt[]; floorPlan: NormPt[]; }
 interface ViewState { scale: number; tx: number; ty: number; }
 
-const PTS_NEEDED: Record<ToolType, number> = { point: 1, line: 2, circle: 2 };
 const COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#ec4899'];
 const gc = (i: number) => COLORS[i % COLORS.length];
 
-// ── ZoomableCanvas ────────────────────────────────────────────────────────────
+// ── ZoomHandle exposed to parent ──────────────────────────────────────────────
 export interface ZoomHandle { zoomIn(): void; zoomOut(): void; reset(): void; }
 
-interface ZoomProps {
+// ── ZoomableCanvas ────────────────────────────────────────────────────────────
+const ZoomableCanvas = forwardRef<ZoomHandle, {
     label: string;
     labelExtra?: React.ReactNode;
     isPicking: boolean;
+    isDragTool: boolean;          // true = ellipse drag, false = point/click
     onNormClick(x: number, y: number): void;
+    onNormDragEnd(x1: number, y1: number, x2: number, y2: number): void;
     children: React.ReactNode;
-}
-
-const ZoomableCanvas = forwardRef<ZoomHandle, ZoomProps>(function ZoomableCanvas(
-    { label, labelExtra, isPicking, onNormClick, children }, ref,
-) {
-    const [view, setView] = useState<ViewState>({ scale: 1, tx: 0, ty: 0 });
-    const containerRef = useRef<HTMLDivElement>(null);
-    const drag = useRef({ on: false, moved: false, sx: 0, sy: 0, stx: 0, sty: 0 });
+}>(function ZoomableCanvas({ label, labelExtra, isPicking, isDragTool, onNormClick, onNormDragEnd, children }, ref) {
+    const [view, setView]           = useState<ViewState>({ scale: 1, tx: 0, ty: 0 });
     const [isDragging, setIsDragging] = useState(false);
+    const [drawPrev, setDrawPrev]   = useState<{ sx: number; sy: number; ex: number; ey: number } | null>(null);
+    const containerRef              = useRef<HTMLDivElement>(null);
+    const panRef  = useRef({ on: false, moved: false, sx: 0, sy: 0, stx: 0, sty: 0 });
+    const drawRef = useRef({ on: false, snx: 0, sny: 0 });
 
     useImperativeHandle(ref, () => ({
-        zoomIn:  () => setView(v => zoom(v, 1.25, null, containerRef.current)),
-        zoomOut: () => setView(v => zoom(v, 0.8,  null, containerRef.current)),
+        zoomIn:  () => setView(v => applyZoom(v, 1.25, null, containerRef.current)),
+        zoomOut: () => setView(v => applyZoom(v, 0.8,  null, containerRef.current)),
         reset:   () => setView({ scale: 1, tx: 0, ty: 0 }),
     }));
 
-    function zoom(v: ViewState, factor: number, cursor: {x:number;y:number}|null, el: HTMLElement|null): ViewState {
-        const rect = el?.getBoundingClientRect();
-        const cx = cursor ? cursor.x - (rect?.left ?? 0) : (rect?.width ?? 0) / 2;
-        const cy = cursor ? cursor.y - (rect?.top  ?? 0) : (rect?.height ?? 0) / 2;
-        const ns = Math.max(0.25, Math.min(10, v.scale * factor));
+    function applyZoom(v: ViewState, f: number, cur: { x: number; y: number } | null, el: HTMLElement | null): ViewState {
+        const r = el?.getBoundingClientRect();
+        const cx = cur ? cur.x - (r?.left ?? 0) : (r?.width  ?? 0) / 2;
+        const cy = cur ? cur.y - (r?.top  ?? 0) : (r?.height ?? 0) / 2;
+        const ns = Math.max(0.25, Math.min(10, v.scale * f));
         return { scale: ns, tx: cx - ((cx - v.tx) / v.scale) * ns, ty: cy - ((cy - v.ty) / v.scale) * ns };
     }
 
-    // Passive wheel zoom at cursor
+    function normPos(clientX: number, clientY: number, v: ViewState, r: DOMRect) {
+        return {
+            x: Math.max(0, Math.min(1, (clientX - r.left - v.tx) / (r.width  * v.scale))),
+            y: Math.max(0, Math.min(1, (clientY - r.top  - v.ty) / (r.height * v.scale))),
+        };
+    }
+
+    // Non-passive wheel zoom
     useEffect(() => {
         const el = containerRef.current;
         if (!el) return;
-        const handler = (e: WheelEvent) => {
+        const h = (e: WheelEvent) => {
             e.preventDefault();
-            setView(v => zoom(v, e.deltaY < 0 ? 1.1 : 0.9, { x: e.clientX, y: e.clientY }, el));
+            setView(v => applyZoom(v, e.deltaY < 0 ? 1.1 : 0.9, { x: e.clientX, y: e.clientY }, el));
         };
-        el.addEventListener('wheel', handler, { passive: false });
-        return () => el.removeEventListener('wheel', handler);
+        el.addEventListener('wheel', h, { passive: false });
+        return () => el.removeEventListener('wheel', h);
     }, []);
 
     const onMD = useCallback((e: React.MouseEvent) => {
-        drag.current = { on: true, moved: false, sx: e.clientX, sy: e.clientY, stx: view.tx, sty: view.ty };
-        setIsDragging(true);
-    }, [view.tx, view.ty]);
+        const r = containerRef.current?.getBoundingClientRect();
+        if (!r) return;
+        if (isPicking && isDragTool) {
+            const { x, y } = normPos(e.clientX, e.clientY, view, r);
+            drawRef.current = { on: true, snx: x, sny: y };
+            setDrawPrev({ sx: x, sy: y, ex: x, ey: y });
+        } else {
+            panRef.current = { on: true, moved: false, sx: e.clientX, sy: e.clientY, stx: view.tx, sty: view.ty };
+            setIsDragging(true);
+        }
+    }, [isPicking, isDragTool, view]);
 
     const onMM = useCallback((e: React.MouseEvent) => {
-        const d = drag.current;
-        if (!d.on) return;
-        const dx = e.clientX - d.sx, dy = e.clientY - d.sy;
-        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
-            d.moved = true;
-            setView(v => ({ ...v, tx: d.stx + dx, ty: d.sty + dy }));
+        const r = containerRef.current?.getBoundingClientRect();
+        if (!r) return;
+        if (drawRef.current.on) {
+            const { x, y } = normPos(e.clientX, e.clientY, view, r);
+            setDrawPrev({ sx: drawRef.current.snx, sy: drawRef.current.sny, ex: x, ey: y });
+        } else if (panRef.current.on) {
+            const dx = e.clientX - panRef.current.sx;
+            const dy = e.clientY - panRef.current.sy;
+            if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+                panRef.current.moved = true;
+                setView(v => ({ ...v, tx: panRef.current.stx + dx, ty: panRef.current.sty + dy }));
+            }
         }
-    }, []);
+    }, [view]);
 
     const onMU = useCallback((e: React.MouseEvent) => {
-        const d = drag.current;
-        d.on = false;
-        setIsDragging(false);
-        if (!d.moved && containerRef.current) {
-            const rect = containerRef.current.getBoundingClientRect();
-            const nx = (e.clientX - rect.left - view.tx) / (rect.width  * view.scale);
-            const ny = (e.clientY - rect.top  - view.ty) / (rect.height * view.scale);
-            if (nx >= 0 && nx <= 1 && ny >= 0 && ny <= 1) onNormClick(nx, ny);
+        const r = containerRef.current?.getBoundingClientRect();
+        if (!r) return;
+        if (drawRef.current.on) {
+            const { snx, sny } = drawRef.current;
+            drawRef.current.on = false;
+            setDrawPrev(null);
+            const { x, y } = normPos(e.clientX, e.clientY, view, r);
+            onNormDragEnd(snx, sny, x, y);
+        } else if (panRef.current.on) {
+            const moved = panRef.current.moved;
+            panRef.current.on = false;
+            setIsDragging(false);
+            if (!moved && isPicking && !isDragTool) {
+                const { x, y } = normPos(e.clientX, e.clientY, view, r);
+                onNormClick(x, y);
+            }
         }
-    }, [view, onNormClick]);
+    }, [view, isPicking, isDragTool, onNormClick, onNormDragEnd]);
+
+    const cursor = isPicking ? 'crosshair' : isDragging ? 'grabbing' : 'grab';
 
     return (
         <div className="flex flex-col gap-1.5 min-h-0 flex-1">
-            {/* Label row + zoom controls */}
             <div className="flex items-center justify-between shrink-0">
                 <span className="text-xs font-medium text-text-secondary uppercase tracking-wider flex items-center gap-2">
                     {label}{labelExtra}
                 </span>
                 <div className="flex items-center gap-1">
-                    <span className="text-[10px] text-text-tertiary font-mono tabular-nums w-10 text-right">
+                    <span className="text-[10px] text-text-tertiary font-mono w-10 text-right tabular-nums">
                         {Math.round(view.scale * 100)}%
                     </span>
-                    <button onClick={() => setView(v => zoom(v, 0.8, null, containerRef.current))}
-                        className="size-6 rounded border border-border-default text-text-secondary hover:bg-surface-3 flex items-center justify-center transition-colors"
-                        title="Zoom out (scroll down)">
-                        <span className="material-symbols-outlined text-[16px]">remove</span>
-                    </button>
-                    <button onClick={() => setView(v => zoom(v, 1.25, null, containerRef.current))}
-                        className="size-6 rounded border border-border-default text-text-secondary hover:bg-surface-3 flex items-center justify-center transition-colors"
-                        title="Zoom in (scroll up)">
-                        <span className="material-symbols-outlined text-[16px]">add</span>
-                    </button>
+                    {[['remove', 0.8], ['add', 1.25]] .map(([icon, f]) => (
+                        <button key={icon as string}
+                            onClick={() => setView(v => applyZoom(v, f as number, null, containerRef.current))}
+                            className="size-6 rounded border border-border-default text-text-secondary hover:bg-surface-3 flex items-center justify-center transition-colors">
+                            <span className="material-symbols-outlined text-[16px]">{icon}</span>
+                        </button>
+                    ))}
                     <button onClick={() => setView({ scale: 1, tx: 0, ty: 0 })}
-                        className="size-6 rounded border border-border-default text-text-tertiary hover:bg-surface-3 flex items-center justify-center transition-colors"
-                        title="Reset view">
+                        className="size-6 rounded border border-border-default text-text-tertiary hover:bg-surface-3 flex items-center justify-center transition-colors" title="Reset">
                         <span className="material-symbols-outlined text-[16px]">fit_screen</span>
                     </button>
                 </div>
             </div>
 
-            {/* Canvas */}
             <div ref={containerRef}
                 className={`relative rounded-[var(--radius-lg)] overflow-hidden border-2 flex-1 min-h-0 select-none transition-colors
                     ${isPicking ? 'border-accent ring-4 ring-accent/20' : 'border-border-default'}`}
-                style={{ cursor: isPicking ? 'crosshair' : isDragging ? 'grabbing' : 'grab' }}
+                style={{ cursor }}
                 onMouseDown={onMD} onMouseMove={onMM} onMouseUp={onMU}
-                onMouseLeave={() => { drag.current.on = false; setIsDragging(false); }}
+                onMouseLeave={() => {
+                    panRef.current.on = false; drawRef.current.on = false;
+                    setIsDragging(false); setDrawPrev(null);
+                }}
             >
-                {/* Zoom/pan content */}
                 <div className="absolute inset-0"
                     style={{ transform: `translate(${view.tx}px,${view.ty}px) scale(${view.scale})`, transformOrigin: '0 0', willChange: 'transform' }}>
                     {children}
+                    {/* Ellipse drag preview (inside zoom context so it zooms/pans with content) */}
+                    {drawPrev && (() => {
+                        const l = Math.min(drawPrev.sx, drawPrev.ex) * 100;
+                        const t = Math.min(drawPrev.sy, drawPrev.ey) * 100;
+                        const w = Math.abs(drawPrev.ex - drawPrev.sx) * 100;
+                        const h = Math.abs(drawPrev.ey - drawPrev.sy) * 100;
+                        return (
+                            <div className="absolute pointer-events-none"
+                                style={{ left: `${l}%`, top: `${t}%`, width: `${w}%`, height: `${h}%`, borderRadius: '50%', border: '2px dashed rgba(59,130,246,0.75)', boxSizing: 'border-box' }} />
+                        );
+                    })()}
                 </div>
-                {/* Picking hint overlay (on top, unaffected by zoom) */}
-                {isPicking && (
+
+                {isPicking && !drawPrev && (
                     <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                        <span className="material-symbols-outlined text-accent/25 text-9xl">add_circle</span>
+                        <span className="material-symbols-outlined text-accent/20 text-9xl">
+                            {isDragTool ? 'open_with' : 'add_circle'}
+                        </span>
                     </div>
                 )}
             </div>
@@ -156,199 +199,211 @@ const ZoomableCanvas = forwardRef<ZoomHandle, ZoomProps>(function ZoomableCanvas
     );
 });
 
-// ── Shape SVG + dot overlay (lives INSIDE zoom context) ──────────────────────
-function ShapeLayer({
-    shapes, pending, side, shapeOffset,
-}: {
+// ── ShapeLayer (lives inside zoom context) ────────────────────────────────────
+function ShapeLayer({ shapes, pending, pickTool, side }: {
     shapes: Shape[];
     pending: Pending | null;
+    pickTool: ToolType | null;
     side: 'camera' | 'floorPlan';
-    shapeOffset: number;
 }) {
-    const pts = (s: Shape | null, isPending: boolean): NormPt[] => {
-        if (!s && isPending && pending) return side === 'camera' ? pending.camera : pending.floorPlan;
-        if (!s) return [];
-        return side === 'camera' ? s.camera : s.floorPlan;
-    };
-
-    const allShapes: Array<{ s: Shape | null; idx: number; isPending: boolean; type: ToolType }> = [
-        ...shapes.map((s, i) => ({ s, idx: i, isPending: false, type: s.type })),
-        ...(pending ? [{ s: null, idx: shapeOffset, isPending: true, type: (pending as any).tool ?? 'point' as ToolType }] : []),
-    ];
+    const getPts = (s: Shape) => side === 'camera' ? s.camera : s.floorPlan;
+    const pendPts = pending ? (side === 'camera' ? pending.camera : pending.floorPlan) : [];
 
     return (
-        // absolute inset-0 so it fills the content div (before zoom/pan transform)
         <div className="absolute inset-0 pointer-events-none">
+            {/* SVG layer for lines */}
             <svg className="absolute inset-0 w-full h-full overflow-visible">
-                {allShapes.map(({ s, idx, isPending, type }) => {
-                    const points = s ? pts(s, false) : (pending ? (side === 'camera' ? pending.camera : pending.floorPlan) : []);
-                    const c = gc(idx);
-                    if (points.length < 2) return null;
-                    if (type === 'line') return (
-                        <line key={`l${idx}`}
-                            x1={`${points[0].x * 100}%`} y1={`${points[0].y * 100}%`}
-                            x2={`${points[1].x * 100}%`} y2={`${points[1].y * 100}%`}
-                            stroke={c} strokeWidth="2" strokeDasharray={isPending ? '6 3' : 'none'} opacity="0.85" />
+                {shapes.map((s, i) => {
+                    const pts = getPts(s);
+                    if (s.type !== 'line' || pts.length < 2) return null;
+                    return (
+                        <line key={s.id}
+                            x1={`${pts[0].x * 100}%`} y1={`${pts[0].y * 100}%`}
+                            x2={`${pts[1].x * 100}%`} y2={`${pts[1].y * 100}%`}
+                            stroke={gc(i)} strokeWidth="2" opacity="0.85" />
                     );
-                    if (type === 'circle') {
-                        // radius in % of average dimension — approximate for SVG
-                        const dx = (points[1].x - points[0].x) * 100;
-                        const dy = (points[1].y - points[0].y) * 100;
-                        const r = Math.sqrt(dx * dx + dy * dy);
-                        return (
-                            <g key={`c${idx}`}>
-                                <circle cx={`${points[0].x * 100}%`} cy={`${points[0].y * 100}%`}
-                                    r={`${r}%`} fill="none" stroke={c} strokeWidth="2"
-                                    strokeDasharray={isPending ? '6 3' : 'none'} opacity="0.75" />
-                                <line
-                                    x1={`${points[0].x * 100}%`} y1={`${points[0].y * 100}%`}
-                                    x2={`${points[1].x * 100}%`} y2={`${points[1].y * 100}%`}
-                                    stroke={c} strokeWidth="1.5" strokeDasharray="3 3" opacity="0.5" />
-                            </g>
-                        );
-                    }
-                    return null;
                 })}
+                {/* Pending line preview */}
+                {pickTool === 'line' && pendPts.length === 1 && (
+                    <circle cx={`${pendPts[0].x * 100}%`} cy={`${pendPts[0].y * 100}%`} r="5"
+                        fill={gc(shapes.length)} opacity="0.6" />
+                )}
             </svg>
 
-            {/* Dot labels */}
-            {allShapes.map(({ s, idx, isPending, type }) => {
-                const points = s ? pts(s, false) : (pending ? (side === 'camera' ? pending.camera : pending.floorPlan) : []);
-                const c = gc(idx);
-                return points.map((p, pi) => (
-                    <div key={`d${idx}-${pi}`}
-                        className={`absolute -translate-x-1/2 -translate-y-1/2 ${isPending ? 'animate-pulse' : ''}`}
+            {/* Ellipses (divs with border-radius 50%) */}
+            {shapes.map((s, i) => {
+                if (s.type !== 'ellipse') return null;
+                const pts = getPts(s);
+                if (pts.length < 2) return null;
+                const [p1, p2] = pts;
+                const l = Math.min(p1.x, p2.x) * 100, t = Math.min(p1.y, p2.y) * 100;
+                const w = Math.abs(p2.x - p1.x) * 100,  h = Math.abs(p2.y - p1.y) * 100;
+                return (
+                    <div key={s.id} className="absolute"
+                        style={{ left: `${l}%`, top: `${t}%`, width: `${w}%`, height: `${h}%`, borderRadius: '50%', border: `2px solid ${gc(i)}`, boxSizing: 'border-box' }} />
+                );
+            })}
+
+            {/* Pending camera ellipse shown on camera canvas after camera drag done */}
+            {pickTool === 'ellipse' && pendPts.length === 2 && (
+                <div className="absolute animate-pulse"
+                    style={{
+                        left: `${Math.min(pendPts[0].x, pendPts[1].x) * 100}%`,
+                        top: `${Math.min(pendPts[0].y, pendPts[1].y) * 100}%`,
+                        width: `${Math.abs(pendPts[1].x - pendPts[0].x) * 100}%`,
+                        height: `${Math.abs(pendPts[1].y - pendPts[0].y) * 100}%`,
+                        borderRadius: '50%',
+                        border: `2px dashed ${gc(shapes.length)}`,
+                        boxSizing: 'border-box',
+                    }}
+                />
+            )}
+
+            {/* Dots for point & line */}
+            {shapes.map((s, i) => {
+                if (s.type === 'ellipse') return null;
+                const pts = getPts(s);
+                return pts.map((p, pi) => (
+                    <div key={`${s.id}-${pi}`}
+                        className="absolute -translate-x-1/2 -translate-y-1/2"
                         style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%` }}>
                         <div className="size-6 rounded-full border-2 border-white flex items-center justify-center text-[10px] font-bold text-white shadow-lg"
-                            style={{ backgroundColor: c }}>
-                            {type === 'point' ? idx + 1 : `${idx + 1}${['a','b'][pi] ?? pi}`}
+                            style={{ backgroundColor: gc(i) }}>
+                            {s.type === 'point' ? i + 1 : `${i + 1}${['a', 'b'][pi] ?? pi}`}
                         </div>
                     </div>
                 ));
             })}
+
+            {/* Pending dots for point/line */}
+            {pickTool && pickTool !== 'ellipse' && pendPts.map((p, pi) => (
+                <div key={`pend-${pi}`}
+                    className="absolute -translate-x-1/2 -translate-y-1/2 animate-pulse"
+                    style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%` }}>
+                    <div className="size-6 rounded-full border-2 border-white flex items-center justify-center text-[10px] font-bold text-white shadow-lg"
+                        style={{ backgroundColor: gc(shapes.length) }}>
+                        {pickTool === 'point' ? shapes.length + 1 : `${shapes.length + 1}${['a', 'b'][pi] ?? pi}`}
+                    </div>
+                </div>
+            ))}
         </div>
     );
 }
 
-// ── Sidebar ───────────────────────────────────────────────────────────────────
-function Sidebar({
-    shapes, pending, onRemove, onEditPx,
-    cameraRef, floorRef,
-}: {
+// ── Sidebar (always visible) ──────────────────────────────────────────────────
+function Sidebar({ shapes, pending, pickTool, onRemove, onEditPx, camRef, fpRef }: {
     shapes: Shape[];
     pending: Pending | null;
+    pickTool: ToolType | null;
     onRemove(id: number): void;
-    onEditPx(id: number, side: 'camera' | 'floorPlan', pi: number, axis: 'x'|'y', px: number): void;
-    cameraRef: React.RefObject<HTMLImageElement | null>;
-    floorRef:  React.RefObject<HTMLImageElement | null>;
+    onEditPx(id: number, side: 'camera' | 'floorPlan', pi: number, axis: 'x' | 'y', px: number): void;
+    camRef: React.RefObject<HTMLImageElement | null>;
+    fpRef:  React.RefObject<HTMLImageElement | null>;
 }) {
-    const camW = cameraRef.current?.naturalWidth  || 1280;
-    const camH = cameraRef.current?.naturalHeight || 720;
-    const fpW  = floorRef.current?.naturalWidth   || 1000;
-    const fpH  = floorRef.current?.naturalHeight  || 1000;
+    const cW = camRef.current?.naturalWidth  || 1280;
+    const cH = camRef.current?.naturalHeight || 720;
+    const fW = fpRef.current?.naturalWidth   || 1000;
+    const fH = fpRef.current?.naturalHeight  || 1000;
 
-    const toPx = (n: number, d: number) => Math.round(n * d);
+    const px = (n: number, d: number) => Math.round(n * d);
 
     const ptLabels: Record<ToolType, string[]> = {
-        point: ['Pt'],
+        point: ['Point'],
         line: ['Start', 'End'],
-        circle: ['Center', 'Edge'],
+        ellipse: ['Corner 1', 'Corner 2'],
     };
-
     const toolIcon: Record<ToolType, string> = {
-        point: 'location_on',
-        line: 'timeline',
-        circle: 'circle',
+        point: 'location_on', line: 'timeline', ellipse: 'radio_button_unchecked',
     };
 
     return (
         <div className="w-72 shrink-0 border-l border-border-default flex flex-col min-h-0">
             <div className="px-4 py-3 border-b border-border-subtle shrink-0">
                 <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Shapes</p>
-                <p className="text-[10px] text-text-tertiary mt-0.5">Values in pixels — click to edit</p>
+                <p className="text-[10px] text-text-tertiary mt-0.5">
+                    <span className="text-success">cam</span> = camera px ·&nbsp;
+                    <span className="text-accent">fp</span> = floor plan px
+                </p>
             </div>
 
             <div className="flex-1 overflow-y-auto divide-y divide-border-subtle">
                 {shapes.length === 0 && !pending && (
-                    <div className="flex flex-col items-center justify-center gap-2 py-10 px-4 text-center">
-                        <span className="material-symbols-outlined text-3xl text-text-tertiary">add_location</span>
-                        <p className="text-xs text-text-tertiary">No shapes yet.<br />Select a tool and click Add.</p>
+                    <div className="flex flex-col items-center justify-center gap-2 py-12 px-4 text-center">
+                        <span className="material-symbols-outlined text-4xl text-text-tertiary">add_location_alt</span>
+                        <p className="text-xs text-text-tertiary leading-relaxed">
+                            No shapes yet.<br />Click a tool button above to start.
+                        </p>
                     </div>
                 )}
 
                 {shapes.map((s, si) => (
                     <div key={s.id} className="px-3 py-3 group hover:bg-surface-2 transition-colors">
-                        {/* Shape header */}
-                        <div className="flex items-center gap-2 mb-2">
-                            <div className="size-5 rounded-full border-2 border-surface-1 flex items-center justify-center text-[9px] font-bold text-white"
+                        <div className="flex items-center gap-2 mb-2.5">
+                            <div className="size-5 rounded-full border-2 border-surface-1 flex items-center justify-center text-[9px] font-bold text-white shrink-0"
                                 style={{ backgroundColor: gc(si) }}>
                                 {si + 1}
                             </div>
                             <span className="material-symbols-outlined text-[14px]" style={{ color: gc(si) }}>
                                 {toolIcon[s.type]}
                             </span>
-                            <span className="text-[11px] font-medium text-text-primary capitalize">{s.type}</span>
+                            <span className="text-[11px] font-semibold text-text-primary capitalize">{s.type}</span>
                             <button onClick={() => onRemove(s.id)}
                                 className="ml-auto opacity-0 group-hover:opacity-100 text-text-tertiary hover:text-danger transition-all">
                                 <span className="material-symbols-outlined text-base">close</span>
                             </button>
                         </div>
 
-                        {/* Point rows */}
                         {s.camera.map((cp, pi) => (
-                            <div key={pi} className="mb-1.5">
-                                <p className="text-[9px] text-text-tertiary uppercase tracking-wider mb-0.5 font-medium">
-                                    {ptLabels[s.type][pi] ?? `Pt${pi+1}`}
+                            <div key={pi} className="mb-2">
+                                <p className="text-[9px] text-text-tertiary uppercase tracking-wider font-medium mb-1">
+                                    {ptLabels[s.type][pi] ?? `Pt ${pi + 1}`}
                                 </p>
                                 <div className="grid grid-cols-2 gap-1">
-                                    {/* Camera */}
-                                    <div className="flex items-center gap-0.5 bg-surface-0 rounded px-1.5 py-1 border border-border-subtle">
-                                        <span className="material-symbols-outlined text-[11px] text-text-tertiary mr-0.5">videocam</span>
-                                        <input type="number"
-                                            value={toPx(cp.x, camW)}
-                                            onChange={e => onEditPx(s.id, 'camera', pi, 'x', Number(e.target.value))}
-                                            className="w-full bg-transparent text-[11px] font-mono text-text-primary outline-none min-w-0" />
-                                        <span className="text-[9px] text-text-tertiary">x</span>
-                                    </div>
-                                    <div className="flex items-center gap-0.5 bg-surface-0 rounded px-1.5 py-1 border border-border-subtle">
-                                        <input type="number"
-                                            value={toPx(cp.y, camH)}
-                                            onChange={e => onEditPx(s.id, 'camera', pi, 'y', Number(e.target.value))}
-                                            className="w-full bg-transparent text-[11px] font-mono text-text-primary outline-none min-w-0" />
-                                        <span className="text-[9px] text-text-tertiary">y</span>
-                                    </div>
-                                    {/* Floor plan */}
-                                    <div className="flex items-center gap-0.5 bg-surface-0 rounded px-1.5 py-1 border border-border-subtle">
-                                        <span className="material-symbols-outlined text-[11px] text-text-tertiary mr-0.5">map</span>
-                                        <input type="number"
-                                            value={toPx(s.floorPlan[pi]?.x ?? 0, fpW)}
-                                            onChange={e => onEditPx(s.id, 'floorPlan', pi, 'x', Number(e.target.value))}
-                                            className="w-full bg-transparent text-[11px] font-mono text-text-primary outline-none min-w-0" />
-                                        <span className="text-[9px] text-text-tertiary">x</span>
-                                    </div>
-                                    <div className="flex items-center gap-0.5 bg-surface-0 rounded px-1.5 py-1 border border-border-subtle">
-                                        <input type="number"
-                                            value={toPx(s.floorPlan[pi]?.y ?? 0, fpH)}
-                                            onChange={e => onEditPx(s.id, 'floorPlan', pi, 'y', Number(e.target.value))}
-                                            className="w-full bg-transparent text-[11px] font-mono text-text-primary outline-none min-w-0" />
-                                        <span className="text-[9px] text-text-tertiary">y</span>
-                                    </div>
+                                    {/* Camera x/y */}
+                                    <PxInput icon="videocam" label="x" color="text-success"
+                                        value={px(cp.x, cW)}
+                                        onChange={v => onEditPx(s.id, 'camera', pi, 'x', v)} />
+                                    <PxInput icon="" label="y" color="text-success"
+                                        value={px(cp.y, cH)}
+                                        onChange={v => onEditPx(s.id, 'camera', pi, 'y', v)} />
+                                    {/* Floor plan x/y */}
+                                    <PxInput icon="map" label="x" color="text-accent"
+                                        value={px((s.floorPlan[pi]?.x ?? 0), fW)}
+                                        onChange={v => onEditPx(s.id, 'floorPlan', pi, 'x', v)} />
+                                    <PxInput icon="" label="y" color="text-accent"
+                                        value={px((s.floorPlan[pi]?.y ?? 0), fH)}
+                                        onChange={v => onEditPx(s.id, 'floorPlan', pi, 'y', v)} />
                                 </div>
                             </div>
                         ))}
                     </div>
                 ))}
 
-                {/* In-progress shape */}
                 {pending && (
-                    <div className="px-3 py-3 bg-accent/5 border-accent/20 border-l-2">
+                    <div className="px-3 py-3 bg-accent/5 border-l-2 border-accent/40">
                         <div className="flex items-center gap-2">
                             <span className="material-symbols-outlined text-accent text-sm animate-pulse">edit_location</span>
-                            <span className="text-[11px] text-accent font-medium">In progress…</span>
+                            <span className="text-[11px] text-accent font-medium capitalize">
+                                Adding {pickTool}…
+                            </span>
                         </div>
                     </div>
                 )}
             </div>
+        </div>
+    );
+}
+
+function PxInput({ icon, label, color, value, onChange }: {
+    icon: string; label: string; color: string; value: number; onChange(v: number): void;
+}) {
+    return (
+        <div className="flex items-center gap-0.5 bg-surface-0 rounded px-1.5 py-1 border border-border-subtle">
+            {icon && <span className={`material-symbols-outlined text-[11px] ${color} mr-0.5`}>{icon}</span>}
+            <input type="number" value={value}
+                onChange={e => onChange(Number(e.target.value))}
+                className="w-full bg-transparent text-[11px] font-mono text-text-primary outline-none min-w-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+            <span className={`text-[9px] ${color} font-medium`}>{label}</span>
         </div>
     );
 }
@@ -358,12 +413,11 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
     const currentFrame = useTrackingStore(s => s.currentFrame);
     const wsStatus     = useTrackingStore(s => s.wsStatus);
 
-    const [shapes,   setShapes]   = useState<Shape[]>([]);
-    const [pick,     setPick]     = useState<PickState | null>(null);
-    const [pending,  setPending]  = useState<Pending | null>(null);
-    const [tool,     setTool]     = useState<ToolType>('point');
-    const [saving,   setSaving]   = useState(false);
-    const [result,   setResult]   = useState<'success'|'error'|null>(null);
+    const [shapes,  setShapes]  = useState<Shape[]>([]);
+    const [pick,    setPick]    = useState<PickState | null>(null);
+    const [pending, setPending] = useState<Pending | null>(null);
+    const [saving,  setSaving]  = useState(false);
+    const [result,  setResult]  = useState<'success' | 'error' | null>(null);
 
     const nextId  = useRef(1);
     const camRef  = useRef<HTMLImageElement>(null);
@@ -371,85 +425,99 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
     const camZoom = useRef<ZoomHandle>(null);
     const fpZoom  = useRef<ZoomHandle>(null);
 
-    // Lock body scroll + ESC close
+    // Lock body scroll + ESC
     useEffect(() => {
         const prev = document.body.style.overflow;
         document.body.style.overflow = 'hidden';
-        const onKey = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') { if (pick) cancelPick(); else onClose(); }
-            if ((e.key === '+' || e.key === '=') && !e.target) { camZoom.current?.zoomIn();  fpZoom.current?.zoomIn(); }
-            if (e.key === '-' && !e.target)                    { camZoom.current?.zoomOut(); fpZoom.current?.zoomOut(); }
-        };
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { cancelPick(); onClose(); } };
         window.addEventListener('keydown', onKey);
         return () => { document.body.style.overflow = prev; window.removeEventListener('keydown', onKey); };
-    }, [pick, onClose]);
+    }, [onClose]);
 
     const cancelPick = () => { setPick(null); setPending(null); };
 
-    const startAdd = () => {
+    // ── Start adding a shape ──
+    const startAdd = (tool: ToolType) => {
         setPick({ tool, side: 'camera', pointIdx: 0 });
         setPending({ camera: [], floorPlan: [] });
         setResult(null);
     };
 
-    const handlePick = useCallback((clickSide: 'camera' | 'floorPlan', x: number, y: number) => {
-        setPick(p => {
-            if (!p) return null;
-            const wantSide = p.side === 'camera' ? 'camera' : 'floorPlan';
-            if (clickSide !== wantSide) return p; // wrong canvas
+    // ── Handle click (point / line) — FIX: no nested setState calls ──
+    const handleClick = useCallback((clickSide: 'camera' | 'floorPlan', x: number, y: number) => {
+        if (!pick || !pending) return;
 
-            const needed = PTS_NEEDED[p.tool];
+        // Guard: only accept click on the expected canvas
+        const expectedSide = pick.side === 'camera' ? 'camera' : 'floorPlan';
+        if (clickSide !== expectedSide) return;
 
-            setPending(prev => {
-                if (!prev) return null;
-                const updated: Pending = { ...prev };
-                if (clickSide === 'camera') {
-                    updated.camera = [...prev.camera, { x, y }];
-                } else {
-                    updated.floorPlan = [...prev.floorPlan, { x, y }];
-                }
+        const needed = PTS_CLICK[pick.tool];
+        const newPending: Pending = {
+            camera:    clickSide === 'camera'    ? [...pending.camera,    { x, y }] : pending.camera,
+            floorPlan: clickSide === 'floorPlan' ? [...pending.floorPlan, { x, y }] : pending.floorPlan,
+        };
+        setPending(newPending);
 
-                // Determine next step
-                if (clickSide === 'camera') {
-                    if (updated.camera.length < needed) {
-                        // need more camera pts
-                        setPick({ ...p, pointIdx: p.pointIdx + 1 });
-                    } else {
-                        // move to floor
-                        setPick({ ...p, side: 'floor', pointIdx: 0 });
-                    }
-                } else {
-                    if (updated.floorPlan.length < needed) {
-                        setPick({ ...p, pointIdx: p.pointIdx + 1 });
-                    } else {
-                        // done — commit shape
-                        setShapes(prev => [...prev, {
-                            id: nextId.current++,
-                            type: p.tool,
-                            camera: updated.camera,
-                            floorPlan: updated.floorPlan,
-                        }]);
-                        setPick(null);
-                        return null;
-                    }
-                }
-                return updated;
-            });
-            return p; // interim return (will be overwritten by setPick inside)
-        });
-    }, []);
+        if (clickSide === 'camera') {
+            if (newPending.camera.length < needed) {
+                setPick({ ...pick, pointIdx: pick.pointIdx + 1 });   // need more camera clicks
+            } else {
+                setPick({ ...pick, side: 'floor', pointIdx: 0 });    // done with camera → switch to floor
+            }
+        } else {
+            if (newPending.floorPlan.length < needed) {
+                setPick({ ...pick, pointIdx: pick.pointIdx + 1 });   // need more floor clicks
+            } else {
+                // ✅ All points collected — commit shape
+                setShapes(prev => [...prev, {
+                    id: nextId.current++,
+                    type: pick.tool,
+                    camera: newPending.camera,
+                    floorPlan: newPending.floorPlan,
+                }]);
+                setPick(null);
+                setPending(null);
+            }
+        }
+    }, [pick, pending]);
 
-    const onCamClick = useCallback((x: number, y: number) => {
-        if (pick?.side === 'camera') handlePick('camera', x, y);
-    }, [pick, handlePick]);
+    // ── Handle drag end (ellipse only) ──
+    const handleDrag = useCallback((dragSide: 'camera' | 'floorPlan', x1: number, y1: number, x2: number, y2: number) => {
+        if (!pick || !pending || pick.tool !== 'ellipse') return;
+        const expectedSide = pick.side === 'camera' ? 'camera' : 'floorPlan';
+        if (dragSide !== expectedSide) return;
 
-    const onFpClick = useCallback((x: number, y: number) => {
-        if (pick?.side === 'floor') handlePick('floorPlan', x, y);
-    }, [pick, handlePick]);
+        const pts: NormPt[] = [{ x: x1, y: y1 }, { x: x2, y: y2 }];
+        const newPending: Pending = {
+            camera:    dragSide === 'camera'    ? pts : pending.camera,
+            floorPlan: dragSide === 'floorPlan' ? pts : pending.floorPlan,
+        };
+        setPending(newPending);
+
+        if (dragSide === 'camera') {
+            setPick({ ...pick, side: 'floor', pointIdx: 0 }); // done with camera → floor
+        } else {
+            // ✅ Both ellipses drawn — commit
+            setShapes(prev => [...prev, {
+                id: nextId.current++,
+                type: 'ellipse',
+                camera: newPending.camera,
+                floorPlan: newPending.floorPlan,
+            }]);
+            setPick(null);
+            setPending(null);
+        }
+    }, [pick, pending]);
+
+    // Routed click/drag callbacks per canvas
+    const onCamClick  = useCallback((x: number, y: number) => handleClick('camera', x, y),    [handleClick]);
+    const onFpClick   = useCallback((x: number, y: number) => handleClick('floorPlan', x, y),  [handleClick]);
+    const onCamDrag   = useCallback((x1: number, y1: number, x2: number, y2: number) => handleDrag('camera', x1, y1, x2, y2),    [handleDrag]);
+    const onFpDrag    = useCallback((x1: number, y1: number, x2: number, y2: number) => handleDrag('floorPlan', x1, y1, x2, y2),  [handleDrag]);
 
     const removeShape = (id: number) => { setShapes(s => s.filter(x => x.id !== id)); setResult(null); };
 
-    const editPx = useCallback((id: number, side: 'camera'|'floorPlan', pi: number, axis: 'x'|'y', px: number) => {
+    const editPx = useCallback((id: number, side: 'camera' | 'floorPlan', pi: number, axis: 'x' | 'y', px: number) => {
         const cW = camRef.current?.naturalWidth  || 1280;
         const cH = camRef.current?.naturalHeight || 720;
         const fW = fpRef.current?.naturalWidth   || 1000;
@@ -488,45 +556,53 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
         finally { setSaving(false); }
     };
 
+    const isCamPicking = pick?.side === 'camera';
+    const isFpPicking  = pick?.side === 'floor';
+    const isDragTool   = pick?.tool === 'ellipse';
+
     const stepLabel = (() => {
         if (!pick) return null;
-        const { tool: t, side, pointIdx: pi } = pick;
-        const on = side === 'camera' ? 'camera frame' : 'floor plan';
-        if (t === 'point') return `Click a point on the ${on}`;
-        if (t === 'line')  return `Click ${pi === 0 ? 'start' : 'end'} point on the ${on}`;
-        if (t === 'circle') return `Click ${pi === 0 ? 'center' : 'edge (radius)'} on the ${on}`;
+        const on = pick.side === 'camera' ? 'camera frame' : 'floor plan';
+        if (pick.tool === 'point')   return `Click a point on the ${on}`;
+        if (pick.tool === 'line')    return `Click ${pick.pointIdx === 0 ? 'start' : 'end'} point on the ${on}`;
+        if (pick.tool === 'ellipse') return `Drag to draw ellipse on the ${on}`;
+        return null;
     })();
 
-    const toolDef: { type: ToolType; icon: string; label: string }[] = [
-        { type: 'point',  icon: 'location_on', label: 'Point'  },
-        { type: 'line',   icon: 'timeline',    label: 'Line'   },
-        { type: 'circle', icon: 'circle',      label: 'Circle' },
+    const toolBtns: { tool: ToolType; icon: string; label: string }[] = [
+        { tool: 'point',   icon: 'location_on',            label: 'Point'   },
+        { tool: 'line',    icon: 'timeline',                label: 'Line'    },
+        { tool: 'ellipse', icon: 'radio_button_unchecked',  label: 'Ellipse' },
     ];
 
     const modal = (
         <div className="fixed inset-0 flex items-center justify-center bg-black/80 backdrop-blur-sm"
-            style={{ zIndex: 9999 }}
-            onClick={onClose}>
+            style={{ zIndex: 9999 }} onClick={onClose}>
             <div className="bg-surface-1 border border-border-strong rounded-[var(--radius-xl)] shadow-2xl flex flex-col"
                 style={{ width: 'calc(100vw - 3rem)', height: 'calc(100vh - 3rem)', zIndex: 10000 }}
                 onClick={e => e.stopPropagation()}>
 
                 {/* ── Header ── */}
-                <div className="shrink-0 flex items-center gap-3 px-5 py-3.5 border-b border-border-default flex-wrap">
-                    <span className="material-symbols-outlined text-accent">map</span>
-                    <div className="mr-2">
+                <div className="shrink-0 flex items-center gap-3 px-5 py-3.5 border-b border-border-default flex-wrap gap-y-2">
+                    <span className="material-symbols-outlined text-accent shrink-0">map</span>
+                    <div className="shrink-0 mr-1">
                         <h2 className="text-sm font-bold text-text-primary">2D Mapping Calibration</h2>
                         <p className="text-[10px] text-text-tertiary">Place shapes on both views to define coordinate mapping</p>
                     </div>
 
-                    {/* Tool selector */}
-                    <div className="flex items-center gap-1 bg-surface-0 rounded-[var(--radius-md)] p-1 border border-border-subtle">
-                        {toolDef.map(td => (
-                            <button key={td.type}
-                                onClick={() => { setTool(td.type); cancelPick(); }}
-                                className={`flex items-center gap-1.5 px-3 py-1 rounded-[var(--radius-sm)] text-xs font-medium transition-all ${tool === td.type ? 'bg-accent text-white' : 'text-text-secondary hover:text-text-primary hover:bg-surface-2'}`}>
-                                <span className="material-symbols-outlined text-sm">{td.icon}</span>
-                                {td.label}
+                    {/* Tool buttons — click immediately starts that tool */}
+                    <div className="flex items-center gap-1.5">
+                        {toolBtns.map(tb => (
+                            <button key={tb.tool}
+                                onClick={() => { cancelPick(); startAdd(tb.tool); }}
+                                disabled={!!pick}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-md)] text-xs font-medium border transition-all
+                                    disabled:opacity-40 disabled:cursor-not-allowed
+                                    ${pick?.tool === tb.tool
+                                        ? 'bg-accent border-accent text-white'
+                                        : 'bg-surface-2 border-border-default text-text-secondary hover:border-accent hover:text-accent'}`}>
+                                <span className="material-symbols-outlined text-sm">{tb.icon}</span>
+                                + {tb.label}
                             </button>
                         ))}
                     </div>
@@ -534,7 +610,7 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
                     {/* Step hint */}
                     {stepLabel && (
                         <div className="flex items-center gap-2 bg-accent/10 border border-accent/30 rounded-[var(--radius-md)] px-3 py-1.5">
-                            <span className="material-symbols-outlined text-accent text-sm">my_location</span>
+                            <span className="material-symbols-outlined text-accent text-sm animate-pulse">my_location</span>
                             <span className="text-xs text-accent font-medium">{stepLabel}</span>
                             <button onClick={cancelPick}
                                 className="ml-1 text-[10px] text-accent/70 hover:text-accent underline underline-offset-2">
@@ -543,13 +619,8 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
                         </div>
                     )}
 
-                    {/* Right actions */}
-                    <div className="ml-auto flex items-center gap-2">
-                        <button onClick={startAdd} disabled={!!pick}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-md)] bg-accent text-white text-xs font-medium hover:bg-accent/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
-                            <span className="material-symbols-outlined text-sm">add_location</span>
-                            Add {tool}
-                        </button>
+                    {/* Right side */}
+                    <div className="ml-auto flex items-center gap-2 shrink-0">
                         <button onClick={() => { setShapes([]); cancelPick(); setResult(null); }}
                             disabled={shapes.length === 0 && !pick}
                             className="flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-md)] border border-border-default text-xs text-text-secondary hover:border-danger hover:text-danger disabled:opacity-40 transition-all">
@@ -557,11 +628,11 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
                             Clear all
                         </button>
                         <div className="w-px h-5 bg-border-subtle" />
-                        <span className={`text-xs font-mono px-2 py-1 rounded-full border ${shapes.length >= 4 ? 'border-success/40 text-success bg-success/10' : 'border-warning/40 text-warning bg-warning/10'}`}>
+                        <span className={`text-xs font-mono px-2.5 py-1 rounded-full border ${shapes.length >= 4 ? 'border-success/40 text-success bg-success/10' : 'border-border-subtle text-text-tertiary'}`}>
                             {shapes.length} shape{shapes.length !== 1 ? 's' : ''}
                         </span>
                         <button onClick={handleSave} disabled={shapes.length === 0 || saving || !!pick}
-                            className="flex items-center gap-1.5 px-4 py-1.5 rounded-[var(--radius-md)] bg-success text-white text-xs font-medium hover:bg-success/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
+                            className="flex items-center gap-1.5 px-4 py-1.5 rounded-[var(--radius-md)] bg-success text-white text-xs font-medium hover:bg-success/90 disabled:opacity-40 transition-all">
                             <span className={`material-symbols-outlined text-sm ${saving ? 'animate-spin' : ''}`}>
                                 {saving ? 'progress_activity' : 'save'}
                             </span>
@@ -585,49 +656,39 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
 
                 {/* ── Body ── */}
                 <div className="flex flex-1 min-h-0 overflow-hidden">
-                    {/* Canvases */}
-                    <div className="flex-1 min-w-0 p-4 flex flex-col gap-4 min-h-0">
-                        {/* Tip */}
+                    <div className="flex-1 min-w-0 p-4 flex flex-col gap-3 min-h-0">
                         <p className="shrink-0 text-[11px] text-text-tertiary">
-                            <span className="text-accent font-medium">Scroll</span> to zoom ·
+                            <span className="text-accent font-medium">Scroll</span> or <span className="text-accent font-medium">±</span> to zoom ·
                             <span className="text-accent font-medium ml-1">Drag</span> to pan ·
-                            <span className="text-accent font-medium ml-1">+/−</span> buttons or keyboard
+                            <span className="text-accent font-medium ml-1">Ellipse:</span> drag to draw bounding box
                         </p>
-
                         <div className="flex gap-4 flex-1 min-h-0">
-                            {/* Camera */}
                             <ZoomableCanvas ref={camZoom} label="Camera Frame"
                                 labelExtra={wsStatus !== 'connected' && <span className="text-warning normal-case font-normal">(no stream)</span>}
-                                isPicking={pick?.side === 'camera'}
-                                onNormClick={onCamClick}>
+                                isPicking={isCamPicking} isDragTool={isDragTool && isCamPicking}
+                                onNormClick={onCamClick} onNormDragEnd={onCamDrag}>
                                 {currentFrame
-                                    ? <img ref={camRef} src={currentFrame} alt="camera" draggable={false}
-                                        className="absolute inset-0 w-full h-full object-contain bg-black" />
+                                    ? <img ref={camRef} src={currentFrame} alt="" draggable={false} className="absolute inset-0 w-full h-full object-contain bg-black" />
                                     : <div className="absolute inset-0 bg-surface-0 flex flex-col items-center justify-center gap-2">
                                         <span className="material-symbols-outlined text-5xl text-text-tertiary">videocam_off</span>
                                         <p className="text-xs text-text-tertiary">No live frame</p>
                                       </div>
                                 }
-                                <ShapeLayer shapes={shapes} pending={pending} side="camera" shapeOffset={shapes.length} />
+                                <ShapeLayer shapes={shapes} pending={pending} pickTool={pick?.tool ?? null} side="camera" />
                             </ZoomableCanvas>
 
-                            {/* Floor plan */}
                             <ZoomableCanvas ref={fpZoom} label="Floor Plan"
-                                isPicking={pick?.side === 'floor'}
-                                onNormClick={onFpClick}>
-                                <img ref={fpRef} src="/labmap.svg" alt="floor plan" draggable={false}
-                                    className="absolute inset-0 w-full h-full object-contain bg-surface-0" />
-                                <ShapeLayer shapes={shapes} pending={pending} side="floorPlan" shapeOffset={shapes.length} />
+                                isPicking={isFpPicking} isDragTool={isDragTool && isFpPicking}
+                                onNormClick={onFpClick} onNormDragEnd={onFpDrag}>
+                                <img ref={fpRef} src="/labmap.svg" alt="" draggable={false} className="absolute inset-0 w-full h-full object-contain bg-surface-0" />
+                                <ShapeLayer shapes={shapes} pending={pending} pickTool={pick?.tool ?? null} side="floorPlan" />
                             </ZoomableCanvas>
                         </div>
                     </div>
 
-                    {/* Sidebar — always visible */}
-                    <Sidebar
-                        shapes={shapes} pending={pending}
+                    <Sidebar shapes={shapes} pending={pending} pickTool={pick?.tool ?? null}
                         onRemove={removeShape} onEditPx={editPx}
-                        cameraRef={camRef} floorRef={fpRef}
-                    />
+                        camRef={camRef} fpRef={fpRef} />
                 </div>
             </div>
         </div>
@@ -636,7 +697,7 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
     return createPortal(modal, document.body);
 }
 
-// ── Settings card (entry point) ───────────────────────────────────────────────
+// ── Settings card ─────────────────────────────────────────────────────────────
 export default function MappingCalibration() {
     const [open, setOpen] = useState(false);
     return (
@@ -649,8 +710,8 @@ export default function MappingCalibration() {
                     <div>
                         <p className="text-sm font-medium text-text-primary">Homography Calibration</p>
                         <p className="text-xs text-text-tertiary mt-1 leading-relaxed max-w-md">
-                            Place points, lines, and circles on the camera view and floor plan to
-                            define the coordinate mapping used by the backend. Requires ≥ 4 point pairs.
+                            Place points, lines, and ellipses on the camera view and floor plan to
+                            define the coordinate mapping used by the backend.
                         </p>
                     </div>
                 </div>
