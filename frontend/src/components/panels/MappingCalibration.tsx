@@ -11,19 +11,19 @@ const API_BASE =
     'https://labmanagementbackend-hte4hyczd0fef4ah.eastasia-01.azurewebsites.net';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-type ToolType = 'point' | 'line' | 'ellipse';
+type ToolType = 'point' | 'line';
 interface NormPt { x: number; y: number; }
 interface Shape {
     id: number;
     type: ToolType;
-    camera: NormPt[];    // point:1pt | line:2pts(start,end) | ellipse:2pts(corner1,corner2)
+    camera: NormPt[];    // point:1pt | line:2pts(start,end)
     floorPlan: NormPt[];
 }
 
-// line and ellipse both use drag; point uses click
-const DRAG_TOOLS: ToolType[] = ['line', 'ellipse'];
+// line uses drag; point uses click
+const DRAG_TOOLS: ToolType[] = ['line'];
 // PTS_CLICK only matters for point (drag tools set to 0)
-const PTS_CLICK: Record<ToolType, number> = { point: 1, line: 0, ellipse: 0 };
+const PTS_CLICK: Record<ToolType, number> = { point: 1, line: 0 };
 
 interface PickState {
     tool: ToolType;
@@ -33,19 +33,24 @@ interface PickState {
 interface Pending { camera: NormPt[]; floorPlan: NormPt[]; }
 interface ViewState { scale: number; tx: number; ty: number; }
 
-const COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#ec4899'];
+const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#f97316', '#ec4899'];
 const gc = (i: number) => COLORS[i % COLORS.length];
 
 // ── ZoomHandle ────────────────────────────────────────────────────────────────
 export interface ZoomHandle { zoomIn(): void; zoomOut(): void; reset(): void; }
 
 // ── Single zoom-invariant dot ─────────────────────────────────────────────────
-function ShapeDot({ x, y, size, color, label, isPending = false }: {
+function ShapeDot({ x, y, size, color, label, isPending = false, isSelected = false, onDoubleClick }: {
     x: number; y: number; size: number; color: string; label?: string; isPending?: boolean;
+    isSelected?: boolean; onDoubleClick?: () => void;
 }) {
     return (
         <div
-            className={`absolute flex items-center justify-center ${isPending ? 'animate-pulse' : ''}`}
+            className={`absolute flex items-center justify-center ${isPending ? 'animate-pulse' : ''} ${isSelected ? 'ring-4 ring-white shadow-[0_0_10px_white] z-50' : ''}`}
+            onDoubleClick={(e) => {
+                e.stopPropagation();
+                onDoubleClick?.();
+            }}
             style={{
                 left: x, top: y,
                 width: size, height: size,
@@ -53,14 +58,15 @@ function ShapeDot({ x, y, size, color, label, isPending = false }: {
                 backgroundColor: color,
                 borderRadius: '50%',
                 border: '1.5px solid rgba(255,255,255,0.85)',
-                boxShadow: '0 1px 4px rgba(0,0,0,0.55)',
+                boxShadow: isSelected ? '0 0 12px white' : '0 1px 4px rgba(0,0,0,0.55)',
                 opacity: isPending ? 0.75 : 1,
                 fontSize: '6px',
                 lineHeight: 1,
                 color: 'white',
                 fontWeight: 'bold',
                 userSelect: 'none',
-                pointerEvents: 'none',
+                pointerEvents: isPending ? 'none' : 'auto',
+                cursor: 'pointer',
             }}
         >
             {label}
@@ -69,7 +75,7 @@ function ShapeDot({ x, y, size, color, label, isPending = false }: {
 }
 
 // ── DotsOverlay — rendered OUTSIDE zoom transform so size stays constant ──────
-function DotsOverlay({ shapes, pending, pickTool, side, view, cW, cH }: {
+function DotsOverlay({ shapes, pending, pickTool, side, view, cW, cH, selectedShapeId, onShapeDoubleClick }: {
     shapes: Shape[];
     pending: Pending | null;
     pickTool: ToolType | null;
@@ -77,6 +83,8 @@ function DotsOverlay({ shapes, pending, pickTool, side, view, cW, cH }: {
     view: ViewState;
     cW: number;
     cH: number;
+    selectedShapeId: number | null;
+    onShapeDoubleClick: (id: number) => void;
 }) {
     if (!cW || !cH) return null;
 
@@ -88,37 +96,34 @@ function DotsOverlay({ shapes, pending, pickTool, side, view, cW, cH }: {
     const dotsForShape = (s: Shape, si: number, isPending = false): React.ReactNode[] => {
         const pts = side === 'camera' ? s.camera : s.floorPlan;
         const color = gc(si);
+        const isSelected = s.id === selectedShapeId;
         if (pts.length === 0) return [];
 
         if (s.type === 'point' && pts.length >= 1) {
             const { x, y } = toS(pts[0]);
-            return [<ShapeDot key={`${s.id}-0`} x={x} y={y} size={10} color={color} isPending={isPending} />];
+            return [
+                <ShapeDot
+                    key={`${s.id}-0`} x={x} y={y} size={10} color={color}
+                    isPending={isPending} isSelected={isSelected}
+                    onDoubleClick={() => !isPending && onShapeDoubleClick(s.id)}
+                />
+            ];
         }
 
         if (s.type === 'line' && pts.length >= 2) {
             const sp = toS(pts[0]);
             const ep = toS(pts[1]);
             return [
-                <ShapeDot key={`${s.id}-s`} x={sp.x} y={sp.y} size={9} color={color} label="S" isPending={isPending} />,
-                <ShapeDot key={`${s.id}-e`} x={ep.x} y={ep.y} size={9} color={color} label="E" isPending={isPending} />,
-            ];
-        }
-
-        if (s.type === 'ellipse' && pts.length >= 2) {
-            const [p1, p2] = pts;
-            const cx = (p1.x + p2.x) / 2, cy = (p1.y + p2.y) / 2;
-            const rx = Math.abs(p2.x - p1.x) / 2, ry = Math.abs(p2.y - p1.y) / 2;
-            const c  = toS({ x: cx,      y: cy      });
-            const t  = toS({ x: cx,      y: cy - ry });
-            const b  = toS({ x: cx,      y: cy + ry });
-            const l  = toS({ x: cx - rx, y: cy      });
-            const r  = toS({ x: cx + rx, y: cy      });
-            return [
-                <ShapeDot key={`${s.id}-c`} x={c.x} y={c.y} size={11} color={color} label="+" isPending={isPending} />,
-                <ShapeDot key={`${s.id}-t`} x={t.x} y={t.y} size={6}  color={color} isPending={isPending} />,
-                <ShapeDot key={`${s.id}-b`} x={b.x} y={b.y} size={6}  color={color} isPending={isPending} />,
-                <ShapeDot key={`${s.id}-l`} x={l.x} y={l.y} size={6}  color={color} isPending={isPending} />,
-                <ShapeDot key={`${s.id}-r`} x={r.x} y={r.y} size={6}  color={color} isPending={isPending} />,
+                <ShapeDot
+                    key={`${s.id}-s`} x={sp.x} y={sp.y} size={9} color={color} label="S"
+                    isPending={isPending} isSelected={isSelected}
+                    onDoubleClick={() => !isPending && onShapeDoubleClick(s.id)}
+                />,
+                <ShapeDot
+                    key={`${s.id}-e`} x={ep.x} y={ep.y} size={9} color={color} label="E"
+                    isPending={isPending} isSelected={isSelected}
+                    onDoubleClick={() => !isPending && onShapeDoubleClick(s.id)}
+                />,
             ];
         }
 
@@ -153,18 +158,18 @@ const ZoomableCanvas = forwardRef<ZoomHandle, {
     label, labelExtra, isPicking, isDragTool, activeTool,
     onNormClick, onNormDragEnd, overlay, children,
 }, ref) {
-    const [view, setView]             = useState<ViewState>({ scale: 1, tx: 0, ty: 0 });
+    const [view, setView] = useState<ViewState>({ scale: 1, tx: 0, ty: 0 });
     const [isDragging, setIsDragging] = useState(false);
-    const [drawPrev, setDrawPrev]     = useState<{ sx: number; sy: number; ex: number; ey: number } | null>(null);
-    const [cSize, setCSize]           = useState({ w: 0, h: 0 });
+    const [drawPrev, setDrawPrev] = useState<{ sx: number; sy: number; ex: number; ey: number } | null>(null);
+    const [cSize, setCSize] = useState({ w: 0, h: 0 });
     const containerRef = useRef<HTMLDivElement>(null);
-    const panRef  = useRef({ on: false, moved: false, sx: 0, sy: 0, stx: 0, sty: 0 });
+    const panRef = useRef({ on: false, moved: false, sx: 0, sy: 0, stx: 0, sty: 0 });
     const drawRef = useRef({ on: false, snx: 0, sny: 0 });
 
     useImperativeHandle(ref, () => ({
-        zoomIn:  () => setView(v => applyZoom(v, 1.25, null, containerRef.current)),
-        zoomOut: () => setView(v => applyZoom(v, 0.8,  null, containerRef.current)),
-        reset:   () => setView({ scale: 1, tx: 0, ty: 0 }),
+        zoomIn: () => setView(v => applyZoom(v, 1.25, null, containerRef.current)),
+        zoomOut: () => setView(v => applyZoom(v, 0.8, null, containerRef.current)),
+        reset: () => setView({ scale: 1, tx: 0, ty: 0 }),
     }));
 
     // Track container size for overlay dot positioning
@@ -182,16 +187,16 @@ const ZoomableCanvas = forwardRef<ZoomHandle, {
 
     function applyZoom(v: ViewState, f: number, cur: { x: number; y: number } | null, el: HTMLElement | null): ViewState {
         const r = el?.getBoundingClientRect();
-        const cx = cur ? cur.x - (r?.left ?? 0) : (r?.width  ?? 0) / 2;
-        const cy = cur ? cur.y - (r?.top  ?? 0) : (r?.height ?? 0) / 2;
+        const cx = cur ? cur.x - (r?.left ?? 0) : (r?.width ?? 0) / 2;
+        const cy = cur ? cur.y - (r?.top ?? 0) : (r?.height ?? 0) / 2;
         const ns = Math.max(0.25, Math.min(10, v.scale * f));
         return { scale: ns, tx: cx - ((cx - v.tx) / v.scale) * ns, ty: cy - ((cy - v.ty) / v.scale) * ns };
     }
 
     function normPos(clientX: number, clientY: number, v: ViewState, r: DOMRect) {
         return {
-            x: Math.max(0, Math.min(1, (clientX - r.left - v.tx) / (r.width  * v.scale))),
-            y: Math.max(0, Math.min(1, (clientY - r.top  - v.ty) / (r.height * v.scale))),
+            x: Math.max(0, Math.min(1, (clientX - r.left - v.tx) / (r.width * v.scale))),
+            y: Math.max(0, Math.min(1, (clientY - r.top - v.ty) / (r.height * v.scale))),
         };
     }
 
@@ -300,19 +305,6 @@ const ZoomableCanvas = forwardRef<ZoomHandle, {
                     style={{ transform: `translate(${view.tx}px,${view.ty}px) scale(${view.scale})`, transformOrigin: '0 0', willChange: 'transform' }}>
                     {children}
 
-                    {/* Drag preview — scales with content */}
-                    {drawPrev && activeTool === 'ellipse' && (() => {
-                        const l = Math.min(drawPrev.sx, drawPrev.ex) * 100;
-                        const t = Math.min(drawPrev.sy, drawPrev.ey) * 100;
-                        const w = Math.abs(drawPrev.ex - drawPrev.sx) * 100;
-                        const h = Math.abs(drawPrev.ey - drawPrev.sy) * 100;
-                        return (
-                            <div className="absolute pointer-events-none"
-                                style={{ left: `${l}%`, top: `${t}%`, width: `${w}%`, height: `${h}%`,
-                                    borderRadius: '50%', border: '2px dashed rgba(59,130,246,0.75)', boxSizing: 'border-box' }} />
-                        );
-                    })()}
-
                     {drawPrev && activeTool === 'line' && (
                         <svg className="absolute inset-0 w-full h-full overflow-visible pointer-events-none">
                             <line
@@ -346,7 +338,7 @@ function ShapeLayer({ shapes, pending, pickTool, side }: {
     pickTool: ToolType | null;
     side: 'camera' | 'floorPlan';
 }) {
-    const getPts  = (s: Shape) => side === 'camera' ? s.camera : s.floorPlan;
+    const getPts = (s: Shape) => side === 'camera' ? s.camera : s.floorPlan;
     const pendPts = pending ? (side === 'camera' ? pending.camera : pending.floorPlan) : [];
 
     return (
@@ -371,68 +363,35 @@ function ShapeLayer({ shapes, pending, pickTool, side }: {
                         stroke={gc(shapes.length)} strokeWidth="2" strokeDasharray="6,3" opacity="0.7" />
                 )}
             </svg>
-
-            {/* Committed ellipses */}
-            {shapes.map((s, i) => {
-                if (s.type !== 'ellipse') return null;
-                const pts = getPts(s);
-                if (pts.length < 2) return null;
-                const [p1, p2] = pts;
-                return (
-                    <div key={s.id} className="absolute"
-                        style={{
-                            left: `${Math.min(p1.x, p2.x) * 100}%`,
-                            top:  `${Math.min(p1.y, p2.y) * 100}%`,
-                            width:  `${Math.abs(p2.x - p1.x) * 100}%`,
-                            height: `${Math.abs(p2.y - p1.y) * 100}%`,
-                            borderRadius: '50%',
-                            border: `2px solid ${gc(i)}`,
-                            boxSizing: 'border-box',
-                        }} />
-                );
-            })}
-
-            {/* Pending camera ellipse (after camera drag done, floor pending) */}
-            {pickTool === 'ellipse' && pendPts.length === 2 && (
-                <div className="absolute animate-pulse"
-                    style={{
-                        left:   `${Math.min(pendPts[0].x, pendPts[1].x) * 100}%`,
-                        top:    `${Math.min(pendPts[0].y, pendPts[1].y) * 100}%`,
-                        width:  `${Math.abs(pendPts[1].x - pendPts[0].x) * 100}%`,
-                        height: `${Math.abs(pendPts[1].y - pendPts[0].y) * 100}%`,
-                        borderRadius: '50%',
-                        border: `2px dashed ${gc(shapes.length)}`,
-                        boxSizing: 'border-box',
-                    }} />
-            )}
         </div>
     );
 }
 
 // ── Sidebar ───────────────────────────────────────────────────────────────────
-function Sidebar({ shapes, pending, pickTool, onRemove, onEditPx, camRef, fpRef }: {
+function Sidebar({ shapes, pending, pickTool, onRemove, onEditPx, camRef, fpRef, selectedShapeId, onSelect }: {
     shapes: Shape[];
     pending: Pending | null;
     pickTool: ToolType | null;
     onRemove(id: number): void;
     onEditPx(id: number, side: 'camera' | 'floorPlan', pi: number, axis: 'x' | 'y', px: number): void;
     camRef: React.RefObject<HTMLImageElement | null>;
-    fpRef:  React.RefObject<HTMLImageElement | null>;
+    fpRef: React.RefObject<HTMLImageElement | null>;
+    selectedShapeId: number | null;
+    onSelect(id: number): void;
 }) {
-    const cW = camRef.current?.naturalWidth  || 1280;
+    const cW = camRef.current?.naturalWidth || 1280;
     const cH = camRef.current?.naturalHeight || 720;
-    const fW = fpRef.current?.naturalWidth   || 1000;
-    const fH = fpRef.current?.naturalHeight  || 1000;
+    const fW = fpRef.current?.naturalWidth || 1000;
+    const fH = fpRef.current?.naturalHeight || 1000;
 
     const px = (n: number, d: number) => Math.round(n * d);
 
     const ptLabels: Record<ToolType, string[]> = {
-        point:   ['Point'],
-        line:    ['Start', 'End'],
-        ellipse: ['Corner 1', 'Corner 2'],
+        point: ['Point'],
+        line: ['Start', 'End'],
     };
     const toolIcon: Record<ToolType, string> = {
-        point: 'location_on', line: 'timeline', ellipse: 'radio_button_unchecked',
+        point: 'location_on', line: 'timeline',
     };
 
     return (
@@ -456,7 +415,13 @@ function Sidebar({ shapes, pending, pickTool, onRemove, onEditPx, camRef, fpRef 
                 )}
 
                 {shapes.map((s, si) => (
-                    <div key={s.id} className="px-3 py-3 group hover:bg-surface-2 transition-colors">
+                    <div
+                        key={s.id}
+                        data-shape-id={s.id}
+                        onClick={() => onSelect(s.id)}
+                        className={`px-3 py-3 group hover:bg-surface-2 transition-colors cursor-pointer ${s.id === selectedShapeId ? 'bg-surface-2 ring-1 ring-accent' : ''
+                            }`}
+                    >
                         <div className="flex items-center gap-2 mb-2.5">
                             <div className="size-5 rounded-full border-2 border-surface-1 flex items-center justify-center text-[9px] font-bold text-white shrink-0"
                                 style={{ backgroundColor: gc(si) }}>
@@ -528,27 +493,73 @@ function PxInput({ icon, label, color, value, onChange }: {
 // ── CalibrationModal ──────────────────────────────────────────────────────────
 function CalibrationModal({ onClose }: { onClose(): void }) {
     const currentFrame = useTrackingStore(s => s.currentFrame);
-    const wsStatus     = useTrackingStore(s => s.wsStatus);
+    const wsStatus = useTrackingStore(s => s.wsStatus);
 
-    const [shapes,  setShapes]  = useState<Shape[]>([]);
-    const [pick,    setPick]    = useState<PickState | null>(null);
+    const [shapes, setShapes] = useState<Shape[]>([]);
+    const [pick, setPick] = useState<PickState | null>(null);
     const [pending, setPending] = useState<Pending | null>(null);
-    const [saving,  setSaving]  = useState(false);
-    const [result,  setResult]  = useState<'success' | 'error' | null>(null);
+    const [saving, setSaving] = useState(false);
+    const [result, setResult] = useState<'success' | 'error' | null>(null);
+    const [selectedShapeId, setSelectedShapeId] = useState<number | null>(null);
 
-    const nextId  = useRef(1);
-    const camRef  = useRef<HTMLImageElement>(null);
-    const fpRef   = useRef<HTMLImageElement>(null);
+    const nextId = useRef(1);
+    const sidebarScrollRef = useRef<HTMLDivElement>(null);
+    const camRef = useRef<HTMLImageElement>(null);
+    const fpRef = useRef<HTMLImageElement>(null);
     const camZoom = useRef<ZoomHandle>(null);
-    const fpZoom  = useRef<ZoomHandle>(null);
+    const fpZoom = useRef<ZoomHandle>(null);
+
+    // Auto-scroll sidebar when selection changes
+    useEffect(() => {
+        if (selectedShapeId !== null) {
+            const el = document.querySelector(`[data-shape-id="${selectedShapeId}"]`);
+            if (el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        }
+    }, [selectedShapeId]);
 
     useEffect(() => {
         const prev = document.body.style.overflow;
         document.body.style.overflow = 'hidden';
-        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { cancelPick(); onClose(); } };
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                cancelPick();
+                setSelectedShapeId(null);
+                onClose();
+                return;
+            }
+
+            // Keyboard movement logic
+            if (selectedShapeId !== null && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+                e.preventDefault();
+                const dx = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : 0;
+                const dy = e.key === 'ArrowUp' ? -1 : e.key === 'ArrowDown' ? 1 : 0;
+
+                const cW = camRef.current?.naturalWidth || 1280;
+                const cH = camRef.current?.naturalHeight || 720;
+                const fW = fpRef.current?.naturalWidth || 1000;
+                const fH = fpRef.current?.naturalHeight || 1000;
+
+                setShapes(prev => prev.map(s => {
+                    if (s.id !== selectedShapeId) return s;
+                    return {
+                        ...s,
+                        camera: s.camera.map(p => ({
+                            x: Math.max(0, Math.min(1, p.x + dx / cW)),
+                            y: Math.max(0, Math.min(1, p.y + dy / cH)),
+                        })),
+                        floorPlan: s.floorPlan.map(p => ({
+                            x: Math.max(0, Math.min(1, p.x + dx / fW)),
+                            y: Math.max(0, Math.min(1, p.y + dy / fH)),
+                        }))
+                    };
+                }));
+            }
+        };
         window.addEventListener('keydown', onKey);
         return () => { document.body.style.overflow = prev; window.removeEventListener('keydown', onKey); };
-    }, [onClose]);
+    }, [onClose, selectedShapeId, cancelPick]);
 
     const cancelPick = () => { setPick(null); setPending(null); };
 
@@ -568,7 +579,7 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
 
         const needed = PTS_CLICK[pick.tool];
         const newPending: Pending = {
-            camera:    clickSide === 'camera'    ? [...pending.camera,    { x, y }] : pending.camera,
+            camera: clickSide === 'camera' ? [...pending.camera, { x, y }] : pending.camera,
             floorPlan: clickSide === 'floorPlan' ? [...pending.floorPlan, { x, y }] : pending.floorPlan,
         };
         setPending(newPending);
@@ -605,7 +616,7 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
 
         const pts: NormPt[] = [{ x: x1, y: y1 }, { x: x2, y: y2 }];
         const newPending: Pending = {
-            camera:    dragSide === 'camera'    ? pts : pending.camera,
+            camera: dragSide === 'camera' ? pts : pending.camera,
             floorPlan: dragSide === 'floorPlan' ? pts : pending.floorPlan,
         };
         setPending(newPending);
@@ -624,18 +635,22 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
         }
     }, [pick, pending]);
 
-    const onCamClick = useCallback((x: number, y: number) => handleClick('camera', x, y),    [handleClick]);
-    const onFpClick  = useCallback((x: number, y: number) => handleClick('floorPlan', x, y), [handleClick]);
-    const onCamDrag  = useCallback((x1: number, y1: number, x2: number, y2: number) => handleDrag('camera', x1, y1, x2, y2),    [handleDrag]);
-    const onFpDrag   = useCallback((x1: number, y1: number, x2: number, y2: number) => handleDrag('floorPlan', x1, y1, x2, y2), [handleDrag]);
+    const onCamClick = useCallback((x: number, y: number) => handleClick('camera', x, y), [handleClick]);
+    const onFpClick = useCallback((x: number, y: number) => handleClick('floorPlan', x, y), [handleClick]);
+    const onCamDrag = useCallback((x1: number, y1: number, x2: number, y2: number) => handleDrag('camera', x1, y1, x2, y2), [handleDrag]);
+    const onFpDrag = useCallback((x1: number, y1: number, x2: number, y2: number) => handleDrag('floorPlan', x1, y1, x2, y2), [handleDrag]);
 
-    const removeShape = (id: number) => { setShapes(s => s.filter(x => x.id !== id)); setResult(null); };
+    const removeShape = (id: number) => {
+        setShapes(s => s.filter(x => x.id !== id));
+        if (selectedShapeId === id) setSelectedShapeId(null);
+        setResult(null);
+    };
 
     const editPx = useCallback((id: number, side: 'camera' | 'floorPlan', pi: number, axis: 'x' | 'y', px: number) => {
-        const cW = camRef.current?.naturalWidth  || 1280;
+        const cW = camRef.current?.naturalWidth || 1280;
         const cH = camRef.current?.naturalHeight || 720;
-        const fW = fpRef.current?.naturalWidth   || 1000;
-        const fH = fpRef.current?.naturalHeight  || 1000;
+        const fW = fpRef.current?.naturalWidth || 1000;
+        const fH = fpRef.current?.naturalHeight || 1000;
         const [rW, rH] = side === 'camera' ? [cW, cH] : [fW, fH];
         setShapes(prev => prev.map(s => {
             if (s.id !== id) return s;
@@ -648,10 +663,10 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
 
     const handleSave = async () => {
         if (shapes.length === 0) return;
-        const cW = camRef.current?.naturalWidth  || 1280;
+        const cW = camRef.current?.naturalWidth || 1280;
         const cH = camRef.current?.naturalHeight || 720;
-        const fW = fpRef.current?.naturalWidth   || 1000;
-        const fH = fpRef.current?.naturalHeight  || 1000;
+        const fW = fpRef.current?.naturalWidth || 1000;
+        const fH = fpRef.current?.naturalHeight || 1000;
         setSaving(true); setResult(null);
         try {
             const res = await fetch(`${API_BASE}/api/lab_management/settings/mapping`, {
@@ -660,7 +675,7 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
                 body: JSON.stringify({
                     shapes: shapes.map(s => ({
                         type: s.type,
-                        camera:     s.camera.map(p => [Math.round(p.x * cW), Math.round(p.y * cH)]),
+                        camera: s.camera.map(p => [Math.round(p.x * cW), Math.round(p.y * cH)]),
                         floor_plan: s.floorPlan.map(p => [Math.round(p.x * fW), Math.round(p.y * fH)]),
                     })),
                 }),
@@ -671,32 +686,34 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
     };
 
     const isCamPicking = pick?.side === 'camera';
-    const isFpPicking  = pick?.side === 'floor';
-    const isDragTool   = pick ? DRAG_TOOLS.includes(pick.tool) : false;
+    const isFpPicking = pick?.side === 'floor';
+    const isDragTool = pick ? DRAG_TOOLS.includes(pick.tool) : false;
 
     const stepLabel = (() => {
         if (!pick) return null;
         const on = pick.side === 'camera' ? 'camera frame' : 'floor plan';
-        if (pick.tool === 'point')   return `Click a point on the ${on}`;
-        if (pick.tool === 'line')    return `Drag to draw line on the ${on}`;
-        if (pick.tool === 'ellipse') return `Drag to draw ellipse on the ${on}`;
+        if (pick.tool === 'point') return `Click a point on the ${on}`;
+        if (pick.tool === 'line') return `Drag to draw line on the ${on}`;
         return null;
     })();
 
     const toolBtns: { tool: ToolType; icon: string; label: string }[] = [
-        { tool: 'point',   icon: 'location_on',           label: 'Point'   },
-        { tool: 'line',    icon: 'timeline',               label: 'Line'    },
-        { tool: 'ellipse', icon: 'radio_button_unchecked', label: 'Ellipse' },
+        { tool: 'point', icon: 'location_on', label: 'Point' },
+        { tool: 'line', icon: 'timeline', label: 'Line' },
     ];
 
     // Overlay factories — close over latest shapes/pending/pick
     const camOverlay = (view: ViewState, cW: number, cH: number) => (
         <DotsOverlay shapes={shapes} pending={pending} pickTool={pick?.tool ?? null}
-            side="camera" view={view} cW={cW} cH={cH} />
+            side="camera" view={view} cW={cW} cH={cH}
+            selectedShapeId={selectedShapeId}
+            onShapeDoubleClick={setSelectedShapeId} />
     );
     const fpOverlay = (view: ViewState, cW: number, cH: number) => (
         <DotsOverlay shapes={shapes} pending={pending} pickTool={pick?.tool ?? null}
-            side="floorPlan" view={view} cW={cW} cH={cH} />
+            side="floorPlan" view={view} cW={cW} cH={cH}
+            selectedShapeId={selectedShapeId}
+            onShapeDoubleClick={setSelectedShapeId} />
     );
 
     const modal = (
@@ -800,7 +817,7 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
                                     : <div className="absolute inset-0 bg-surface-0 flex flex-col items-center justify-center gap-2">
                                         <span className="material-symbols-outlined text-5xl text-text-tertiary">videocam_off</span>
                                         <p className="text-xs text-text-tertiary">No live frame</p>
-                                      </div>
+                                    </div>
                                 }
                                 <ShapeLayer shapes={shapes} pending={pending} pickTool={pick?.tool ?? null} side="camera" />
                             </ZoomableCanvas>
@@ -820,7 +837,8 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
 
                     <Sidebar shapes={shapes} pending={pending} pickTool={pick?.tool ?? null}
                         onRemove={removeShape} onEditPx={editPx}
-                        camRef={camRef} fpRef={fpRef} />
+                        camRef={camRef} fpRef={fpRef}
+                        selectedShapeId={selectedShapeId} onSelect={setSelectedShapeId} />
                 </div>
             </div>
         </div>
