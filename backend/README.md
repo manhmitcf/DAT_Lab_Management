@@ -1,57 +1,107 @@
 # DAT Lab Management - Backend
 
-This is the Backend service for the DAT Lab Management system, built with **Django**, **Django REST Framework**, and **Django Channels**. It serves as the central hub for processing video analytics data from Edge Devices and broadcasting realtime updates to the Frontend.
+This is the Backend service for the DAT Lab Management system, built with **Django**, **Django REST Framework**, and **Django Channels**. It provides WebSocket endpoints for camera calibration and metadata persistence.
 
-## 🚀 Features Implemented
+## 🚀 Core Architecture
 
-### 1. WebSocket API (Realtime Communication)
-*   **Technology:** Django Channels (ASGI).
-*   **Endpoints:**
-    *   `ws://<host>:8000/ws/edge/data/`: For Edge Devices to push detection data.
-    *   `ws://<host>:8000/ws/frontend/feed/`: For Frontend clients to receive realtime updates.
-*   **Logic:**
-    *   Receives JSON payloads from Edge Devices.
-    *   **Broadcasts** data immediately to connected Frontend clients (Low latency).
-    *   **Persists** data to PostgreSQL if `save_to_db: true` flag is set.
+The backend is designed with a clear separation of concerns:
 
-### 2. Database Models (PostgreSQL)
-*   **`FrameData`**: Stores frame metadata (timestamp, count_in, count_out).
-*   **`ObjectDetection`**: Stores detailed object info (bbox, confidence, tracking ID).
-    *   Uses `JSONField` for flexible storage of bounding boxes and coordinates.
-    *   Optimized for high-frequency writes.
+1.  **Camera Calibration**: A WebSocket endpoint (`/ws/settings/mapping/`) allows a frontend client to send calibration data, which is then broadcast to listening edge devices.
+2.  **Metadata Persistence**: A dedicated WebSocket endpoint (`/ws/persist/metadata/`) receives analytics data from the Edge Device and pushes it to a Celery queue for asynchronous database saving. This decouples data ingestion from database writes, ensuring high throughput.
+3.  **WebRTC Integration (Future)**: The system is designed to integrate with a WebRTC media server like Janus. The backend will act as a controller/API server, while video streams are handled by the media server.
 
-### 3. Channel Layer Configuration
-*   **Flexible Switching:** Easily switch between Development and Production modes via `.env`.
-    *   **Development:** Uses `InMemoryChannelLayer` (No setup required).
-    *   **Production:** Uses `RedisChannelLayer` (Requires Redis).
+---
 
-### 4. Docker Integration
-*   **Redis Service:** Includes `docker-compose.yml` to spin up a Redis container for the Channel Layer.
+##  WebSocket API Documentation
 
-## 📂 Project Structure
+### 1. Endpoint: `/ws/settings/mapping/`
 
-```
-backend/
-├── config/                 # Project configuration (settings, asgi, wsgi)
-├── Lab_Management/         # Main App
-│   ├── consumers.py        # WebSocket logic (Edge & Frontend consumers)
-│   ├── models.py           # Database models (FrameData, ObjectDetection)
-│   ├── routing.py          # WebSocket URL routing
-│   ├── views.py            # HTTP Views (if any)
-│   └── ...
-├── doc/                    # Documentation files
-├── simulate_edge_device.py # Script to simulate Edge Device data
-├── docker-compose.yml      # Docker configuration for Redis
-├── manage.py               # Django management script
-└── requirements.txt        # Python dependencies
-```
+This endpoint is used for real-time calibration mapping. It follows a broadcast model where a "sender" (Frontend) sends data that is then distributed to all "listeners" (Edge Devices).
+
+- **Role**: Calibration and Mapping
+- **Actors**:
+    - **Sender (Frontend)**: Sends mapping data.
+    - **Listener (Edge Device)**: Receives mapping data.
+
+#### Messages Sent by Client (Frontend)
+
+- **Action**: Send a JSON object representing the mapping configuration.
+- **Payload Schema**: `MappingRequest`
+- **Example Payload**:
+  ```json
+  {
+    "shapes": [
+      {
+        "type": "point",
+        "camera": [[485.5, 312.0]],
+        "floor_plan": [[200.1, 150.2]]
+      },
+      {
+        "type": "line",
+        "camera": [[200, 200], [900, 200]],
+        "floor_plan": [[100, 100], [700, 100]]
+      }
+    ]
+  }
+  ```
+
+#### Messages Received by Client
+
+- **Frontend (Sender)** will receive a success confirmation:
+  ```json
+  {
+      "status": "ok",
+      "message": "Calibration data received and saved successfully."
+  }
+  ```
+- **Edge Device (Listener)** will receive the exact `MappingRequest` payload sent by the Frontend.
+
+---
+
+### 2. Endpoint: `/ws/persist/metadata/`
+
+This is a one-way endpoint designed for the Edge Device to send analytics data to the backend for storage. It does not broadcast any information.
+
+- **Role**: Data Persistence
+- **Actor**:
+    - **Sender (Edge Device)**: Sends frame metadata.
+
+#### Messages Sent by Client (Edge Device)
+
+- **Action**: Send a JSON object representing the metadata of a single frame.
+- **Payload Schema**: `FrameData` (without `frame_image`)
+- **Example Payload**:
+  ```json
+  {
+    "timestamp": "2026-03-11T10:00:00Z",
+    "count_in": 5,
+    "count_out": 2,
+    "alert": "info",
+    "save_to_db": true,
+    "height_frame": 720,
+    "width_frame": 1280,
+    "objects": [
+      {
+        "track_id": 101,
+        "bbox": [100.5, 200.0, 150.5, 280.0],
+        "coordinates_2D": [110, 220]
+      }
+    ]
+  }
+  ```
+
+#### Messages Received by Client
+
+- **None**: By default, this endpoint does not send any success confirmation to reduce network traffic. It only sends a message back if an error occurs (e.g., validation error).
+
+---
 
 ## 🛠️ Setup & Installation
 
 ### 1. Prerequisites
 *   Python 3.8+
-*   PostgreSQL (Optional for Dev, required for Prod)
-*   Docker (Optional, for Redis)
+*   PostgreSQL
+*   Docker (for Redis & Celery)
 
 ### 2. Install Dependencies
 ```bash
@@ -65,30 +115,20 @@ python manage.py migrate
 ```
 
 ### 4. Configuration (.env)
-Create a `.env` file in the `backend/` directory (refer to `.env.example`):
+Create a `.env` file in the `backend/` directory:
 ```ini
 # ... DB Config ...
-USE_REDIS=False  # Set to True to use Redis
+USE_REDIS=True
+REDIS_HOST=redis # Use Docker service name
 ```
 
-## 🏃‍♂️ Running the Server
+## 🏃‍♂️ Running the Server (Docker Compose)
 
-### Development Mode (InMemory)
-```bash
-python manage.py runserver
+For a full development environment, use Docker Compose to run Django, Redis, and Celery.
+
+1.  **Build and Run Services**:
+    ```bash
+    docker-compose up --build
+    ```
+2.  The Django development server will be available at `http://127.0.0.1:8000`.
 ```
-
-### Production Mode (Redis)
-1.  Start Redis:
-    ```bash
-    docker-compose up -d
-    ```
-2.  Update `.env`: `USE_REDIS=True`
-3.  Run Server:
-    ```bash
-    python manage.py runserver
-    ```
-
-## Test Frontend Reception
-Use **Postman** to connect to `ws://127.0.0.1:8000/ws/frontend/feed/` and observe the incoming realtime data.
-
