@@ -1,5 +1,5 @@
-from pydantic import BaseModel, Field, ConfigDict
-from typing import List, Optional, Literal
+from pydantic import BaseModel, Field, ConfigDict, field_validator
+from typing import List, Optional, Literal, Union
 from datetime import datetime, timezone
 
 # Define Alert Levels
@@ -63,12 +63,62 @@ class FrameData(BaseModel):
     # List of detected objects
     objects: List[ObjectDetection] = Field(default_factory=list)
 
-class StatsResponse(BaseModel):
+# Schemas for Calibration/Mapping API
+
+class Shape(BaseModel):
     """
-    Response schema for /stats endpoint.
+    Represents a single corresponding shape (point or line) between the
+    camera view and the floor plan. Coordinates can be floats.
     """
-    person_count: int = Field(..., description="Current occupancy (number of people)")
-    person_count_change: float = Field(..., description="Percentage change compared to yesterday")
-    entry_today: int = Field(..., description="Total entries today")
-    exit_today: int = Field(..., description="Total exits today")
-    fps: int = Field(30, description="Current FPS (default 30)")
+    type: Literal["point", "line"]
+    camera: List[List[Union[int, float]]]
+    floor_plan: List[List[Union[int, float]]]
+
+class MappingRequest(BaseModel):
+    """
+    Request body for the calibration endpoint. Contains a list of shapes
+    used to compute the homography matrix.
+    """
+    shapes: List[Shape] = Field(..., min_length=4, description="At least 4 shapes are required for homography calculation.")
+
+    @field_validator('shapes')
+    def validate_shapes(cls, v):
+        for shape in v:
+            # General validation: camera and floor_plan must have the same number of points
+            if len(shape.camera) != len(shape.floor_plan):
+                raise ValueError("Camera and floor_plan must have the same number of points for a given shape.")
+
+            if shape.type == "point":
+                if len(shape.camera) != 1:
+                    raise ValueError("Shape type 'point' must have exactly one coordinate pair.")
+                if len(shape.camera[0]) != 2:
+                     raise ValueError("Point coordinates must be a list of two numbers [x, y].")
+            elif shape.type == "line":
+                if len(shape.camera) != 2:
+                    raise ValueError("Shape type 'line' must have exactly two coordinate pairs (start and end).")
+                if not (len(shape.camera[0]) == 2 and len(shape.camera[1]) == 2):
+                    raise ValueError("Line coordinates must be a list of two points, each with two numbers [x, y].")
+            else:
+                # This case should be caught by the Literal type hint, but it's good practice for robustness.
+                raise ValueError(f"Invalid shape type: {shape.type}")
+        return v
+
+class CalibrationSuccessResponse(BaseModel):
+    """
+    Standard success response for the calibration endpoint.
+    """
+    status: Literal["ok"] = "ok"
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class ErrorDetail(BaseModel):
+    """
+    Detailed error information for API responses.
+    """
+    code: str
+    message: str
+
+class ErrorResponse(BaseModel):
+    """
+    Standard error response schema.
+    """
+    error: ErrorDetail
