@@ -11,9 +11,11 @@ Trang chính, hiển thị realtime: video feed, bounding box, floor plan 2D, st
 
 ---
 
-## WebSocket `/api/lab_management/ws/frames` ⭐ Core
+## WebSocket `/ws/frontend/frames/` ⭐ Core
 
 **Endpoint quan trọng nhất.** BE gửi từng frame đã xử lý qua WebSocket. FE dùng payload này để vẽ toàn bộ giao diện Live Monitor.
+
+> **URL thực tế:** `wss://labmanagementbackend-hte4hyczd0fef4ah.eastasia-01.azurewebsites.net/ws/frontend/frames/`
 
 ```json
 {
@@ -29,7 +31,9 @@ Trang chính, hiển thị realtime: video feed, bounding box, floor plan 2D, st
   "height_2D": 500,
   "width_2D": 500,
 
-  // Hình ảnh (Base64) - Dùng để hiển thị video
+  // Hình ảnh - 2 định dạng (FE tự detect):
+  //   Binary: message là ArrayBuffer (raw JPEG) — ưu tiên
+  //   Base64: message là JSON string, field "frame_image" chứa chuỗi base64 — fallback
   "frame_image": "/9j/4AAQSkZJRg...",
 
   // Danh sách vật thể phát hiện được
@@ -47,7 +51,7 @@ Trang chính, hiển thị realtime: video feed, bounding box, floor plan 2D, st
 
 | Thành phần UI | Dữ liệu | Cách xử lý |
 |---------------|---------|-------------|
-| **Video feed** | `frame_image` | Decode base64 → hiển thị |
+| **Video feed** | `frame_image` / binary frame | Binary: `URL.createObjectURL(Blob)` · Base64: `data:image/jpeg;base64,...` |
 | **BoundingBox** | `objects[].bbox` + `width_frame`, `height_frame` | `x% = bbox[0] / width_frame` |
 | **Floor Plan** | `objects[].coordinates_2D` + `width_2D`, `height_2D` | `x% = coord[0] / width_2D * 100` |
 | **Occupancy** | `objects.length` | Đếm số objects |
@@ -404,6 +408,124 @@ Video playback. Response: `video/mp4` hoặc HLS.
 
 ---
 
+# Tab 5 — Settings (`/settings`)
+
+Cấu hình hệ thống: ngưỡng cảnh báo, thông số camera, và **2D Mapping Calibration** (homography).
+
+---
+
+## `POST /api/lab_management/settings/mapping` ⭐ Calibration
+
+Gửi tập hợp các shape đã được đánh dấu tương ứng giữa camera frame và floor plan để BE tính toán **ma trận homography**. BE dùng matrix này để chuyển đổi tọa độ pixel của objects từ camera sang tọa độ 2D trên bản đồ.
+
+> [!IMPORTANT]
+> Cần tối thiểu **4 shape** (khuyến nghị là 4 điểm `point` không thẳng hàng) để tính homography chính xác.
+
+### Request Body
+
+```json
+{
+  "shapes": [
+    {
+      "type": "point",
+      "camera":     [[485, 312]],
+      "floor_plan": [[200, 150]]
+    },
+    {
+      "type": "point",
+      "camera":     [[820, 290]],
+      "floor_plan": [[600, 145]]
+    },
+    {
+      "type": "point",
+      "camera":     [[910, 530]],
+      "floor_plan": [[620, 420]]
+    },
+    {
+      "type": "point",
+      "camera":     [[310, 580]],
+      "floor_plan": [[180, 430]]
+    },
+    {
+      "type": "line",
+      "camera":     [[200, 200], [900, 200]],
+      "floor_plan": [[100, 100], [700, 100]]
+    }
+  ]
+}
+```
+
+### Schema — Shape Object
+
+| Field | Type | Mô tả |
+|-------|------|--------|
+| `type` | string | `"point"` · `"line"` |
+| `camera` | int\[2\]\[\] | Mảng toạ độ `[x, y]` pixel trên **camera frame** |
+| `floor_plan` | int\[2\]\[\] | Mảng toạ độ `[x, y]` pixel trên **floor plan image** |
+
+#### Số điểm theo `type`
+
+| `type` | `camera` | `floor_plan` | Mô tả |
+|--------|----------|--------------|-------|
+| `point` | 1 điểm `[[x, y]]` | 1 điểm `[[x, y]]` | Điểm tương ứng đơn lẻ |
+| `line`  | 2 điểm `[[x1,y1],[x2,y2]]` | 2 điểm `[[x1,y1],[x2,y2]]` | Đoạn thẳng — cặp điểm Start + End |
+
+> [!NOTE]
+> `camera` và `floor_plan` **luôn có cùng số điểm**. FE đảm bảo điều này: mỗi shape được label theo thứ tự camera → floor plan trước khi gửi.
+
+### Tọa độ
+
+| Nguồn | Gốc | Đơn vị |
+|-------|-----|--------|
+| `camera` | `(0, 0)` = góc trên-trái của camera frame | pixel, tham chiếu `width_frame × height_frame` (thường 1280 × 720) |
+| `floor_plan` | `(0, 0)` = góc trên-trái của ảnh floor plan | pixel, tham chiếu kích thước ảnh `/labmap.svg` |
+
+### Response — Thành công `200 OK`
+
+```json
+{
+  "status": "ok",
+  "updated_at": "2026-03-06T10:00:00Z"
+}
+```
+
+### Response — Lỗi
+
+| HTTP | Trường hợp |
+|------|-----------|
+| `400` | Ít hơn 4 shape · thiếu field · tọa độ nằm ngoài kích thước ảnh |
+| `422` | Các điểm thẳng hàng (không tính được homography) |
+| `500` | Lỗi tính toán ma trận homography phía BE |
+
+```json
+// 400
+{ "error": { "code": "BAD_REQUEST", "message": "At least 4 shapes required for homography" } }
+
+// 422
+{ "error": { "code": "UNPROCESSABLE", "message": "Points are collinear, cannot compute homography" } }
+```
+
+### Flow hoàn chỉnh từ FE
+
+```
+1. User mở "Open Calibration" → modal hiện ra
+2. User chọn tool (Point / Line) và đánh dấu cặp điểm trên Camera Frame + Floor Plan
+3. Lặp lại cho đến khi đủ ≥ 4 shapes
+4. Nhấn "Apply" → FE gọi POST /settings/mapping
+        ↓
+   Body: { shapes: [ { type, camera: [[px,py],...], floor_plan: [[px,py],...] } ] }
+        ↓
+   BE nhận → tính homography matrix → lưu vào config
+        ↓
+   BE dùng matrix mới ngay trong pipeline xử lý frame tiếp theo
+5. FE nhận 200 → hiển thị thông báo thành công
+```
+
+> [!TIP]
+> Để calibration chính xác: chọn các điểm **phân bố đều**, bao phủ toàn bộ vùng quan sát — tránh chọn điểm gom cụm vào một góc.
+
+---
+
 # Chung
 
 ## Errors
@@ -423,7 +545,11 @@ Video playback. Response: `video/mp4` hoặc HLS.
 
 | Endpoint | Dữ liệu | Tần suất |
 |----------|---------|----------|
-| **`/api/lab_management/ws/frames`** | Frame data (ảnh, bbox, 2D, count) | ~30fps |
+| **`wss://labmanagementbackend-hte4hyczd0fef4ah.eastasia-01.azurewebsites.net/ws/frontend/frames/`** | Frame data (ảnh binary JPEG, bbox, 2D, count) | ~30fps |
+
+> [!NOTE]
+> Endpoint thực tế đang dùng là URL Azure ở trên, **không phải** `/api/lab_management/ws/frames` như đã ghi trong docs ban đầu.  
+> FE set `ws.binaryType = 'arraybuffer'` để nhận **raw binary JPEG** (không phải base64). Nếu message là string, parse JSON để lấy `frame_image` (base64 fallback).
 
 ## Rate Limits
 
