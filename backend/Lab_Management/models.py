@@ -54,3 +54,45 @@ class ObjectDetection(models.Model):
 
     def __str__(self):
         return f"Object ({self.track_id}) in Frame {self.frame_data.id}"
+
+# --- Models for Calibration/Mapping ---
+
+class Calibration(models.Model):
+    """
+    Represents a single calibration session.
+    This acts as a container for a set of mapping shapes. We assume a single,
+    globally active calibration, so we'll always use the latest one.
+    """
+    created_at = models.DateTimeField(auto_now_add=True, help_text="Timestamp when this calibration was created.")
+
+    class Meta:
+        ordering = ['-created_at'] # The most recent calibration is the active one
+
+    def __str__(self):
+        return f"Calibration from {self.created_at.strftime('%Y-%m-%d %H:%M:%S')}"
+
+class Shape(models.Model):
+    """
+    Stores a single shape (point or line) used in a calibration session.
+    Related to a specific Calibration instance.
+    """
+    SHAPE_TYPE_CHOICES = [
+        ('point', 'Point'),
+        ('line', 'Line'),
+    ]
+
+    calibration = models.ForeignKey(Calibration, related_name='shapes', on_delete=models.CASCADE)
+    
+    type = models.CharField(
+        max_length=5,
+        choices=SHAPE_TYPE_CHOICES,
+        help_text="'point' or 'line'"
+    )
+    
+    # Using JSONField to store arrays of coordinates. It's flexible for points (1 pair) and lines (2 pairs).
+    # The format will be [[x1, y1], [x2, y2], ...]
+    camera = models.JSONField(help_text="Array of [x, y] coordinates on the camera frame.")
+    floor_plan = models.JSONField(help_text="Array of [x, y] coordinates on the floor plan.")
+
+    def __str__(self):
+        return f"{self.get_type_display()} for Calibration {self.calibration.id}"

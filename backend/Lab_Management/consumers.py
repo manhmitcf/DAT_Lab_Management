@@ -1,93 +1,119 @@
 import json
-from channels.generic.websocket import AsyncWebsocketConsumer
+from channels.generic.websocket import AsyncJsonWebsocketConsumer
+from channels.db import database_sync_to_async
 from pydantic import ValidationError
-from .schemas import FrameData as FrameDataSchema
-from .tasks import save_frame_task
 import logging
+
+from .schemas import MappingRequest
+from .models import Calibration, Shape
 
 logger = logging.getLogger(__name__)
 
-# Shared Group name for Frontend to join and Edge to broadcast to
-MONITOR_GROUP_NAME = "lab_monitor"
+MAPPING_GROUP_NAME = "mapping_settings"
 
-
-class FrontendConsumer(AsyncWebsocketConsumer):
+class MappingConsumer(AsyncJsonWebsocketConsumer):
     """
-    Consumer for Frontend (Next.js/React) to receive realtime data.
-    """
-
-    async def connect(self):
-        # When Frontend connects, add to "lab_monitor" group
-        await self.channel_layer.group_add(
-            MONITOR_GROUP_NAME,
-            self.channel_name
-        )
-        await self.accept()
-        logger.info("Frontend connected and joined group")
-
-    async def disconnect(self, close_code):
-        # When disconnected, remove from group
-        await self.channel_layer.group_discard(
-            MONITOR_GROUP_NAME,
-            self.channel_name
-        )
-        logger.info("Frontend disconnected")
-
-    # This handler is called when a message is sent to the Group with type="broadcast_frame"
-    async def broadcast_frame(self, event):
-        message = event['message']
-        # Send data down to Frontend WebSocket
-        await self.send(text_data=json.dumps(message))
-
-
-class EdgeDeviceConsumer(AsyncWebsocketConsumer):
-    """
-    Consumer for Edge Device to send data upstream.
-    Decouples realtime broadcasting from database saving using Celery.
+    This consumer handles WebSocket connections for calibration mapping.
+    - Frontend connects to send mapping data.
+    - Edge Devices connect to listen for mapping updates.
     """
 
     async def connect(self):
-        # Authenticate edge device here if needed
+        """
+        Adds the connection to a group so it can receive broadcasts.
+        """
+        await self.channel_layer.group_add(MAPPING_GROUP_NAME, self.channel_name)
         await self.accept()
-        logger.info("Edge device connected")
+        logger.info(f"Client connected to mapping WebSocket. Channel: {self.channel_name}")
 
     async def disconnect(self, close_code):
-        logger.info(f"Edge device disconnected with code {close_code}")
+        """
+        Removes the connection from the group.
+        """
+        await self.channel_layer.group_discard(MAPPING_GROUP_NAME, self.channel_name)
+        logger.info(f"Client disconnected from mapping WebSocket. Code: {close_code}")
 
-    async def receive(self, text_data):
+    async def receive_json(self, content):
+        """
+        Receives data from a client (expected from Frontend).
+        It validates the data, saves it to the database, and then broadcasts
+        it to all clients in the group (Edge Devices).
+        """
         try:
-            raw_data = json.loads(text_data)
+            # 1. Validate data using Pydantic schema
+            mapping_data = MappingRequest.model_validate(content)
+            logger.info("Received valid mapping data from a client.")
 
-            # --- PYDANTIC VALIDATION ---
-            try:
-                validated_frame = FrameDataSchema.model_validate(raw_data)
-                data = validated_frame.model_dump(mode='json', by_alias=True)
-            except ValidationError as e:
-                logger.error(f"Validation Error: {e.json()}")
-                return
-
-            # 1. Separate image from metadata
-            frame_image_base64 = data.pop('frame_image', None)
-
-            # 2. PUSH TO CELERY (Metadata only)
-            if validated_frame.save_to_db:
-                # Call Celery task asynchronously
-                save_frame_task.delay(data)
-
-            # 3. PUSH REALTIME (With image)
-            if frame_image_base64:
-                data['frame_image'] = frame_image_base64 # Add image back for frontend
+            # 2. Save the new calibration data to the database
+            await self.save_calibration_data(mapping_data)
+            logger.info("Successfully saved new calibration data to the database.")
             
-            if self.channel_layer:
-                await self.channel_layer.group_send(
-                    MONITOR_GROUP_NAME,
-                    {
-                        "type": "broadcast_frame",
-                        "message": data
-                    }
-                )
+            # 3. Send a success confirmation back to the original sender
+            await self.send_json({
+                "status": "ok",
+                "message": "Calibration data received and saved successfully."
+            })
 
-        except json.JSONDecodeError:
-            logger.error("Invalid JSON received")
+            # 4. Broadcast the validated data to the entire group
+            await self.channel_layer.group_send(
+                MAPPING_GROUP_NAME,
+                {
+                    "type": "broadcast_mapping",
+                    "message": mapping_data.model_dump()
+                }
+            )
+            logger.info("Broadcasted new mapping data to all clients in the group.")
+
+        except ValidationError as e:
+            # Handle Pydantic validation errors
+            logger.error(f"Validation Error: {e.errors()}")
+            await self.send_json({
+                "error": {
+                    "code": "BAD_REQUEST",
+                    "message": "Invalid data format.",
+                    "details": e.errors()
+                }
+            })
         except Exception as e:
-            logger.error(f"Error processing message: {str(e)}")
+            # Handle other unexpected errors
+            logger.error(f"An unexpected error occurred: {str(e)}")
+            await self.send_json({
+                "error": {
+                    "code": "SERVER_ERROR",
+                    "message": "An internal error occurred."
+                }
+            })
+
+    async def broadcast_mapping(self, event):
+        """
+        Handler for the broadcast message. Sends the mapping data
+        down to the client (Edge Devices).
+        """
+        message = event['message']
+        await self.send_json(message)
+        logger.info(f"Sent mapping broadcast to client {self.channel_name}")
+
+    @database_sync_to_async
+    def save_calibration_data(self, mapping_data: MappingRequest):
+        """
+        Saves the calibration data to the database.
+        This runs in a separate thread to avoid blocking the async event loop.
+        We create a new Calibration entry and its associated Shape objects.
+        The active calibration is always the latest one in the database.
+        """
+        # Create a new parent calibration object
+        new_calibration = Calibration.objects.create()
+
+        # Create Shape objects for it
+        shapes_to_create = []
+        for shape_data in mapping_data.shapes:
+            shapes_to_create.append(
+                Shape(
+                    calibration=new_calibration,
+                    type=shape_data.type,
+                    camera=shape_data.camera,
+                    floor_plan=shape_data.floor_plan
+                )
+            )
+        
+        Shape.objects.bulk_create(shapes_to_create)
