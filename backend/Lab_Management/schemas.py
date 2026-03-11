@@ -31,12 +31,9 @@ class ObjectDetection(BaseModel):
 
 class FrameData(BaseModel):
     """
-    Standardized JSON structure sent from Edge Device via WebSocket for each frame.
-    Designed for a single-camera setup.
-    Schema as per backend API requirements.
+    Standardized JSON structure sent from Edge Device for persistence.
     """
     # UTC timestamp of the inference process
-    # Use default_factory with lambda to get current time at instantiation
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="UTC inference timestamp")
 
     # Line crossing statistics (Realtime count)
@@ -47,18 +44,15 @@ class FrameData(BaseModel):
     alert: AlertType = Field('none', description="Alert level (none, info, warning, critical)")
 
     # Flag to signal the Backend to persist data in PostgreSQL for Heatmap/Analytics
-    save_to_db: bool = Field(False, description="true = save to DB, false = forward realtime only")
+    save_to_db: bool = Field(True, description="true = save to DB, false = do nothing")
 
-    # Original frame dimensions (for Frontend to draw correctly)
+    # Original frame dimensions
     height_frame: Optional[int] = Field(None, description="Height of the original frame in pixels")
     width_frame: Optional[int] = Field(None, description="Width of the original frame in pixels")
 
-    # 2D map dimensions (for Frontend to draw correctly)
+    # 2D map dimensions
     height_2D: Optional[int] = Field(None, description="Height of the 2D map in pixels")
     width_2D: Optional[int] = Field(None, description="Width of the 2D map in pixels")
-
-    # Base64 Image (Optional - Used for realtime display)
-    frame_image: Optional[str] = Field(None, description="Base64 encoded frame image")
 
     # List of detected objects
     objects: List[ObjectDetection] = Field(default_factory=list)
@@ -84,22 +78,16 @@ class MappingRequest(BaseModel):
     @field_validator('shapes')
     def validate_shapes(cls, v):
         for shape in v:
-            # General validation: camera and floor_plan must have the same number of points
             if len(shape.camera) != len(shape.floor_plan):
                 raise ValueError("Camera and floor_plan must have the same number of points for a given shape.")
 
             if shape.type == "point":
-                if len(shape.camera) != 1:
-                    raise ValueError("Shape type 'point' must have exactly one coordinate pair.")
-                if len(shape.camera[0]) != 2:
-                     raise ValueError("Point coordinates must be a list of two numbers [x, y].")
+                if len(shape.camera) != 1 or len(shape.camera[0]) != 2:
+                    raise ValueError("Shape type 'point' must have exactly one coordinate pair [x, y].")
             elif shape.type == "line":
-                if len(shape.camera) != 2:
-                    raise ValueError("Shape type 'line' must have exactly two coordinate pairs (start and end).")
-                if not (len(shape.camera[0]) == 2 and len(shape.camera[1]) == 2):
-                    raise ValueError("Line coordinates must be a list of two points, each with two numbers [x, y].")
+                if len(shape.camera) != 2 or not (len(shape.camera[0]) == 2 and len(shape.camera[1]) == 2):
+                    raise ValueError("Shape type 'line' must have exactly two coordinate pairs [x, y].")
             else:
-                # This case should be caught by the Literal type hint, but it's good practice for robustness.
                 raise ValueError(f"Invalid shape type: {shape.type}")
         return v
 
