@@ -1,14 +1,14 @@
 # DAT Lab Management - Backend
 
-This is the Backend service for the DAT Lab Management system, built with **Django**, **Django REST Framework**, and **Django Channels**. It provides WebSocket endpoints for camera calibration and metadata persistence.
+This is the Backend service for the DAT Lab Management system, built with **Django**, **Django REST Framework**, and **Django Channels**. It provides WebSocket endpoints for camera calibration and real-time metadata distribution.
 
 ## 🚀 Core Architecture
 
 The backend is designed with a clear separation of concerns:
 
 1.  **Camera Calibration**: A WebSocket endpoint (`/ws/settings/mapping/`) allows a frontend client to send calibration data, which is then broadcast to listening edge devices.
-2.  **Metadata Persistence**: A dedicated WebSocket endpoint (`/ws/persist/metadata/`) receives analytics data from the Edge Device and pushes it to a Celery queue for asynchronous database saving. This decouples data ingestion from database writes, ensuring high throughput.
-3.  **WebRTC Integration (Future)**: The system is designed to integrate with a WebRTC media server like Janus. The backend will act as a controller/API server, while video streams are handled by the media server.
+2.  **Real-time Metadata & Persistence**: A dual-purpose WebSocket endpoint (`/ws/persist/metadata/`) receives analytics data from the Edge Device. It immediately **broadcasts** this data to all connected Frontend clients for real-time UI updates and simultaneously pushes it to a Celery queue for asynchronous database saving.
+3.  **WebRTC Integration**: The system is designed to integrate with a WebRTC media server like Janus. The video stream is handled by Janus, while this Django backend provides the necessary metadata and control channels.
 
 ---
 
@@ -35,11 +35,6 @@ This endpoint is used for real-time calibration mapping. It follows a broadcast 
         "type": "point",
         "camera": [[485.5, 312.0]],
         "floor_plan": [[200.1, 150.2]]
-      },
-      {
-        "type": "line",
-        "camera": [[200, 200], [900, 200]],
-        "floor_plan": [[100, 100], [700, 100]]
       }
     ]
   }
@@ -47,24 +42,19 @@ This endpoint is used for real-time calibration mapping. It follows a broadcast 
 
 #### Messages Received by Client
 
-- **Frontend (Sender)** will receive a success confirmation:
-  ```json
-  {
-      "status": "ok",
-      "message": "Calibration data received and saved successfully."
-  }
-  ```
+- **Frontend (Sender)** will receive a success confirmation.
 - **Edge Device (Listener)** will receive the exact `MappingRequest` payload sent by the Frontend.
 
 ---
 
 ### 2. Endpoint: `/ws/persist/metadata/`
 
-This is a one-way endpoint designed for the Edge Device to send analytics data to the backend for storage. It does not broadcast any information.
+This is a dual-purpose endpoint for both real-time UI updates and data persistence.
 
-- **Role**: Data Persistence
-- **Actor**:
-    - **Sender (Edge Device)**: Sends frame metadata.
+- **Role**: Real-time Metadata Distribution & Persistence
+- **Actors**:
+    - **Sender (Edge Device)**: Connects to send frame metadata.
+    - **Listener (Frontend)**: Connects to receive real-time metadata for UI updates (e.g., counters, alerts).
 
 #### Messages Sent by Client (Edge Device)
 
@@ -90,9 +80,9 @@ This is a one-way endpoint designed for the Edge Device to send analytics data t
   }
   ```
 
-#### Messages Received by Client
+#### Messages Received by Client (Frontend)
 
-- **None**: By default, this endpoint does not send any success confirmation to reduce network traffic. It only sends a message back if an error occurs (e.g., validation error).
+- The Frontend will receive the exact `FrameData` payload that the Edge Device sends, allowing the UI to update in real-time.
 
 ---
 
