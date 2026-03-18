@@ -1,7 +1,7 @@
 FROM nvcr.io/nvidia/tensorrt:21.09-py3
 
 ENV DEBIAN_FRONTEND=noninteractive
-WORKDIR /workspace/OC_SORT
+WORKDIR /workspace/ai_core
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -19,7 +19,7 @@ RUN apt-get update && apt-get install -y \
     && apt clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy current directory contents into the container at /workspace/OC_SORT
+# Copy current directory contents into the container at /workspace/ai_core
 # Note: large folders like pretrained/ and videos/ are excluded via .dockerignore
 COPY . .
 

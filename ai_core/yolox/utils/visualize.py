@@ -5,7 +5,7 @@
 import cv2
 import numpy as np
 
-__all__ = ["vis"]
+__all__ = ["vis", "plot_tracking"]
 
 
 def vis(img, boxes, scores, cls_ids, conf=0.5, class_names=None):
