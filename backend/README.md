@@ -126,6 +126,39 @@ This is a dual-purpose endpoint for both real-time UI updates and data persisten
 
 ---
 
+### 4. Error Handling (All Endpoints)
+
+If a client sends an invalid payload to any of the WebSocket endpoints, the connection will **remain open**, and the server will return an error JSON object. 
+
+**Invalid JSON Format (Syntax error):**
+```json
+{
+  "error": {
+    "code": "INVALID_JSON",
+    "message": "Malformed JSON data format."
+  }
+}
+```
+
+**Schema Validation Error (Missing fields, wrong types):**
+```json
+{
+  "error": {
+    "code": "BAD_REQUEST",
+    "message": "Invalid data format.",
+    "details": [
+      {
+        "type": "...",
+        "loc": ["..."],
+        "msg": "..."
+      }
+    ]
+  }
+}
+```
+
+---
+
 ## 🛠️ Setup & Installation
 
 ### 1. Prerequisites
