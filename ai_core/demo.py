@@ -1,9 +1,9 @@
 from services.tracking_service import TrackingService
-from config.model_tracking_config import OCSortConfig
+from config.data_config import OCSortConfig
 import cv2
 from yolox.utils.visualize import plot_tracking
 
-args = OCSortConfig("./config/config.json")
+args = OCSortConfig("config/tracking_config.json")
 tracking_service = TrackingService(args=args)
 
 cap = cv2.VideoCapture("./videos/demo.mp4")

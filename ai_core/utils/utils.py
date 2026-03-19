@@ -1,4 +1,5 @@
-import numpy as np 
+import numpy as np
+from typing import Union, List, Tuple
 """
 Utilities for bounding box manipulation and GIoU.
 """
@@ -249,3 +250,21 @@ def masks_to_boxes(masks):
     y_min = y_mask.masked_fill(~(masks.bool()), 1e8).flatten(1).min(-1)[0]
 
     return torch.stack([x_min, y_min, x_max, y_max], 1)
+
+def scale_points(
+    points: Union[np.ndarray, List, Tuple],
+    src_size: Tuple[int, int],
+    dst_size: Tuple[int, int],
+) -> np.ndarray:
+    """Scale one or many (x, y) points from source size to destination size."""
+    src_w, src_h = src_size
+    dst_w, dst_h = dst_size
+
+    scale = np.array([dst_w / src_w, dst_h / src_h], dtype=np.float64)
+    pts = np.array(points, dtype=np.float64)
+
+    if pts.ndim not in (1, 2):
+        raise ValueError(f"points must have 1 or 2 dims, got {pts.ndim}")
+
+    return pts * scale
+

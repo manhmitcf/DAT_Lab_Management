@@ -1,6 +1,6 @@
 import json
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Tuple
 
 @dataclass
 class OCSortConfig:
@@ -40,6 +40,35 @@ class OCSortConfig:
 
             key = key.replace("-", "_")
 
+            if hasattr(self, key):
+                setattr(self, key, value)
+            else:
+                print(f"Unknown config key: {key}")
+
+@dataclass
+class CountingConfig:
+    """Config for CountingService loaded from JSON."""
+
+    json_path: Optional[str] = None
+
+    line_start: Tuple[float, float] = (0.0, 0.0)
+    line_end: Tuple[float, float] = (0.0, 0.0)
+    inside_point: Tuple[float, float] = (0.0, 0.0)
+    crossing_margin: float = 10.0
+
+    frame_width: Optional[int] = None
+    frame_height: Optional[int] = None
+    normalized: bool = False  # if True, line points are in 0–1 range
+
+    def __post_init__(self):
+        if self.json_path is None:
+            return
+
+        with open(self.json_path, "r") as f:
+            config = json.load(f)
+
+        for key, value in config.items():
+            key = key.replace("-", "_")
             if hasattr(self, key):
                 setattr(self, key, value)
             else:
