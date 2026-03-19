@@ -80,7 +80,7 @@ class MappingRequest(BaseModel):
     """
     image_size: Size
     map_size: Size
-    correspondences: List[Correspondence] = Field(..., min_length=4, description="At least 4 correspondences are required for homography.")
+    correspondences: List[Correspondence] = Field(..., description="List of correspondences between camera and map.")
 
 class CountingRequest(BaseModel):
     """
