@@ -5,7 +5,7 @@ from pydantic import ValidationError
 import logging
 
 from ..schemas import MappingRequest
-from ..models import Calibration, Shape
+from ..models import Calibration, Correspondence
 
 logger = logging.getLogger(__name__)
 
@@ -98,22 +98,27 @@ class MappingConsumer(AsyncJsonWebsocketConsumer):
         """
         Saves the calibration data to the database.
         This runs in a separate thread to avoid blocking the async event loop.
-        We create a new Calibration entry and its associated Shape objects.
+        We create a new Calibration entry and its associated Correspondence objects.
         The active calibration is always the latest one in the database.
         """
         # Create a new parent calibration object
-        new_calibration = Calibration.objects.create()
+        new_calibration = Calibration.objects.create(
+            image_width=mapping_data.image_size.width,
+            image_height=mapping_data.image_size.height,
+            map_width=mapping_data.map_size.width,
+            map_height=mapping_data.map_size.height
+        )
 
-        # Create Shape objects for it
-        shapes_to_create = []
-        for shape_data in mapping_data.shapes:
-            shapes_to_create.append(
-                Shape(
+        # Create Correspondence objects for it
+        corr_to_create = []
+        for corr_data in mapping_data.correspondences:
+            corr_to_create.append(
+                Correspondence(
                     calibration=new_calibration,
-                    type=shape_data.type,
-                    camera=shape_data.camera,
-                    floor_plan=shape_data.floor_plan
+                    label=corr_data.label,
+                    camera=corr_data.camera,
+                    map=corr_data.map
                 )
             )
 
-        Shape.objects.bulk_create(shapes_to_create)
+        Correspondence.objects.bulk_create(corr_to_create)

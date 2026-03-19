@@ -30,11 +30,19 @@ This endpoint is used for real-time calibration mapping. It follows a broadcast 
 - **Example Payload**:
   ```json
   {
-    "shapes": [
+    "image_size": {
+      "width": 1920,
+      "height": 1080
+    },
+    "map_size": {
+      "width": 1000,
+      "height": 1000
+    },
+    "correspondences": [
       {
-        "type": "point",
-        "camera": [[485.5, 312.0]],
-        "floor_plan": [[200.1, 150.2]]
+        "label": "p1",
+        "camera": [523.2, 412.8],
+        "map": [120.5, 300.0]
       }
     ]
   }
@@ -47,7 +55,39 @@ This endpoint is used for real-time calibration mapping. It follows a broadcast 
 
 ---
 
-### 2. Endpoint: `/ws/persist/metadata/`
+### 2. Endpoint: `/ws/settings/counting/`
+
+This endpoint is used for configuring the counting line. It follows a broadcast model where a "sender" (Frontend) sends data that is then distributed to all "listeners" (Edge Devices).
+
+- **Role**: Counting Line Configuration
+- **Actors**:
+    - **Sender (Frontend)**: Sends counting line configuration.
+    - **Listener (Edge Device)**: Receives counting line configuration.
+
+#### Messages Sent by Client (Frontend)
+
+- **Action**: Send a JSON object representing the counting line settings.
+- **Payload Schema**: `CountingRequest`
+- **Example Payload**:
+  ```json
+  {
+    "line_start": [984.47, 346.44],
+    "line_end": [903.68, 383.81],
+    "inside_point": [1001.31, 375.39],
+    "crossing_margin": 10,
+    "frame_height": 1080,
+    "frame_width": 1920
+  }
+  ```
+
+#### Messages Received by Client
+
+- **Frontend (Sender)** will receive a success confirmation.
+- **Edge Device (Listener)** will receive the exact `CountingRequest` payload sent by the Frontend.
+
+---
+
+### 3. Endpoint: `/ws/persist/metadata/`
 
 This is a dual-purpose endpoint for both real-time UI updates and data persistence.
 

@@ -59,37 +59,39 @@ class FrameData(BaseModel):
 
 # Schemas for Calibration/Mapping API
 
-class Shape(BaseModel):
-    """
-    Represents a single corresponding shape (point or line) between the
-    camera view and the floor plan. Coordinates can be floats.
-    """
-    type: Literal["point", "line"]
-    camera: List[List[Union[int, float]]]
-    floor_plan: List[List[Union[int, float]]]
+class Size(BaseModel):
+    width: Union[int, float]
+    height: Union[int, float]
+
+class Correspondence(BaseModel):
+    label: str
+    camera: List[Union[int, float]]
+    map: List[Union[int, float]]
+
+    @field_validator('camera', 'map')
+    def validate_coords(cls, v):
+        if len(v) != 2:
+            raise ValueError("Coordinates must have exactly 2 elements [x, y]")
+        return v
 
 class MappingRequest(BaseModel):
     """
-    Request body for the calibration endpoint. Contains a list of shapes
-    used to compute the homography matrix.
+    Request body for the calibration endpoint.
     """
-    shapes: List[Shape] = Field(..., min_length=4, description="At least 4 shapes are required for homography calculation.")
+    image_size: Size
+    map_size: Size
+    correspondences: List[Correspondence] = Field(..., min_length=4, description="At least 4 correspondences are required for homography.")
 
-    @field_validator('shapes')
-    def validate_shapes(cls, v):
-        for shape in v:
-            if len(shape.camera) != len(shape.floor_plan):
-                raise ValueError("Camera and floor_plan must have the same number of points for a given shape.")
-
-            if shape.type == "point":
-                if len(shape.camera) != 1 or len(shape.camera[0]) != 2:
-                    raise ValueError("Shape type 'point' must have exactly one coordinate pair [x, y].")
-            elif shape.type == "line":
-                if len(shape.camera) != 2 or not (len(shape.camera[0]) == 2 and len(shape.camera[1]) == 2):
-                    raise ValueError("Shape type 'line' must have exactly two coordinate pairs [x, y].")
-            else:
-                raise ValueError(f"Invalid shape type: {shape.type}")
-        return v
+class CountingRequest(BaseModel):
+    """
+    Request body for the counting line settings.
+    """
+    line_start: List[Union[int, float]] = Field(..., min_length=2, max_length=2)
+    line_end: List[Union[int, float]] = Field(..., min_length=2, max_length=2)
+    inside_point: List[Union[int, float]] = Field(..., min_length=2, max_length=2)
+    crossing_margin: Union[int, float]
+    frame_height: int
+    frame_width: int
 
 class CalibrationSuccessResponse(BaseModel):
     """
