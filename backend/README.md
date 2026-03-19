@@ -1,57 +1,137 @@
 # DAT Lab Management - Backend
 
-This is the Backend service for the DAT Lab Management system, built with **Django**, **Django REST Framework**, and **Django Channels**. It serves as the central hub for processing video analytics data from Edge Devices and broadcasting realtime updates to the Frontend.
+This is the Backend service for the DAT Lab Management system, built with **Django**, **Django REST Framework**, and **Django Channels**. It provides WebSocket endpoints for camera calibration and real-time metadata distribution.
 
-## 🚀 Features Implemented
+## 🚀 Core Architecture
 
-### 1. WebSocket API (Realtime Communication)
-*   **Technology:** Django Channels (ASGI).
-*   **Endpoints:**
-    *   `ws://<host>:8000/ws/edge/data/`: For Edge Devices to push detection data.
-    *   `ws://<host>:8000/ws/frontend/feed/`: For Frontend clients to receive realtime updates.
-*   **Logic:**
-    *   Receives JSON payloads from Edge Devices.
-    *   **Broadcasts** data immediately to connected Frontend clients (Low latency).
-    *   **Persists** data to PostgreSQL if `save_to_db: true` flag is set.
+The backend is designed with a clear separation of concerns:
 
-### 2. Database Models (PostgreSQL)
-*   **`FrameData`**: Stores frame metadata (timestamp, count_in, count_out).
-*   **`ObjectDetection`**: Stores detailed object info (bbox, confidence, tracking ID).
-    *   Uses `JSONField` for flexible storage of bounding boxes and coordinates.
-    *   Optimized for high-frequency writes.
+1.  **Camera Calibration**: A WebSocket endpoint (`/ws/settings/mapping/`) allows a frontend client to send calibration data, which is then broadcast to listening edge devices.
+2.  **Real-time Metadata & Persistence**: A dual-purpose WebSocket endpoint (`/ws/persist/metadata/`) receives analytics data from the Edge Device. It immediately **broadcasts** this data to all connected Frontend clients for real-time UI updates and simultaneously pushes it to a Celery queue for asynchronous database saving.
+3.  **WebRTC Integration**: The system is designed to integrate with a WebRTC media server like Janus. The video stream is handled by Janus, while this Django backend provides the necessary metadata and control channels.
 
-### 3. Channel Layer Configuration
-*   **Flexible Switching:** Easily switch between Development and Production modes via `.env`.
-    *   **Development:** Uses `InMemoryChannelLayer` (No setup required).
-    *   **Production:** Uses `RedisChannelLayer` (Requires Redis).
+---
 
-### 4. Docker Integration
-*   **Redis Service:** Includes `docker-compose.yml` to spin up a Redis container for the Channel Layer.
+##  WebSocket API Documentation
 
-## 📂 Project Structure
+### 1. Endpoint: `/ws/settings/mapping/`
 
-```
-backend/
-├── config/                 # Project configuration (settings, asgi, wsgi)
-├── Lab_Management/         # Main App
-│   ├── consumers.py        # WebSocket logic (Edge & Frontend consumers)
-│   ├── models.py           # Database models (FrameData, ObjectDetection)
-│   ├── routing.py          # WebSocket URL routing
-│   ├── views.py            # HTTP Views (if any)
-│   └── ...
-├── doc/                    # Documentation files
-├── simulate_edge_device.py # Script to simulate Edge Device data
-├── docker-compose.yml      # Docker configuration for Redis
-├── manage.py               # Django management script
-└── requirements.txt        # Python dependencies
-```
+This endpoint is used for real-time calibration mapping. It follows a broadcast model where a "sender" (Frontend) sends data that is then distributed to all "listeners" (Edge Devices).
+
+- **Role**: Calibration and Mapping
+- **Actors**:
+    - **Sender (Frontend)**: Sends mapping data.
+    - **Listener (Edge Device)**: Receives mapping data.
+
+#### Messages Sent by Client (Frontend)
+
+- **Action**: Send a JSON object representing the mapping configuration.
+- **Payload Schema**: `MappingRequest`
+- **Example Payload**:
+  ```json
+  {
+    "image_size": {
+      "width": 1920,
+      "height": 1080
+    },
+    "map_size": {
+      "width": 1000,
+      "height": 1000
+    },
+    "correspondences": [
+      {
+        "label": "p1",
+        "camera": [523.2, 412.8],
+        "map": [120.5, 300.0]
+      }
+    ]
+  }
+  ```
+
+#### Messages Received by Client
+
+- **Frontend (Sender)** will receive a success confirmation.
+- **Edge Device (Listener)** will receive the exact `MappingRequest` payload sent by the Frontend.
+
+---
+
+### 2. Endpoint: `/ws/settings/counting/`
+
+This endpoint is used for configuring the counting line. It follows a broadcast model where a "sender" (Frontend) sends data that is then distributed to all "listeners" (Edge Devices).
+
+- **Role**: Counting Line Configuration
+- **Actors**:
+    - **Sender (Frontend)**: Sends counting line configuration.
+    - **Listener (Edge Device)**: Receives counting line configuration.
+
+#### Messages Sent by Client (Frontend)
+
+- **Action**: Send a JSON object representing the counting line settings.
+- **Payload Schema**: `CountingRequest`
+- **Example Payload**:
+  ```json
+  {
+    "line_start": [984.47, 346.44],
+    "line_end": [903.68, 383.81],
+    "inside_point": [1001.31, 375.39],
+    "crossing_margin": 10,
+    "frame_height": 1080,
+    "frame_width": 1920
+  }
+  ```
+
+#### Messages Received by Client
+
+- **Frontend (Sender)** will receive a success confirmation.
+- **Edge Device (Listener)** will receive the exact `CountingRequest` payload sent by the Frontend.
+
+---
+
+### 3. Endpoint: `/ws/persist/metadata/`
+
+This is a dual-purpose endpoint for both real-time UI updates and data persistence.
+
+- **Role**: Real-time Metadata Distribution & Persistence
+- **Actors**:
+    - **Sender (Edge Device)**: Connects to send frame metadata.
+    - **Listener (Frontend)**: Connects to receive real-time metadata for UI updates (e.g., counters, alerts).
+
+#### Messages Sent by Client (Edge Device)
+
+- **Action**: Send a JSON object representing the metadata of a single frame.
+- **Payload Schema**: `FrameData` (without `frame_image`)
+- **Example Payload**:
+  ```json
+  {
+    "timestamp": "2026-03-11T10:00:00Z",
+    "count_in": 5,
+    "count_out": 2,
+    "alert": "info",
+    "save_to_db": true,
+    "height_frame": 720,
+    "width_frame": 1280,
+    "objects": [
+      {
+        "track_id": 101,
+        "bbox": [100.5, 200.0, 150.5, 280.0],
+        "coordinates_2D": [110, 220]
+      }
+    ]
+  }
+  ```
+
+#### Messages Received by Client (Frontend)
+
+- The Frontend will receive the exact `FrameData` payload that the Edge Device sends, allowing the UI to update in real-time.
+
+---
 
 ## 🛠️ Setup & Installation
 
 ### 1. Prerequisites
 *   Python 3.8+
-*   PostgreSQL (Optional for Dev, required for Prod)
-*   Docker (Optional, for Redis)
+*   PostgreSQL
+*   Docker (for Redis & Celery)
 
 ### 2. Install Dependencies
 ```bash
@@ -65,30 +145,20 @@ python manage.py migrate
 ```
 
 ### 4. Configuration (.env)
-Create a `.env` file in the `backend/` directory (refer to `.env.example`):
+Create a `.env` file in the `backend/` directory:
 ```ini
 # ... DB Config ...
-USE_REDIS=False  # Set to True to use Redis
+USE_REDIS=True
+REDIS_HOST=redis # Use Docker service name
 ```
 
-## 🏃‍♂️ Running the Server
+## 🏃‍♂️ Running the Server (Docker Compose)
 
-### Development Mode (InMemory)
-```bash
-python manage.py runserver
+For a full development environment, use Docker Compose to run Django, Redis, and Celery.
+
+1.  **Build and Run Services**:
+    ```bash
+    docker-compose up --build
+    ```
+2.  The Django development server will be available at `http://127.0.0.1:8000`.
 ```
-
-### Production Mode (Redis)
-1.  Start Redis:
-    ```bash
-    docker-compose up -d
-    ```
-2.  Update `.env`: `USE_REDIS=True`
-3.  Run Server:
-    ```bash
-    python manage.py runserver
-    ```
-
-## Test Frontend Reception
-Use **Postman** to connect to `ws://127.0.0.1:8000/ws/frontend/feed/` and observe the incoming realtime data.
-

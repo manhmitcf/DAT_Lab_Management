@@ -1,5 +1,5 @@
-from pydantic import BaseModel, Field, ConfigDict
-from typing import List, Optional, Literal
+from pydantic import BaseModel, Field, ConfigDict, field_validator
+from typing import List, Optional, Literal, Union
 from datetime import datetime, timezone
 
 # Define Alert Levels
@@ -31,12 +31,9 @@ class ObjectDetection(BaseModel):
 
 class FrameData(BaseModel):
     """
-    Standardized JSON structure sent from Edge Device via WebSocket for each frame.
-    Designed for a single-camera setup.
-    Schema as per backend API requirements.
+    Standardized JSON structure sent from Edge Device for persistence.
     """
     # UTC timestamp of the inference process
-    # Use default_factory with lambda to get current time at instantiation
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="UTC inference timestamp")
 
     # Line crossing statistics (Realtime count)
@@ -47,28 +44,71 @@ class FrameData(BaseModel):
     alert: AlertType = Field('none', description="Alert level (none, info, warning, critical)")
 
     # Flag to signal the Backend to persist data in PostgreSQL for Heatmap/Analytics
-    save_to_db: bool = Field(False, description="true = save to DB, false = forward realtime only")
+    save_to_db: bool = Field(True, description="true = save to DB, false = do nothing")
 
-    # Original frame dimensions (for Frontend to draw correctly)
+    # Original frame dimensions
     height_frame: Optional[int] = Field(None, description="Height of the original frame in pixels")
     width_frame: Optional[int] = Field(None, description="Width of the original frame in pixels")
 
-    # 2D map dimensions (for Frontend to draw correctly)
+    # 2D map dimensions
     height_2D: Optional[int] = Field(None, description="Height of the 2D map in pixels")
     width_2D: Optional[int] = Field(None, description="Width of the 2D map in pixels")
-
-    # Base64 Image (Optional - Used for realtime display)
-    frame_image: Optional[str] = Field(None, description="Base64 encoded frame image")
 
     # List of detected objects
     objects: List[ObjectDetection] = Field(default_factory=list)
 
-class StatsResponse(BaseModel):
+# Schemas for Calibration/Mapping API
+
+class Size(BaseModel):
+    width: Union[int, float]
+    height: Union[int, float]
+
+class Correspondence(BaseModel):
+    label: str
+    camera: List[Union[int, float]]
+    map: List[Union[int, float]]
+
+    @field_validator('camera', 'map')
+    def validate_coords(cls, v):
+        if len(v) != 2:
+            raise ValueError("Coordinates must have exactly 2 elements [x, y]")
+        return v
+
+class MappingRequest(BaseModel):
     """
-    Response schema for /stats endpoint.
+    Request body for the calibration endpoint.
     """
-    person_count: int = Field(..., description="Current occupancy (number of people)")
-    person_count_change: float = Field(..., description="Percentage change compared to yesterday")
-    entry_today: int = Field(..., description="Total entries today")
-    exit_today: int = Field(..., description="Total exits today")
-    fps: int = Field(30, description="Current FPS (default 30)")
+    image_size: Size
+    map_size: Size
+    correspondences: List[Correspondence] = Field(..., description="List of correspondences between camera and map.")
+
+class CountingRequest(BaseModel):
+    """
+    Request body for the counting line settings.
+    """
+    line_start: List[Union[int, float]] = Field(..., min_length=2, max_length=2)
+    line_end: List[Union[int, float]] = Field(..., min_length=2, max_length=2)
+    inside_point: List[Union[int, float]] = Field(..., min_length=2, max_length=2)
+    crossing_margin: Union[int, float]
+    frame_height: int
+    frame_width: int
+
+class CalibrationSuccessResponse(BaseModel):
+    """
+    Standard success response for the calibration endpoint.
+    """
+    status: Literal["ok"] = "ok"
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class ErrorDetail(BaseModel):
+    """
+    Detailed error information for API responses.
+    """
+    code: str
+    message: str
+
+class ErrorResponse(BaseModel):
+    """
+    Standard error response schema.
+    """
+    error: ErrorDetail

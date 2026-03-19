@@ -54,3 +54,56 @@ class ObjectDetection(models.Model):
 
     def __str__(self):
         return f"Object ({self.track_id}) in Frame {self.frame_data.id}"
+
+# --- Models for Calibration/Mapping ---
+
+class Calibration(models.Model):
+    """
+    Represents a single calibration session.
+    This acts as a container for a set of mapping correspondences. We assume a single,
+    globally active calibration, so we'll always use the latest one.
+    """
+    created_at = models.DateTimeField(auto_now_add=True, help_text="Timestamp when this calibration was created.")
+    image_width = models.FloatField(null=True, blank=True)
+    image_height = models.FloatField(null=True, blank=True)
+    map_width = models.FloatField(null=True, blank=True)
+    map_height = models.FloatField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at'] # The most recent calibration is the active one
+
+    def __str__(self):
+        return f"Calibration from {self.created_at.strftime('%Y-%m-%d %H:%M:%S')}"
+
+class Correspondence(models.Model):
+    """
+    Stores a single mapped point used in a calibration session.
+    Related to a specific Calibration instance.
+    """
+    calibration = models.ForeignKey(Calibration, related_name='correspondences', on_delete=models.CASCADE)
+    label = models.CharField(max_length=50)
+    camera = models.JSONField(help_text="[x, y] coordinates on the camera frame.")
+    map = models.JSONField(help_text="[x, y] coordinates on the floor plan.")
+
+    def __str__(self):
+        return f"{self.label} for Calibration {self.calibration.id}"
+
+# --- Models for Counting Settings ---
+
+class CountingSetting(models.Model):
+    """
+    Stores counting line configuration.
+    """
+    created_at = models.DateTimeField(auto_now_add=True)
+    line_start = models.JSONField(help_text="[x, y] start of line")
+    line_end = models.JSONField(help_text="[x, y] end of line")
+    inside_point = models.JSONField(help_text="[x, y] point indicating 'inside'")
+    crossing_margin = models.FloatField()
+    frame_width = models.IntegerField(null=True, blank=True)
+    frame_height = models.IntegerField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Counting Setting from {self.created_at.strftime('%Y-%m-%d %H:%M:%S')}"
