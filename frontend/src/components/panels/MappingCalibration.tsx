@@ -273,7 +273,6 @@ function CountingDotsOverlay({ counting, sel, onSelect, onMovePoint, onMoveLine,
     const linePressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const lineStartNormRef = useRef<{ x: number; y: number } | null>(null);
 
-    if (!cW || !cH) return null;
     const toS = (p: NormPt) => ({ x: view.tx + p.x * cW * view.scale, y: view.ty + p.y * cH * view.scale });
     const isSel = (pt: 'lineStart' | 'lineEnd' | 'insidePoint') =>
         sel?.scope === 'counting' && (sel as { scope: 'counting'; pt: string }).pt === pt;
@@ -358,6 +357,8 @@ function CountingDotsOverlay({ counting, sel, onSelect, onMovePoint, onMoveLine,
         if (lineHoverTimerRef.current) clearTimeout(lineHoverTimerRef.current);
         if (linePressTimerRef.current) clearTimeout(linePressTimerRef.current);
     }, []);
+
+    if (!cW || !cH) return null;
 
     return (
         <>
