@@ -22,7 +22,7 @@ if width == 0 or height == 0:
 video_size = (int(width), int(height))
 
 # Initialize counting service with scaling from config to current frame
-counting_service = CountingService.from_config(args2, current_frame_size=video_size)
+counting_service = CountingService(counting_config=args2, current_frame_size=video_size)
 
 vid_writer = cv2.VideoWriter("./videos/result_demo.mp4", cv2.VideoWriter_fourcc(*"mp4v"), fps, (int(width), int(height)))
 

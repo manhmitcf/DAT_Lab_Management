@@ -56,7 +56,7 @@ mapping_service.update_mapping(
 )
 
 # Initialize counting service with built-in scaling to current frame size
-counting_service = CountingService.from_config(args2, current_frame_size=video_size)
+counting_service = CountingService(counting_config=args2, current_frame_size=video_size)
 
 vid_writer = cv2.VideoWriter("./videos/result_demo.mp4", cv2.VideoWriter_fourcc(*"mp4v"), fps, (int(width), int(height)))
 map_writer = cv2.VideoWriter("./videos/result_map.mp4", cv2.VideoWriter_fourcc(*"mp4v"), fps, (int(map_width), int(map_height)))

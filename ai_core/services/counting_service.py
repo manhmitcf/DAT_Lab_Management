@@ -2,6 +2,7 @@ import numpy as np
 import cv2
 from typing import Tuple, Optional
 from utils.utils import scale_points
+from config.data_config import CountingConfig
 
 class LineCounter:
     """
@@ -128,15 +129,29 @@ class CountingService:
 
     def __init__(
         self,
-        line_start: tuple,
-        line_end: tuple,
-        inside_point: tuple,
+        counting_config: Optional[CountingConfig] = None,
+        *,
+        line_start: Optional[tuple] = None,
+        line_end: Optional[tuple] = None,
+        inside_point: Optional[tuple] = None,
         crossing_margin: int = 10,
         source_frame_size: Optional[Tuple[int, int]] = None,
         current_frame_size: Optional[Tuple[int, int]] = None,
         normalized: bool = False,
     ):
-        """Initialize with line points. Points can be normalized (0–1) or in a source frame size and will be scaled to the current frame size."""
+        """Initialize with a CountingConfig or explicit geometry. If config is provided, scaling to current_frame_size is applied automatically."""
+
+        if counting_config is not None:
+            line_start = counting_config.line_start
+            line_end = counting_config.line_end
+            inside_point = counting_config.inside_point
+            crossing_margin = counting_config.crossing_margin
+            normalized = getattr(counting_config, "normalized", False)
+            if getattr(counting_config, "frame_width", None) and getattr(counting_config, "frame_height", None):
+                source_frame_size = (counting_config.frame_width, counting_config.frame_height)
+
+        if line_start is None or line_end is None or inside_point is None:
+            raise ValueError("line_start, line_end, and inside_point are required")
 
         start, end, inside = self._scale_geometry(
             line_start,
@@ -274,17 +289,5 @@ class CountingService:
         config,
         current_frame_size: Optional[Tuple[int, int]] = None,
     ):
-        """Construct from a CountingConfig-like object, scaling using its frame size or normalization flags."""
-        src_size = None
-        if getattr(config, "frame_width", None) and getattr(config, "frame_height", None):
-            src_size = (config.frame_width, config.frame_height)
-
-        return cls(
-            line_start=config.line_start,
-            line_end=config.line_end,
-            inside_point=config.inside_point,
-            crossing_margin=config.crossing_margin,
-            source_frame_size=src_size,
-            current_frame_size=current_frame_size,
-            normalized=getattr(config, "normalized", False),
-        )
+        """Construct from a CountingConfig; kept for backward compatibility."""
+        return cls(counting_config=config, current_frame_size=current_frame_size)
