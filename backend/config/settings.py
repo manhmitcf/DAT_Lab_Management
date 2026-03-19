@@ -25,6 +25,7 @@ INSTALLED_APPS = [
     'channels',
     'account',
     'Lab_Management',
+    'analytics',
 ]
 
 MIDDLEWARE = [
