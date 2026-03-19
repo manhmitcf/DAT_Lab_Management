@@ -414,115 +414,197 @@ Cấu hình hệ thống: ngưỡng cảnh báo, thông số camera, và **2D Ma
 
 ---
 
-## `POST /api/lab_management/settings/mapping` ⭐ Calibration
+## `GET /api/lab_management/settings/mapping`
 
-Gửi tập hợp các shape đã được đánh dấu tương ứng giữa camera frame và floor plan để BE tính toán **ma trận homography**. BE dùng matrix này để chuyển đổi tọa độ pixel của objects từ camera sang tọa độ 2D trên bản đồ.
+Pre-load cấu hình mapping hiện tại khi mở modal. FE dùng response này để hiển thị các cặp điểm đã lưu.
+
+**Response:**
+
+```json
+{
+  "image_size": {
+    "width": 1920,
+    "height": 1080
+  },
+  "map_size": {
+    "width": 1000,
+    "height": 1000
+  },
+  "correspondences": [
+    { "label": "p1", "camera": [523.2, 412.8], "map": [120.5, 300.0] },
+    { "label": "p2", "camera": [1020.1, 500.4], "map": [400.2, 320.6] },
+    { "label": "p3", "camera": [1500.0, 800.0], "map": [800.0, 700.0] }
+  ]
+}
+```
+
+---
+
+## `POST /api/lab_management/settings/mapping` ⭐ Mapping Service
+
+Gửi tập cặp điểm tương ứng giữa **camera frame** và **floor plan 2D** để BE tính toán **ma trận homography**. BE dùng matrix này để chuyển đổi tọa độ pixel objects từ camera sang tọa độ trên bản đồ.
 
 > [!IMPORTANT]
-> Cần tối thiểu **4 shape** (khuyến nghị là 4 điểm `point` không thẳng hàng) để tính homography chính xác.
+> Cần tối thiểu **4 cặp điểm** không thẳng hàng để tính homography chính xác.
 
 ### Request Body
 
 ```json
 {
-  "shapes": [
-    {
-      "type": "point",
-      "camera":     [[485, 312]],
-      "floor_plan": [[200, 150]]
-    },
-    {
-      "type": "point",
-      "camera":     [[820, 290]],
-      "floor_plan": [[600, 145]]
-    },
-    {
-      "type": "point",
-      "camera":     [[910, 530]],
-      "floor_plan": [[620, 420]]
-    },
-    {
-      "type": "point",
-      "camera":     [[310, 580]],
-      "floor_plan": [[180, 430]]
-    },
-    {
-      "type": "line",
-      "camera":     [[200, 200], [900, 200]],
-      "floor_plan": [[100, 100], [700, 100]]
-    }
+  "image_size": {
+    "width": 1920,
+    "height": 1080
+  },
+  "map_size": {
+    "width": 1000,
+    "height": 1000
+  },
+  "correspondences": [
+    { "label": "p1", "camera": [523.2, 412.8],  "map": [120.5, 300.0] },
+    { "label": "p2", "camera": [1020.1, 500.4], "map": [400.2, 320.6] },
+    { "label": "p3", "camera": [1500.0, 800.0], "map": [800.0, 700.0] },
+    { "label": "p4", "camera": [300.0,  900.0], "map": [50.0,  800.0] }
   ]
 }
 ```
 
-### Schema — Shape Object
+### Schema
 
 | Field | Type | Mô tả |
 |-------|------|--------|
-| `type` | string | `"point"` · `"line"` |
-| `camera` | int\[2\]\[\] | Mảng toạ độ `[x, y]` pixel trên **camera frame** |
-| `floor_plan` | int\[2\]\[\] | Mảng toạ độ `[x, y]` pixel trên **floor plan image** |
-
-#### Số điểm theo `type`
-
-| `type` | `camera` | `floor_plan` | Mô tả |
-|--------|----------|--------------|-------|
-| `point` | 1 điểm `[[x, y]]` | 1 điểm `[[x, y]]` | Điểm tương ứng đơn lẻ |
-| `line`  | 2 điểm `[[x1,y1],[x2,y2]]` | 2 điểm `[[x1,y1],[x2,y2]]` | Đoạn thẳng — cặp điểm Start + End |
-
-> [!NOTE]
-> `camera` và `floor_plan` **luôn có cùng số điểm**. FE đảm bảo điều này: mỗi shape được label theo thứ tự camera → floor plan trước khi gửi.
+| `image_size.width/height` | int | Kích thước camera frame (thường 1920×1080) |
+| `map_size.width/height` | int | Kích thước floor plan image |
+| `correspondences[].label` | string | Nhãn tự động: `p1`, `p2`, ... |
+| `correspondences[].camera` | float[2] | `[x, y]` pixel trên **camera frame** |
+| `correspondences[].map` | float[2] | `[x, y]` pixel trên **floor plan** |
 
 ### Tọa độ
 
 | Nguồn | Gốc | Đơn vị |
 |-------|-----|--------|
-| `camera` | `(0, 0)` = góc trên-trái của camera frame | pixel, tham chiếu `width_frame × height_frame` (thường 1280 × 720) |
-| `floor_plan` | `(0, 0)` = góc trên-trái của ảnh floor plan | pixel, tham chiếu kích thước ảnh `/labmap.svg` |
+| `camera` | `(0,0)` = góc trên-trái camera frame | pixel (float, 2 chữ số thập phân) |
+| `map` | `(0,0)` = góc trên-trái floor plan | pixel (float, 2 chữ số thập phân) |
 
-### Response — Thành công `200 OK`
+### Response `200 OK`
 
 ```json
 {
-  "status": "ok",
-  "updated_at": "2026-03-06T10:00:00Z"
+  "image_size": { "width": 1920, "height": 1080 },
+  "map_size":   { "width": 1000, "height": 1000 },
+  "correspondences": [
+    { "label": "p1", "camera": [523.2, 412.8], "map": [120.5, 300.0] }
+  ]
 }
 ```
 
-### Response — Lỗi
+### Errors
 
 | HTTP | Trường hợp |
 |------|-----------|
-| `400` | Ít hơn 4 shape · thiếu field · tọa độ nằm ngoài kích thước ảnh |
+| `400` | Ít hơn 4 cặp · thiếu field |
 | `422` | Các điểm thẳng hàng (không tính được homography) |
-| `500` | Lỗi tính toán ma trận homography phía BE |
 
-```json
-// 400
-{ "error": { "code": "BAD_REQUEST", "message": "At least 4 shapes required for homography" } }
-
-// 422
-{ "error": { "code": "UNPROCESSABLE", "message": "Points are collinear, cannot compute homography" } }
-```
-
-### Flow hoàn chỉnh từ FE
+### Flow
 
 ```
-1. User mở "Open Calibration" → modal hiện ra
-2. User chọn tool (Point / Line) và đánh dấu cặp điểm trên Camera Frame + Floor Plan
-3. Lặp lại cho đến khi đủ ≥ 4 shapes
-4. Nhấn "Apply" → FE gọi POST /settings/mapping
-        ↓
-   Body: { shapes: [ { type, camera: [[px,py],...], floor_plan: [[px,py],...] } ] }
-        ↓
-   BE nhận → tính homography matrix → lưu vào config
-        ↓
-   BE dùng matrix mới ngay trong pipeline xử lý frame tiếp theo
-5. FE nhận 200 → hiển thị thông báo thành công
+FE: Mapping tab → "Add Point" → click Camera → click Floor Plan (lặp × ≥4)
+         ↓ "Apply Mapping"
+POST /settings/mapping  { image_size, map_size, correspondences: [{label, camera, map}, ...] }
+         ↓
+BE: tính homography matrix → lưu config
+         ↓
+BE: dùng matrix trong pipeline xử lý frame tiếp theo
 ```
 
 > [!TIP]
-> Để calibration chính xác: chọn các điểm **phân bố đều**, bao phủ toàn bộ vùng quan sát — tránh chọn điểm gom cụm vào một góc.
+> Chọn điểm **phân bố đều** khắp vùng quan sát, tránh gom cụm vào một góc.
+
+---
+
+## `GET /api/lab_management/settings/counting`
+
+Pre-load cấu hình counting hiện tại khi mở modal.
+
+**Response:**
+
+```json
+{
+  "line_start":      [984.4736842105265, 346.4473684210526],
+  "line_end":        [903.6842105263158, 383.81578947368416],
+  "inside_point":    [1001.3157894736844, 375.3947368421052],
+  "crossing_margin": 10,
+  "frame_height":    1080,
+  "frame_width":     1920
+}
+```
+
+---
+
+## `POST /api/lab_management/settings/counting` ⭐ Counting Service
+
+Gửi cấu hình **virtual tripwire** (đường đếm ảo) trên camera frame cho Counting Service.
+
+### Request Body
+
+```json
+{
+  "line_start":      [984.4736842105265, 346.4473684210526],
+  "line_end":        [903.6842105263158, 383.81578947368416],
+  "inside_point":    [1001.3157894736844, 375.3947368421052],
+  "crossing_margin": 10,
+  "frame_width":     1920,
+  "frame_height":    1080
+}
+```
+
+### Schema
+
+| Field | Type | Mô tả |
+|-------|------|--------|
+| `line_start` | float[2] | `[x, y]` pixel — điểm **Start** của tripwire trên camera |
+| `line_end` | float[2] | `[x, y]` pixel — điểm **End** của tripwire trên camera |
+| `inside_point` | float[2] | `[x, y]` pixel — điểm nằm phía **"inside"** (entry side) của đường |
+| `crossing_margin` | int | Tolerance zone (px) quanh đường — tránh đếm nhầm |
+| `frame_width` | int | Chiều rộng camera frame (thường 1920) |
+| `frame_height` | int | Chiều cao camera frame (thường 1080) |
+
+> [!NOTE]
+> `inside_point` xác định **hướng đếm**: khi object đi từ ngoài → phía `inside_point`, BE đếm là **"in"**.
+
+### Response `200 OK`
+
+```json
+{
+  "line_start":      [984.4736842105265, 346.4473684210526],
+  "line_end":        [903.6842105263158, 383.81578947368416],
+  "inside_point":    [1001.3157894736844, 375.3947368421052],
+  "crossing_margin": 10,
+  "frame_height":    1080,
+  "frame_width":     1920
+}
+```
+
+### Flow
+
+```
+FE: Counting tab → "Draw Line" (drag trên camera) → "Inside Point" (click)
+         ↓ "Apply Counting"
+POST /settings/counting  { line_start, line_end, inside_point, crossing_margin, frame_w, frame_h }
+         ↓
+BE: cập nhật tripwire config cho counting pipeline
+         ↓
+BE: dùng config mới để đếm người qua đường trong frame tiếp theo
+```
+
+### UI Flow trong FE
+
+```
+1. Nhấn "Draw Line"  → drag trên Camera Frame → set line_start & line_end
+                        → tự động chuyển sang bước "Inside Point"
+2. Nhấn "Inside Point" → click phía "entry" trên camera → set inside_point
+3. Sidebar hiển thị tọa độ pixel (có thể edit) + crossing_margin
+4. Nhấn "Apply Counting" → POST /settings/counting
+```
 
 ---
 

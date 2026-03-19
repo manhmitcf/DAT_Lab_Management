@@ -11,35 +11,43 @@ const API_BASE =
     'https://labmanagementbackend-hte4hyczd0fef4ah.eastasia-01.azurewebsites.net';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-type ToolType = 'point' | 'line';
+type ModeType = 'mapping' | 'counting';
+
 interface NormPt { x: number; y: number; }
-interface Shape {
-    id: number;
-    type: ToolType;
-    camera: NormPt[];    // point:1pt | line:2pts(start,end)
-    floorPlan: NormPt[];
+
+// Mapping Service — point pairs between camera frame and 2D floor plan
+interface PointPair { id: number; camera: NormPt; map: NormPt; }
+interface MapPick {
+    side: 'camera' | 'map';
+    pendingCam: NormPt | null; // set after camera click, before map click
 }
-interface SelectedDot {
-    shapeId: number;
-    ptIdx: number;
-    side: 'camera' | 'floorPlan';
+
+// Counting Service — virtual tripwire on camera frame
+interface CountingCfg {
+    lineStart:      NormPt | null;
+    lineEnd:        NormPt | null;
+    insidePoint:    NormPt | null;
+    crossingMargin: number;
 }
-interface PickState { tool: ToolType; side: 'camera' | 'floor'; pointIdx: number; }
-interface Pending { camera: NormPt[]; floorPlan: NormPt[]; }
+type CountingPick = 'line' | 'inside' | null;
+
+// Unified selection for arrow-key nudging
+type SelPt =
+    | { scope: 'mapping';  pairId: number; side: 'camera' | 'map' }
+    | { scope: 'counting'; pt: 'lineStart' | 'lineEnd' | 'insidePoint' };
+
 interface ViewState { scale: number; tx: number; ty: number; }
 
-// line uses drag, point uses click
-const DRAG_TOOLS: ToolType[] = ['line'];
-const PTS_CLICK: Record<ToolType, number> = { point: 1, line: 0 };
-
 const COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#ec4899'];
-const gc = (i: number) => COLORS[i % COLORS.length];
+const gc    = (i: number) => COLORS[i % COLORS.length];
+const clamp = (v: number) => Math.max(0, Math.min(1, v));
+const round2 = (n: number) => +n.toFixed(2);
 
 export interface ZoomHandle { zoomIn(): void; zoomOut(): void; reset(): void; }
 
-// ── Single zoom-invariant dot ─────────────────────────────────────────────────
-function ShapeDot({ x, y, size, color, label, isPending = false, isSelected = false,
-    isPartner = false, onDoubleClick }: {
+// ── ShapeDot ──────────────────────────────────────────────────────────────────
+function ShapeDot({ x, y, size, color, label, isPending = false,
+    isSelected = false, isPartner = false, onDoubleClick }: {
     x: number; y: number; size: number; color: string; label?: string;
     isPending?: boolean; isSelected?: boolean; isPartner?: boolean;
     onDoubleClick?: () => void;
@@ -50,13 +58,11 @@ function ShapeDot({ x, y, size, color, label, isPending = false, isSelected = fa
         : isPartner
             ? `0 0 0 2.5px ${color}55, 0 1px 5px rgba(0,0,0,0.5)`
             : '0 1px 4px rgba(0,0,0,0.55)';
-
     return (
         <div
             className={`absolute flex items-center justify-center ${isPending ? 'animate-pulse' : ''}`}
             style={{
-                left:   x,
-                top:    y,
+                left: x, top: y,
                 width:  isSelected ? size + 4 : size,
                 height: isSelected ? size + 4 : size,
                 transform: 'translate(-50%, -50%)',
@@ -65,94 +71,91 @@ function ShapeDot({ x, y, size, color, label, isPending = false, isSelected = fa
                 border: `${isSelected || isPartner ? 2 : 1.5}px solid rgba(255,255,255,${isSelected ? 1 : 0.85})`,
                 boxShadow: glow,
                 opacity: isPending ? 0.75 : 1,
-                fontSize: '6px',
-                lineHeight: 1,
-                color: 'white',
-                fontWeight: 'bold',
+                fontSize: '6px', lineHeight: 1, color: 'white', fontWeight: 'bold',
                 userSelect: 'none',
                 pointerEvents: interactive ? 'auto' : 'none',
                 cursor: interactive ? 'pointer' : undefined,
-                transition: 'width 0.12s, height 0.12s, box-shadow 0.12s',
+                transition: 'width .12s, height .12s, box-shadow .12s',
                 zIndex: isSelected ? 20 : isPartner ? 10 : 1,
             }}
-            onMouseDown={interactive ? (e => e.stopPropagation()) : undefined}
-            onDoubleClick={interactive ? (e => { e.stopPropagation(); onDoubleClick(); }) : undefined}
+            onMouseDown={interactive ? e => e.stopPropagation() : undefined}
+            onDoubleClick={interactive ? e => { e.stopPropagation(); onDoubleClick(); } : undefined}
         >
             {label}
         </div>
     );
 }
 
-// ── DotsOverlay — rendered OUTSIDE zoom transform (zoom-invariant size) ───────
-function DotsOverlay({ shapes, pending, pickTool, side, view, cW, cH,
-    selectedDot, onSelectDot }: {
-    shapes: Shape[];
-    pending: Pending | null;
-    pickTool: ToolType | null;
-    side: 'camera' | 'floorPlan';
-    view: ViewState;
-    cW: number;
-    cH: number;
-    selectedDot: SelectedDot | null;
-    onSelectDot: (sd: SelectedDot) => void;
+// ── MappingDotsOverlay ────────────────────────────────────────────────────────
+function MappingDotsOverlay({ pairs, mapPick, sel, onSelect, side, view, cW, cH }: {
+    pairs: PointPair[];
+    mapPick: MapPick | null;
+    sel: SelPt | null;
+    onSelect: (s: SelPt) => void;
+    side: 'camera' | 'map';
+    view: ViewState; cW: number; cH: number;
 }) {
     if (!cW || !cH) return null;
+    const toS = (p: NormPt) => ({ x: view.tx + p.x * cW * view.scale, y: view.ty + p.y * cH * view.scale });
+    const isSel  = (id: number) => sel?.scope === 'mapping' && sel.pairId === id && sel.side === side;
+    const isPart = (id: number) => sel?.scope === 'mapping' && sel.pairId === id && sel.side !== side;
+    return (
+        <>
+            {pairs.map((pair, i) => {
+                const pt = side === 'camera' ? pair.camera : pair.map;
+                const { x, y } = toS(pt);
+                return (
+                    <ShapeDot key={pair.id} x={x} y={y} size={10} color={gc(i)}
+                        label={`p${i + 1}`}
+                        isSelected={isSel(pair.id)} isPartner={isPart(pair.id)}
+                        onDoubleClick={() => onSelect({ scope: 'mapping', pairId: pair.id, side })} />
+                );
+            })}
+            {/* Pending camera point while waiting for map click */}
+            {mapPick?.side === 'map' && mapPick.pendingCam && side === 'camera' && (() => {
+                const { x, y } = toS(mapPick.pendingCam);
+                return <ShapeDot x={x} y={y} size={10} color={gc(pairs.length)}
+                    label={`p${pairs.length + 1}`} isPending />;
+            })()}
+        </>
+    );
+}
 
-    const toS = (p: NormPt) => ({
-        x: view.tx + p.x * cW * view.scale,
-        y: view.ty + p.y * cH * view.scale,
-    });
+// ── CountingDotsOverlay ───────────────────────────────────────────────────────
+function CountingDotsOverlay({ counting, sel, onSelect, view, cW, cH }: {
+    counting: CountingCfg;
+    sel: SelPt | null;
+    onSelect: (s: SelPt) => void;
+    view: ViewState; cW: number; cH: number;
+}) {
+    if (!cW || !cH) return null;
+    const toS = (p: NormPt) => ({ x: view.tx + p.x * cW * view.scale, y: view.ty + p.y * cH * view.scale });
+    const isSel = (pt: SelPt['pt' & keyof { lineStart: 1; lineEnd: 1; insidePoint: 1 }]) =>
+        sel?.scope === 'counting' && (sel as { scope: 'counting'; pt: string }).pt === pt;
 
-    const isSel     = (id: number, pi: number) =>
-        selectedDot?.shapeId === id && selectedDot?.ptIdx === pi && selectedDot?.side === side;
-    const isPartner = (id: number, pi: number) =>
-        selectedDot?.shapeId === id && selectedDot?.ptIdx === pi && selectedDot?.side !== side;
-
-    const dotsForShape = (s: Shape, si: number, isPending = false): React.ReactNode[] => {
-        const pts   = side === 'camera' ? s.camera : s.floorPlan;
-        const color = gc(si);
-        if (pts.length === 0) return [];
-
-        if (s.type === 'point' && pts.length >= 1) {
-            const { x, y } = toS(pts[0]);
-            return [
-                <ShapeDot key={`${s.id}-0`} x={x} y={y} size={10} color={color}
-                    isPending={isPending}
-                    isSelected={!isPending && isSel(s.id, 0)}
-                    isPartner={!isPending && isPartner(s.id, 0)}
-                    onDoubleClick={isPending ? undefined : () => onSelectDot({ shapeId: s.id, ptIdx: 0, side })} />,
-            ];
-        }
-
-        if (s.type === 'line' && pts.length >= 2) {
-            const sp = toS(pts[0]);
-            const ep = toS(pts[1]);
-            return [
-                <ShapeDot key={`${s.id}-s`} x={sp.x} y={sp.y} size={9} color={color} label="S"
-                    isPending={isPending}
-                    isSelected={!isPending && isSel(s.id, 0)}
-                    isPartner={!isPending && isPartner(s.id, 0)}
-                    onDoubleClick={isPending ? undefined : () => onSelectDot({ shapeId: s.id, ptIdx: 0, side })} />,
-                <ShapeDot key={`${s.id}-e`} x={ep.x} y={ep.y} size={9} color={color} label="E"
-                    isPending={isPending}
-                    isSelected={!isPending && isSel(s.id, 1)}
-                    isPartner={!isPending && isPartner(s.id, 1)}
-                    onDoubleClick={isPending ? undefined : () => onSelectDot({ shapeId: s.id, ptIdx: 1, side })} />,
-            ];
-        }
-
-        return [];
-    };
-
-    const pendPts   = pending ? (side === 'camera' ? pending.camera : pending.floorPlan) : [];
-    const pendShape: Shape | null = (pending && pickTool && pendPts.length > 0)
-        ? { id: -1, type: pickTool, camera: pending.camera, floorPlan: pending.floorPlan }
-        : null;
+    const LINE_CLR   = '#3b82f6';
+    const INSIDE_CLR = '#10b981';
 
     return (
         <>
-            {shapes.map((s, si) => dotsForShape(s, si))}
-            {pendShape && dotsForShape(pendShape, shapes.length, true)}
+            {counting.lineStart && (() => {
+                const { x, y } = toS(counting.lineStart!);
+                return <ShapeDot x={x} y={y} size={9} color={LINE_CLR} label="S"
+                    isSelected={isSel('lineStart' as never)}
+                    onDoubleClick={() => onSelect({ scope: 'counting', pt: 'lineStart' })} />;
+            })()}
+            {counting.lineEnd && (() => {
+                const { x, y } = toS(counting.lineEnd!);
+                return <ShapeDot x={x} y={y} size={9} color={LINE_CLR} label="E"
+                    isSelected={isSel('lineEnd' as never)}
+                    onDoubleClick={() => onSelect({ scope: 'counting', pt: 'lineEnd' })} />;
+            })()}
+            {counting.insidePoint && (() => {
+                const { x, y } = toS(counting.insidePoint!);
+                return <ShapeDot x={x} y={y} size={10} color={INSIDE_CLR} label="I"
+                    isSelected={isSel('insidePoint' as never)}
+                    onDoubleClick={() => onSelect({ scope: 'counting', pt: 'insidePoint' })} />;
+            })()}
         </>
     );
 }
@@ -163,7 +166,7 @@ const ZoomableCanvas = forwardRef<ZoomHandle, {
     labelExtra?: React.ReactNode;
     isPicking: boolean;
     isDragTool: boolean;
-    activeTool?: ToolType | null;
+    activeTool?: 'line' | 'point' | null;
     onNormClick(x: number, y: number): void;
     onNormDragEnd(x1: number, y1: number, x2: number, y2: number): void;
     onCanvasClick?: () => void;
@@ -173,10 +176,10 @@ const ZoomableCanvas = forwardRef<ZoomHandle, {
     label, labelExtra, isPicking, isDragTool, activeTool,
     onNormClick, onNormDragEnd, onCanvasClick, overlay, children,
 }, ref) {
-    const [view, setView]             = useState<ViewState>({ scale: 1, tx: 0, ty: 0 });
-    const [isDragging, setIsDragging] = useState(false);
-    const [drawPrev, setDrawPrev]     = useState<{ sx: number; sy: number; ex: number; ey: number } | null>(null);
-    const [cSize, setCSize]           = useState({ w: 0, h: 0 });
+    const [view, setView]               = useState<ViewState>({ scale: 1, tx: 0, ty: 0 });
+    const [isDragging, setIsDragging]   = useState(false);
+    const [drawPrev, setDrawPrev]       = useState<{ sx: number; sy: number; ex: number; ey: number } | null>(null);
+    const [cSize, setCSize]             = useState({ w: 0, h: 0 });
     const containerRef = useRef<HTMLDivElement>(null);
     const panRef  = useRef({ on: false, moved: false, sx: 0, sy: 0, stx: 0, sty: 0 });
     const drawRef = useRef({ on: false, snx: 0, sny: 0 });
@@ -188,8 +191,7 @@ const ZoomableCanvas = forwardRef<ZoomHandle, {
     }));
 
     useEffect(() => {
-        const el = containerRef.current;
-        if (!el) return;
+        const el = containerRef.current; if (!el) return;
         const ro = new ResizeObserver(entries => {
             const r = entries[0].contentRect;
             setCSize({ w: r.width, h: r.height });
@@ -200,7 +202,7 @@ const ZoomableCanvas = forwardRef<ZoomHandle, {
     }, []);
 
     function applyZoom(v: ViewState, f: number, cur: { x: number; y: number } | null, el: HTMLElement | null): ViewState {
-        const r  = el?.getBoundingClientRect();
+        const r = el?.getBoundingClientRect();
         const cx = cur ? cur.x - (r?.left ?? 0) : (r?.width  ?? 0) / 2;
         const cy = cur ? cur.y - (r?.top  ?? 0) : (r?.height ?? 0) / 2;
         const ns = Math.max(0.25, Math.min(10, v.scale * f));
@@ -209,14 +211,13 @@ const ZoomableCanvas = forwardRef<ZoomHandle, {
 
     function normPos(clientX: number, clientY: number, v: ViewState, r: DOMRect) {
         return {
-            x: Math.max(0, Math.min(1, (clientX - r.left - v.tx) / (r.width  * v.scale))),
-            y: Math.max(0, Math.min(1, (clientY - r.top  - v.ty) / (r.height * v.scale))),
+            x: clamp((clientX - r.left - v.tx) / (r.width  * v.scale)),
+            y: clamp((clientY - r.top  - v.ty) / (r.height * v.scale)),
         };
     }
 
     useEffect(() => {
-        const el = containerRef.current;
-        if (!el) return;
+        const el = containerRef.current; if (!el) return;
         const h = (e: WheelEvent) => {
             e.preventDefault();
             setView(v => applyZoom(v, e.deltaY < 0 ? 1.1 : 0.9, { x: e.clientX, y: e.clientY }, el));
@@ -226,8 +227,7 @@ const ZoomableCanvas = forwardRef<ZoomHandle, {
     }, []);
 
     const onMD = useCallback((e: React.MouseEvent) => {
-        const r = containerRef.current?.getBoundingClientRect();
-        if (!r) return;
+        const r = containerRef.current?.getBoundingClientRect(); if (!r) return;
         if (isPicking && isDragTool) {
             const { x, y } = normPos(e.clientX, e.clientY, view, r);
             drawRef.current = { on: true, snx: x, sny: y };
@@ -239,14 +239,12 @@ const ZoomableCanvas = forwardRef<ZoomHandle, {
     }, [isPicking, isDragTool, view]);
 
     const onMM = useCallback((e: React.MouseEvent) => {
-        const r = containerRef.current?.getBoundingClientRect();
-        if (!r) return;
+        const r = containerRef.current?.getBoundingClientRect(); if (!r) return;
         if (drawRef.current.on) {
             const { x, y } = normPos(e.clientX, e.clientY, view, r);
             setDrawPrev({ sx: drawRef.current.snx, sy: drawRef.current.sny, ex: x, ey: y });
         } else if (panRef.current.on) {
-            const dx = e.clientX - panRef.current.sx;
-            const dy = e.clientY - panRef.current.sy;
+            const dx = e.clientX - panRef.current.sx, dy = e.clientY - panRef.current.sy;
             if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
                 panRef.current.moved = true;
                 setView(v => ({ ...v, tx: panRef.current.stx + dx, ty: panRef.current.sty + dy }));
@@ -255,31 +253,24 @@ const ZoomableCanvas = forwardRef<ZoomHandle, {
     }, [view]);
 
     const onMU = useCallback((e: React.MouseEvent) => {
-        const r = containerRef.current?.getBoundingClientRect();
-        if (!r) return;
+        const r = containerRef.current?.getBoundingClientRect(); if (!r) return;
         if (drawRef.current.on) {
             const { snx, sny } = drawRef.current;
-            drawRef.current.on = false;
-            setDrawPrev(null);
+            drawRef.current.on = false; setDrawPrev(null);
             const { x, y } = normPos(e.clientX, e.clientY, view, r);
             onNormDragEnd(snx, sny, x, y);
         } else if (panRef.current.on) {
             const moved = panRef.current.moved;
-            panRef.current.on = false;
-            setIsDragging(false);
+            panRef.current.on = false; setIsDragging(false);
             if (!moved) {
                 const { x, y } = normPos(e.clientX, e.clientY, view, r);
-                if (isPicking && !isDragTool) {
-                    onNormClick(x, y);
-                } else if (!isPicking) {
-                    onCanvasClick?.();
-                }
+                if (isPicking && !isDragTool) onNormClick(x, y);
+                else if (!isPicking) onCanvasClick?.();
             }
         }
     }, [view, isPicking, isDragTool, onNormClick, onNormDragEnd, onCanvasClick]);
 
     const cursor = isPicking ? 'crosshair' : isDragging ? 'grabbing' : 'grab';
-    const hintIcon = isDragTool ? 'show_chart' : 'add_circle';
 
     return (
         <div className="flex flex-col gap-1.5 min-h-0 flex-1">
@@ -313,32 +304,29 @@ const ZoomableCanvas = forwardRef<ZoomHandle, {
                 onMouseLeave={() => {
                     panRef.current.on = false; drawRef.current.on = false;
                     setIsDragging(false); setDrawPrev(null);
-                }}
-            >
+                }}>
                 {/* Zoom-transformed layer */}
                 <div className="absolute inset-0"
                     style={{ transform: `translate(${view.tx}px,${view.ty}px) scale(${view.scale})`, transformOrigin: '0 0', willChange: 'transform' }}>
                     {children}
-
                     {/* Line drag preview */}
                     {drawPrev && activeTool === 'line' && (
                         <svg className="absolute inset-0 w-full h-full overflow-visible pointer-events-none">
-                            <line
-                                x1={`${drawPrev.sx * 100}%`} y1={`${drawPrev.sy * 100}%`}
-                                x2={`${drawPrev.ex * 100}%`} y2={`${drawPrev.ey * 100}%`}
-                                stroke="rgba(59,130,246,0.75)" strokeWidth="2" strokeDasharray="6,3" />
+                            <line x1={`${drawPrev.sx * 100}%`} y1={`${drawPrev.sy * 100}%`}
+                                  x2={`${drawPrev.ex * 100}%`} y2={`${drawPrev.ey * 100}%`}
+                                  stroke="rgba(59,130,246,0.75)" strokeWidth="2" strokeDasharray="6,3" />
                         </svg>
                     )}
                 </div>
-
-                {/* Zoom-invariant dots overlay */}
+                {/* Zoom-invariant overlay */}
                 <div className="absolute inset-0 pointer-events-none">
                     {overlay?.(view, cSize.w, cSize.h)}
                 </div>
-
                 {isPicking && !drawPrev && (
                     <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                        <span className="material-symbols-outlined text-accent/20 text-9xl">{hintIcon}</span>
+                        <span className="material-symbols-outlined text-accent/20 text-9xl">
+                            {isDragTool ? 'show_chart' : 'add_circle'}
+                        </span>
                     </div>
                 )}
             </div>
@@ -346,35 +334,23 @@ const ZoomableCanvas = forwardRef<ZoomHandle, {
     );
 });
 
-// ── ShapeLayer (inside zoom context — outlines only) ──────────────────────────
-function ShapeLayer({ shapes, pending, pickTool, side }: {
-    shapes: Shape[];
-    pending: Pending | null;
-    pickTool: ToolType | null;
-    side: 'camera' | 'floorPlan';
-}) {
-    const getPts  = (s: Shape) => side === 'camera' ? s.camera : s.floorPlan;
-    const pendPts = pending ? (side === 'camera' ? pending.camera : pending.floorPlan) : [];
-
+// ── CountingShapeLayer (inside zoom — scales with content) ────────────────────
+function CountingShapeLayer({ counting }: { counting: CountingCfg }) {
+    const { lineStart: s, lineEnd: e, insidePoint: ip } = counting;
+    if (!s && !e) return null;
+    const mx = s && e ? (s.x + e.x) / 2 : 0;
+    const my = s && e ? (s.y + e.y) / 2 : 0;
     return (
         <div className="absolute inset-0 pointer-events-none">
             <svg className="absolute inset-0 w-full h-full overflow-visible">
-                {shapes.map((s, i) => {
-                    const pts = getPts(s);
-                    if (s.type !== 'line' || pts.length < 2) return null;
-                    return (
-                        <line key={s.id}
-                            x1={`${pts[0].x * 100}%`} y1={`${pts[0].y * 100}%`}
-                            x2={`${pts[1].x * 100}%`} y2={`${pts[1].y * 100}%`}
-                            stroke={gc(i)} strokeWidth="2" opacity="0.85" />
-                    );
-                })}
-                {/* Pending line after camera drag — shown dashed while waiting for floor */}
-                {pickTool === 'line' && pendPts.length === 2 && (
-                    <line
-                        x1={`${pendPts[0].x * 100}%`} y1={`${pendPts[0].y * 100}%`}
-                        x2={`${pendPts[1].x * 100}%`} y2={`${pendPts[1].y * 100}%`}
-                        stroke={gc(shapes.length)} strokeWidth="2" strokeDasharray="6,3" opacity="0.7" />
+                {s && e && (
+                    <line x1={`${s.x*100}%`} y1={`${s.y*100}%`} x2={`${e.x*100}%`} y2={`${e.y*100}%`}
+                        stroke="#3b82f6" strokeWidth="2.5" opacity="0.9" />
+                )}
+                {/* Dashed guide from midpoint to inside_point */}
+                {s && e && ip && (
+                    <line x1={`${mx*100}%`} y1={`${my*100}%`} x2={`${ip.x*100}%`} y2={`${ip.y*100}%`}
+                        stroke="#10b981" strokeWidth="1.5" strokeDasharray="5,3" opacity="0.7" />
                 )}
             </svg>
         </div>
@@ -399,132 +375,219 @@ function PxInput({ icon, label, color, value, onChange, highlight = false }: {
     );
 }
 
-// ── Sidebar ───────────────────────────────────────────────────────────────────
-function Sidebar({ shapes, pending, pickTool, onRemove, onEditPx, camRef, fpRef, selectedDot }: {
-    shapes: Shape[];
-    pending: Pending | null;
-    pickTool: ToolType | null;
+// ── MappingSidebar ────────────────────────────────────────────────────────────
+function MappingSidebar({ pairs, mapPick, sel, onRemove, onEditPx, camRef, fpRef }: {
+    pairs: PointPair[];
+    mapPick: MapPick | null;
+    sel: SelPt | null;
     onRemove(id: number): void;
-    onEditPx(id: number, side: 'camera' | 'floorPlan', pi: number, axis: 'x' | 'y', px: number): void;
+    onEditPx(id: number, side: 'camera' | 'map', axis: 'x' | 'y', px: number): void;
     camRef: React.RefObject<HTMLImageElement | null>;
     fpRef:  React.RefObject<HTMLImageElement | null>;
-    selectedDot: SelectedDot | null;
 }) {
-    const cW = camRef.current?.naturalWidth  || 1280;
-    const cH = camRef.current?.naturalHeight || 720;
-    const fW = fpRef.current?.naturalWidth   || 1000;
-    const fH = fpRef.current?.naturalHeight  || 1000;
-
+    const cW = camRef.current?.naturalWidth  || 1920;
+    const cH = camRef.current?.naturalHeight || 1080;
+    const mW = fpRef.current?.naturalWidth   || 1000;
+    const mH = fpRef.current?.naturalHeight  || 1000;
+    const px = (n: number, d: number) => Math.round(n * d);
     const listRef = useRef<HTMLDivElement>(null);
 
-    // Auto-scroll to selected shape
     useEffect(() => {
-        if (!selectedDot || !listRef.current) return;
-        const el = listRef.current.querySelector<HTMLElement>(`[data-shape-id="${selectedDot.shapeId}"]`);
-        el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }, [selectedDot]);
-
-    const px = (n: number, d: number) => Math.round(n * d);
-
-    const ptLabels: Record<ToolType, string[]> = {
-        point: ['Point'],
-        line:  ['Start', 'End'],
-    };
-    const toolIcon: Record<ToolType, string> = {
-        point: 'location_on', line: 'timeline',
-    };
+        if (!sel || sel.scope !== 'mapping') return;
+        listRef.current?.querySelector<HTMLElement>(`[data-pair-id="${sel.pairId}"]`)
+            ?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, [sel]);
 
     return (
-        <div className="w-72 shrink-0 border-l border-border-default flex flex-col min-h-0">
+        <div className="w-64 shrink-0 border-l border-border-default flex flex-col min-h-0">
             <div className="px-4 py-3 border-b border-border-subtle shrink-0">
-                <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Shapes</p>
+                <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Point Pairs</p>
                 <p className="text-[10px] text-text-tertiary mt-0.5">
                     <span className="text-success">cam</span> = camera px ·&nbsp;
-                    <span className="text-accent">fp</span> = floor plan px ·&nbsp;
-                    <span className="text-text-tertiary">double-click dot to select</span>
+                    <span className="text-accent">map</span> = floor plan px
                 </p>
             </div>
-
             <div ref={listRef} className="flex-1 overflow-y-auto divide-y divide-border-subtle">
-                {shapes.length === 0 && !pending && (
-                    <div className="flex flex-col items-center justify-center gap-2 py-12 px-4 text-center">
-                        <span className="material-symbols-outlined text-4xl text-text-tertiary">add_location_alt</span>
-                        <p className="text-xs text-text-tertiary leading-relaxed">
-                            No shapes yet.<br />Click a tool button above to start.
-                        </p>
+                {pairs.length === 0 && !mapPick && (
+                    <div className="flex flex-col items-center justify-center gap-2 py-10 px-4 text-center">
+                        <span className="material-symbols-outlined text-3xl text-text-tertiary">add_location_alt</span>
+                        <p className="text-xs text-text-tertiary">Click "+ Add Point" to start.<br />Need ≥ 4 pairs.</p>
                     </div>
                 )}
-
-                {shapes.map((s, si) => {
-                    const isShapeSelected = selectedDot?.shapeId === s.id;
+                {pairs.map((pair, i) => {
+                    const isPairSel = sel?.scope === 'mapping' && sel.pairId === pair.id;
                     return (
-                        <div key={s.id} data-shape-id={s.id}
-                            className={`px-3 py-3 group transition-colors
-                                ${isShapeSelected ? 'bg-accent/5' : 'hover:bg-surface-2'}`}>
-                            <div className="flex items-center gap-2 mb-2.5">
-                                <div className={`size-5 rounded-full border-2 flex items-center justify-center text-[9px] font-bold text-white shrink-0 transition-colors
-                                    ${isShapeSelected ? 'border-accent/60' : 'border-surface-1'}`}
-                                    style={{ backgroundColor: gc(si) }}>
-                                    {si + 1}
+                        <div key={pair.id} data-pair-id={pair.id}
+                            className={`px-3 py-3 group transition-colors ${isPairSel ? 'bg-accent/5' : 'hover:bg-surface-2'}`}>
+                            <div className="flex items-center gap-2 mb-2">
+                                <div className="size-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white shrink-0"
+                                    style={{ backgroundColor: gc(i) }}>
+                                    {i + 1}
                                 </div>
-                                <span className="material-symbols-outlined text-[14px]" style={{ color: gc(si) }}>
-                                    {toolIcon[s.type]}
-                                </span>
-                                <span className="text-[11px] font-semibold text-text-primary capitalize">{s.type}</span>
-                                {isShapeSelected && (
-                                    <span className="text-[9px] text-accent bg-accent/10 border border-accent/20 rounded px-1 py-0.5 font-medium ml-1">
-                                        ↑↓←→
-                                    </span>
+                                <span className="text-[11px] font-semibold text-text-primary font-mono">p{i + 1}</span>
+                                {isPairSel && (
+                                    <span className="text-[9px] text-accent bg-accent/10 border border-accent/20 rounded px-1 py-0.5 font-medium ml-1">↑↓←→</span>
                                 )}
-                                <button onClick={() => onRemove(s.id)}
+                                <button onClick={() => onRemove(pair.id)}
                                     className="ml-auto opacity-0 group-hover:opacity-100 text-text-tertiary hover:text-danger transition-all">
                                     <span className="material-symbols-outlined text-base">close</span>
                                 </button>
                             </div>
-
-                            {s.camera.map((cp, pi) => {
-                                const isPtSelected = isShapeSelected && selectedDot?.ptIdx === pi;
-                                return (
-                                    <div key={pi} className={`mb-2 rounded-md transition-colors
-                                        ${isPtSelected ? 'ring-1 ring-accent/40 bg-accent/5 p-1.5 -mx-1.5' : ''}`}>
-                                        <p className="text-[9px] text-text-tertiary uppercase tracking-wider font-medium mb-1">
-                                            {ptLabels[s.type][pi] ?? `Pt ${pi + 1}`}
-                                        </p>
-                                        <div className="grid grid-cols-2 gap-1">
-                                            <PxInput icon="videocam" label="x" color="text-success"
-                                                value={px(cp.x, cW)}
-                                                highlight={isPtSelected && selectedDot?.side === 'camera'}
-                                                onChange={v => onEditPx(s.id, 'camera', pi, 'x', v)} />
-                                            <PxInput icon="" label="y" color="text-success"
-                                                value={px(cp.y, cH)}
-                                                highlight={isPtSelected && selectedDot?.side === 'camera'}
-                                                onChange={v => onEditPx(s.id, 'camera', pi, 'y', v)} />
-                                            <PxInput icon="map" label="x" color="text-accent"
-                                                value={px((s.floorPlan[pi]?.x ?? 0), fW)}
-                                                highlight={isPtSelected && selectedDot?.side === 'floorPlan'}
-                                                onChange={v => onEditPx(s.id, 'floorPlan', pi, 'x', v)} />
-                                            <PxInput icon="" label="y" color="text-accent"
-                                                value={px((s.floorPlan[pi]?.y ?? 0), fH)}
-                                                highlight={isPtSelected && selectedDot?.side === 'floorPlan'}
-                                                onChange={v => onEditPx(s.id, 'floorPlan', pi, 'y', v)} />
-                                        </div>
-                                    </div>
-                                );
-                            })}
+                            <div className="grid grid-cols-2 gap-1 mb-1">
+                                <PxInput icon="videocam" label="x" color="text-success" value={px(pair.camera.x, cW)}
+                                    highlight={isPairSel && sel?.side === 'camera'}
+                                    onChange={v => onEditPx(pair.id, 'camera', 'x', v)} />
+                                <PxInput icon="" label="y" color="text-success" value={px(pair.camera.y, cH)}
+                                    highlight={isPairSel && sel?.side === 'camera'}
+                                    onChange={v => onEditPx(pair.id, 'camera', 'y', v)} />
+                                <PxInput icon="map" label="x" color="text-accent" value={px(pair.map.x, mW)}
+                                    highlight={isPairSel && sel?.side === 'map'}
+                                    onChange={v => onEditPx(pair.id, 'map', 'x', v)} />
+                                <PxInput icon="" label="y" color="text-accent" value={px(pair.map.y, mH)}
+                                    highlight={isPairSel && sel?.side === 'map'}
+                                    onChange={v => onEditPx(pair.id, 'map', 'y', v)} />
+                            </div>
                         </div>
                     );
                 })}
-
-                {pending && (
+                {mapPick && (
                     <div className="px-3 py-3 bg-accent/5 border-l-2 border-accent/40">
                         <div className="flex items-center gap-2">
-                            <span className="material-symbols-outlined text-accent text-sm animate-pulse">edit_location</span>
-                            <span className="text-[11px] text-accent font-medium capitalize">
-                                Adding {pickTool}…
+                            <span className="material-symbols-outlined text-accent text-sm animate-pulse">my_location</span>
+                            <span className="text-[11px] text-accent font-medium">
+                                {mapPick.side === 'camera' ? 'Click on Camera…' : 'Click on Floor Plan…'}
                             </span>
                         </div>
                     </div>
                 )}
+            </div>
+        </div>
+    );
+}
+
+// ── CountingSidebar ───────────────────────────────────────────────────────────
+function CountingSidebar({ counting, sel, cntPick, setCounting, onEditPx, camRef }: {
+    counting: CountingCfg;
+    sel: SelPt | null;
+    cntPick: CountingPick;
+    setCounting: React.Dispatch<React.SetStateAction<CountingCfg>>;
+    onEditPx(pt: 'lineStart' | 'lineEnd' | 'insidePoint', axis: 'x' | 'y', px: number): void;
+    camRef: React.RefObject<HTMLImageElement | null>;
+}) {
+    const cW = camRef.current?.naturalWidth  || 1920;
+    const cH = camRef.current?.naturalHeight || 1080;
+    const px = (n: number, d: number) => Math.round(n * d);
+    const isSel = (pt: 'lineStart' | 'lineEnd' | 'insidePoint') =>
+        sel?.scope === 'counting' && (sel as { scope: 'counting'; pt: string }).pt === pt;
+
+    const listRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        if (!sel || sel.scope !== 'counting') return;
+        const pt = (sel as { scope: 'counting'; pt: string }).pt;
+        listRef.current?.querySelector<HTMLElement>(`[data-cnt-pt="${pt}"]`)
+            ?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, [sel]);
+
+    const StatusBadge = ({ ok }: { ok: boolean }) => (
+        <span className={`inline-flex items-center gap-1 text-[9px] font-medium px-1.5 py-0.5 rounded-full border ml-auto
+            ${ok ? 'border-success/30 text-success bg-success/10' : 'border-border-subtle text-text-tertiary bg-surface-2'}`}>
+            <span className={`size-1.5 rounded-full ${ok ? 'bg-success' : 'bg-text-tertiary'}`} />
+            {ok ? 'Set' : 'Not set'}
+        </span>
+    );
+
+    return (
+        <div className="w-64 shrink-0 border-l border-border-default flex flex-col min-h-0">
+            <div className="px-4 py-3 border-b border-border-subtle shrink-0">
+                <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Counting Config</p>
+                <p className="text-[10px] text-text-tertiary mt-0.5">All coordinates in camera frame pixels</p>
+            </div>
+            <div ref={listRef} className="flex-1 overflow-y-auto p-3 flex flex-col gap-3">
+                {/* Counting Line */}
+                <div data-cnt-pt="lineStart"
+                    className={`rounded-lg border p-3 transition-colors ${(isSel('lineStart') || isSel('lineEnd')) ? 'border-accent/40 bg-accent/5' : 'border-border-subtle'}`}>
+                    <div className="flex items-center gap-2 mb-2">
+                        <div className="size-4 rounded-full bg-[#3b82f6]" />
+                        <span className="text-[11px] font-semibold text-text-primary">Counting Line</span>
+                        <StatusBadge ok={!!(counting.lineStart && counting.lineEnd)} />
+                    </div>
+                    {counting.lineStart && (
+                        <div className="mb-2">
+                            <p className="text-[9px] text-text-tertiary uppercase tracking-wider font-medium mb-1">Start (S)</p>
+                            <div className="grid grid-cols-2 gap-1">
+                                <PxInput icon="" label="x" color="text-[#3b82f6]" value={px(counting.lineStart.x, cW)}
+                                    highlight={isSel('lineStart')} onChange={v => onEditPx('lineStart', 'x', v)} />
+                                <PxInput icon="" label="y" color="text-[#3b82f6]" value={px(counting.lineStart.y, cH)}
+                                    highlight={isSel('lineStart')} onChange={v => onEditPx('lineStart', 'y', v)} />
+                            </div>
+                        </div>
+                    )}
+                    {counting.lineEnd && (
+                        <div data-cnt-pt="lineEnd">
+                            <p className="text-[9px] text-text-tertiary uppercase tracking-wider font-medium mb-1">End (E)</p>
+                            <div className="grid grid-cols-2 gap-1">
+                                <PxInput icon="" label="x" color="text-[#3b82f6]" value={px(counting.lineEnd.x, cW)}
+                                    highlight={isSel('lineEnd')} onChange={v => onEditPx('lineEnd', 'x', v)} />
+                                <PxInput icon="" label="y" color="text-[#3b82f6]" value={px(counting.lineEnd.y, cH)}
+                                    highlight={isSel('lineEnd')} onChange={v => onEditPx('lineEnd', 'y', v)} />
+                            </div>
+                        </div>
+                    )}
+                    {!counting.lineStart && (
+                        <p className="text-[10px] text-text-tertiary italic">Drag on camera to draw line</p>
+                    )}
+                </div>
+
+                {/* Inside Point */}
+                <div data-cnt-pt="insidePoint"
+                    className={`rounded-lg border p-3 transition-colors ${isSel('insidePoint') ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-border-subtle'}`}>
+                    <div className="flex items-center gap-2 mb-2">
+                        <div className="size-4 rounded-full bg-[#10b981]" />
+                        <span className="text-[11px] font-semibold text-text-primary">Inside Point</span>
+                        <StatusBadge ok={!!counting.insidePoint} />
+                    </div>
+                    {counting.insidePoint ? (
+                        <div className="grid grid-cols-2 gap-1">
+                            <PxInput icon="" label="x" color="text-[#10b981]" value={px(counting.insidePoint.x, cW)}
+                                highlight={isSel('insidePoint')} onChange={v => onEditPx('insidePoint', 'x', v)} />
+                            <PxInput icon="" label="y" color="text-[#10b981]" value={px(counting.insidePoint.y, cH)}
+                                highlight={isSel('insidePoint')} onChange={v => onEditPx('insidePoint', 'y', v)} />
+                        </div>
+                    ) : (
+                        <p className="text-[10px] text-text-tertiary italic">Click on camera after drawing line</p>
+                    )}
+                    <p className="text-[9px] text-text-tertiary mt-2 leading-relaxed">
+                        Place inside the area to count as "entering"
+                    </p>
+                </div>
+
+                {/* Crossing Margin */}
+                <div className="rounded-lg border border-border-subtle p-3">
+                    <div className="flex items-center gap-2 mb-2">
+                        <span className="material-symbols-outlined text-text-tertiary text-[16px]">width</span>
+                        <span className="text-[11px] font-semibold text-text-primary">Crossing Margin</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <input type="number" min={1} max={100}
+                            value={counting.crossingMargin}
+                            onChange={e => setCounting(p => ({ ...p, crossingMargin: Number(e.target.value) || 10 }))}
+                            className="flex-1 bg-surface-0 border border-border-subtle rounded px-2 py-1 text-[12px] font-mono text-text-primary outline-none focus:border-accent transition-colors
+                                [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                        <span className="text-[11px] text-text-tertiary">px</span>
+                    </div>
+                    <p className="text-[9px] text-text-tertiary mt-1.5">Tolerance zone around the line</p>
+                </div>
+
+                {/* Status summary */}
+                <div className={`rounded-lg border p-3 text-[10px] leading-relaxed
+                    ${counting.lineStart && counting.lineEnd && counting.insidePoint
+                        ? 'border-success/30 bg-success/5 text-success'
+                        : 'border-border-subtle text-text-tertiary'}`}>
+                    {counting.lineStart && counting.lineEnd && counting.insidePoint
+                        ? '✓ Ready to apply counting config'
+                        : `Missing: ${[!counting.lineStart || !counting.lineEnd ? 'counting line' : '', !counting.insidePoint ? 'inside point' : ''].filter(Boolean).join(', ')}`
+                    }
+                </div>
             </div>
         </div>
     );
@@ -535,241 +598,266 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
     const currentFrame = useTrackingStore(s => s.currentFrame);
     const wsStatus     = useTrackingStore(s => s.wsStatus);
 
-    const [shapes,      setShapes]      = useState<Shape[]>([]);
-    const [pick,        setPick]        = useState<PickState | null>(null);
-    const [pending,     setPending]     = useState<Pending | null>(null);
-    const [selectedDot, setSelectedDot] = useState<SelectedDot | null>(null);
-    const [saving,      setSaving]      = useState(false);
-    const [result,      setResult]      = useState<'success' | 'error' | null>(null);
+    const [mode, setMode]     = useState<ModeType>('mapping');
+
+    // Mapping state
+    const [pairs, setPairs]         = useState<PointPair[]>([]);
+    const [mapPick, setMapPick]     = useState<MapPick | null>(null);
+    const [mapSaving, setMapSaving] = useState(false);
+    const [mapResult, setMapResult] = useState<'success' | 'error' | null>(null);
+
+    // Counting state
+    const [counting, setCounting]   = useState<CountingCfg>({ lineStart: null, lineEnd: null, insidePoint: null, crossingMargin: 10 });
+    const [cntPick, setCntPick]     = useState<CountingPick>(null);
+    const [cntSaving, setCntSaving] = useState(false);
+    const [cntResult, setCntResult] = useState<'success' | 'error' | null>(null);
+
+    // Shared selection
+    const [sel, setSel] = useState<SelPt | null>(null);
 
     const nextId  = useRef(1);
     const camRef  = useRef<HTMLImageElement>(null);
     const fpRef   = useRef<HTMLImageElement>(null);
     const camZoom = useRef<ZoomHandle>(null);
     const fpZoom  = useRef<ZoomHandle>(null);
-    // Ref so ESC handler always sees latest selectedDot without re-running scroll lock
-    const selectedDotRef = useRef<SelectedDot | null>(null);
-    useEffect(() => { selectedDotRef.current = selectedDot; }, [selectedDot]);
+    const selRef  = useRef<SelPt | null>(null);
+    useEffect(() => { selRef.current = sel; }, [sel]);
 
-    // Body scroll lock + ESC handler
+    // Pre-load existing configs from backend
+    useEffect(() => {
+        fetch(`${API_BASE}/api/lab_management/settings/mapping`)
+            .then(r => r.json())
+            .then((d: { image_size?: { width: number; height: number }; map_size?: { width: number; height: number }; correspondences?: { label: string; camera: number[]; map: number[] }[] }) => {
+                if (!d.correspondences?.length) return;
+                const iW = d.image_size?.width  || 1920, iH = d.image_size?.height || 1080;
+                const mW = d.map_size?.width    || 1000, mH = d.map_size?.height   || 1000;
+                setPairs(d.correspondences.map((c, i) => ({
+                    id: i + 1,
+                    camera: { x: c.camera[0] / iW, y: c.camera[1] / iH },
+                    map:    { x: c.map[0]    / mW, y: c.map[1]    / mH },
+                })));
+                nextId.current = d.correspondences.length + 1;
+            }).catch(() => {});
+
+        fetch(`${API_BASE}/api/lab_management/settings/counting`)
+            .then(r => r.json())
+            .then((d: { line_start?: number[]; line_end?: number[]; inside_point?: number[]; crossing_margin?: number; frame_width?: number; frame_height?: number }) => {
+                if (!d.line_start || !d.line_end) return;
+                const fW = d.frame_width || 1920, fH = d.frame_height || 1080;
+                setCounting({
+                    lineStart:      { x: d.line_start[0]  / fW, y: d.line_start[1]  / fH },
+                    lineEnd:        { x: d.line_end[0]    / fW, y: d.line_end[1]    / fH },
+                    insidePoint:    d.inside_point ? { x: d.inside_point[0] / fW, y: d.inside_point[1] / fH } : null,
+                    crossingMargin: d.crossing_margin ?? 10,
+                });
+            }).catch(() => {});
+    }, []);
+
+    // Body scroll lock + ESC
     useEffect(() => {
         const prev = document.body.style.overflow;
         document.body.style.overflow = 'hidden';
         const onKey = (e: KeyboardEvent) => {
             if (e.key === 'Escape') {
-                if (selectedDotRef.current) {
-                    setSelectedDot(null);   // first ESC deselects dot
-                } else {
-                    setPick(null); setPending(null); onClose();
-                }
+                if (selRef.current) setSel(null);
+                else { setMapPick(null); setCntPick(null); onClose(); }
             }
         };
         window.addEventListener('keydown', onKey);
         return () => { document.body.style.overflow = prev; window.removeEventListener('keydown', onKey); };
     }, [onClose]);
 
-    // Arrow-key movement for selected dot
+    // Arrow-key nudge
     useEffect(() => {
-        if (!selectedDot) return;
-        const onKeyDown = (e: KeyboardEvent) => {
-            if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+        if (!sel) return;
+        const onKD = (e: KeyboardEvent) => {
+            if (!['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) return;
             e.preventDefault();
             const step = e.shiftKey ? 5 : (e.ctrlKey || e.metaKey) ? 10 : 1;
-            const dx   = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
-            const dy   = e.key === 'ArrowUp'   ? -step : e.key === 'ArrowDown'  ? step : 0;
-            const { side, ptIdx, shapeId } = selectedDot;
-            const rW = side === 'camera' ? (camRef.current?.naturalWidth  || 1280) : (fpRef.current?.naturalWidth  || 1000);
-            const rH = side === 'camera' ? (camRef.current?.naturalHeight || 720)  : (fpRef.current?.naturalHeight || 1000);
-            setShapes(prev => prev.map(s => {
-                if (s.id !== shapeId) return s;
-                const pts = [...s[side]];
-                if (!pts[ptIdx]) return s;
-                pts[ptIdx] = {
-                    x: Math.max(0, Math.min(1, pts[ptIdx].x + dx / rW)),
-                    y: Math.max(0, Math.min(1, pts[ptIdx].y + dy / rH)),
-                };
-                return { ...s, [side]: pts };
-            }));
+            const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
+            const dy = e.key === 'ArrowUp'   ? -step : e.key === 'ArrowDown'  ? step : 0;
+            if (sel.scope === 'mapping') {
+                const { pairId, side } = sel;
+                const rW = side === 'camera' ? (camRef.current?.naturalWidth  || 1920) : (fpRef.current?.naturalWidth  || 1000);
+                const rH = side === 'camera' ? (camRef.current?.naturalHeight || 1080) : (fpRef.current?.naturalHeight || 1000);
+                setPairs(prev => prev.map(p =>
+                    p.id !== pairId ? p : { ...p, [side]: { x: clamp(p[side].x + dx/rW), y: clamp(p[side].y + dy/rH) } }
+                ));
+            } else {
+                const { pt } = sel;
+                const rW = camRef.current?.naturalWidth  || 1920;
+                const rH = camRef.current?.naturalHeight || 1080;
+                setCounting(prev => {
+                    const old = prev[pt]; if (!old) return prev;
+                    return { ...prev, [pt]: { x: clamp(old.x + dx/rW), y: clamp(old.y + dy/rH) } };
+                });
+            }
         };
-        window.addEventListener('keydown', onKeyDown);
-        return () => window.removeEventListener('keydown', onKeyDown);
-    }, [selectedDot]);  // re-attaches whenever selection changes
+        window.addEventListener('keydown', onKD);
+        return () => window.removeEventListener('keydown', onKD);
+    }, [sel]);
 
-    const cancelPick = () => { setPick(null); setPending(null); };
-
-    const startAdd = (tool: ToolType) => {
-        setSelectedDot(null);
-        setPick({ tool, side: 'camera', pointIdx: 0 });
-        setPending({ camera: [], floorPlan: [] });
-        setResult(null);
+    const switchMode = (m: ModeType) => {
+        setMode(m); setMapPick(null); setCntPick(null); setSel(null);
     };
 
-    // Select a dot (double-click) — also cancels any active pick
-    const handleSelectDot = useCallback((sd: SelectedDot) => {
-        setPick(null);
-        setPending(null);
-        setSelectedDot(sd);
-    }, []);
+    // ── Mapping handlers ──────────────────────────────────────────────────────
+    const startAddPair = () => {
+        setSel(null); setMapResult(null);
+        setMapPick({ side: 'camera', pendingCam: null });
+    };
 
-    // Deselect on background canvas click
-    const handleDeselect = useCallback(() => setSelectedDot(null), []);
-
-    // ── Handle click (point only) ──
-    const handleClick = useCallback((clickSide: 'camera' | 'floorPlan', x: number, y: number) => {
-        if (!pick || !pending) return;
-        if (DRAG_TOOLS.includes(pick.tool)) return;
-
-        const expectedSide = pick.side === 'camera' ? 'camera' : 'floorPlan';
-        if (clickSide !== expectedSide) return;
-
-        const needed = PTS_CLICK[pick.tool];
-        const newPending: Pending = {
-            camera:    clickSide === 'camera'    ? [...pending.camera,    { x, y }] : pending.camera,
-            floorPlan: clickSide === 'floorPlan' ? [...pending.floorPlan, { x, y }] : pending.floorPlan,
-        };
-        setPending(newPending);
-
+    const handleMapClick = useCallback((clickSide: 'camera' | 'map', x: number, y: number) => {
+        if (!mapPick || mapPick.side !== clickSide) return;
         if (clickSide === 'camera') {
-            if (newPending.camera.length < needed) {
-                setPick({ ...pick, pointIdx: pick.pointIdx + 1 });
-            } else {
-                setPick({ ...pick, side: 'floor', pointIdx: 0 });
-            }
+            setMapPick({ side: 'map', pendingCam: { x, y } });
         } else {
-            if (newPending.floorPlan.length < needed) {
-                setPick({ ...pick, pointIdx: pick.pointIdx + 1 });
-            } else {
-                setShapes(prev => [...prev, {
-                    id: nextId.current++,
-                    type: pick.tool,
-                    camera: newPending.camera,
-                    floorPlan: newPending.floorPlan,
-                }]);
-                setPick(null);
-                setPending(null);
-            }
+            if (!mapPick.pendingCam) return;
+            setPairs(prev => [...prev, { id: nextId.current++, camera: mapPick.pendingCam!, map: { x, y } }]);
+            setMapPick(null);
         }
-    }, [pick, pending]);
+    }, [mapPick]);
 
-    // ── Handle drag end (line) ──
-    const handleDrag = useCallback((dragSide: 'camera' | 'floorPlan', x1: number, y1: number, x2: number, y2: number) => {
-        if (!pick || !pending) return;
-        if (!DRAG_TOOLS.includes(pick.tool)) return;
+    const onCamMapClick = useCallback((x: number, y: number) => handleMapClick('camera', x, y), [handleMapClick]);
+    const onFpMapClick  = useCallback((x: number, y: number) => handleMapClick('map', x, y),    [handleMapClick]);
 
-        const expectedSide = pick.side === 'camera' ? 'camera' : 'floorPlan';
-        if (dragSide !== expectedSide) return;
-
-        const pts: NormPt[] = [{ x: x1, y: y1 }, { x: x2, y: y2 }];
-        const newPending: Pending = {
-            camera:    dragSide === 'camera'    ? pts : pending.camera,
-            floorPlan: dragSide === 'floorPlan' ? pts : pending.floorPlan,
-        };
-        setPending(newPending);
-
-        if (dragSide === 'camera') {
-            setPick({ ...pick, side: 'floor', pointIdx: 0 });
-        } else {
-            setShapes(prev => [...prev, {
-                id: nextId.current++,
-                type: pick.tool,
-                camera: newPending.camera,
-                floorPlan: newPending.floorPlan,
-            }]);
-            setPick(null);
-            setPending(null);
-        }
-    }, [pick, pending]);
-
-    const onCamClick = useCallback((x: number, y: number) => handleClick('camera', x, y),    [handleClick]);
-    const onFpClick  = useCallback((x: number, y: number) => handleClick('floorPlan', x, y), [handleClick]);
-    const onCamDrag  = useCallback((x1: number, y1: number, x2: number, y2: number) => handleDrag('camera', x1, y1, x2, y2),    [handleDrag]);
-    const onFpDrag   = useCallback((x1: number, y1: number, x2: number, y2: number) => handleDrag('floorPlan', x1, y1, x2, y2), [handleDrag]);
-
-    const removeShape = (id: number) => {
-        setShapes(s => s.filter(x => x.id !== id));
-        if (selectedDot?.shapeId === id) setSelectedDot(null);
-        setResult(null);
+    const removePair = (id: number) => {
+        setPairs(p => p.filter(x => x.id !== id));
+        if (sel?.scope === 'mapping' && sel.pairId === id) setSel(null);
     };
 
-    const editPx = useCallback((id: number, side: 'camera' | 'floorPlan', pi: number, axis: 'x' | 'y', px: number) => {
-        const cW = camRef.current?.naturalWidth  || 1280;
-        const cH = camRef.current?.naturalHeight || 720;
-        const fW = fpRef.current?.naturalWidth   || 1000;
-        const fH = fpRef.current?.naturalHeight  || 1000;
-        const [rW, rH] = side === 'camera' ? [cW, cH] : [fW, fH];
-        setShapes(prev => prev.map(s => {
-            if (s.id !== id) return s;
-            const pts = [...s[side]];
-            if (!pts[pi]) return s;
-            pts[pi] = { ...pts[pi], [axis]: px / (axis === 'x' ? rW : rH) };
-            return { ...s, [side]: pts };
+    const editMapPx = useCallback((id: number, side: 'camera' | 'map', axis: 'x' | 'y', px: number) => {
+        const rW = side === 'camera' ? (camRef.current?.naturalWidth  || 1920) : (fpRef.current?.naturalWidth  || 1000);
+        const rH = side === 'camera' ? (camRef.current?.naturalHeight || 1080) : (fpRef.current?.naturalHeight || 1000);
+        setPairs(prev => prev.map(p => {
+            if (p.id !== id) return p;
+            return { ...p, [side]: { ...p[side], [axis]: px / (axis === 'x' ? rW : rH) } };
         }));
     }, []);
 
-    const handleSave = async () => {
-        if (shapes.length === 0) return;
-        const cW = camRef.current?.naturalWidth  || 1280;
-        const cH = camRef.current?.naturalHeight || 720;
-        const fW = fpRef.current?.naturalWidth   || 1000;
-        const fH = fpRef.current?.naturalHeight  || 1000;
-        setSaving(true); setResult(null);
+    const saveMapping = async () => {
+        if (pairs.length < 1) return;
+        const iW = camRef.current?.naturalWidth  || 1920, iH = camRef.current?.naturalHeight || 1080;
+        const mW = fpRef.current?.naturalWidth   || 1000, mH = fpRef.current?.naturalHeight  || 1000;
+        setMapSaving(true); setMapResult(null);
         try {
             const res = await fetch(`${API_BASE}/api/lab_management/settings/mapping`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    shapes: shapes.map(s => ({
-                        type: s.type,
-                        camera:     s.camera.map(p => [Math.round(p.x * cW), Math.round(p.y * cH)]),
-                        floor_plan: s.floorPlan.map(p => [Math.round(p.x * fW), Math.round(p.y * fH)]),
+                    image_size: { width: iW, height: iH },
+                    map_size:   { width: mW, height: mH },
+                    correspondences: pairs.map((p, i) => ({
+                        label:  `p${i + 1}`,
+                        camera: [round2(p.camera.x * iW), round2(p.camera.y * iH)],
+                        map:    [round2(p.map.x    * mW), round2(p.map.y    * mH)],
                     })),
                 }),
             });
-            setResult(res.ok ? 'success' : 'error');
-        } catch { setResult('error'); }
-        finally { setSaving(false); }
+            setMapResult(res.ok ? 'success' : 'error');
+        } catch { setMapResult('error'); }
+        finally   { setMapSaving(false); }
     };
 
-    const isCamPicking = pick?.side === 'camera';
-    const isFpPicking  = pick?.side === 'floor';
-    const isDragTool   = pick ? DRAG_TOOLS.includes(pick.tool) : false;
+    // ── Counting handlers ─────────────────────────────────────────────────────
+    const handleCntDrag = useCallback((x1: number, y1: number, x2: number, y2: number) => {
+        if (cntPick !== 'line') return;
+        setCounting(prev => ({ ...prev, lineStart: { x: x1, y: y1 }, lineEnd: { x: x2, y: y2 } }));
+        setCntPick('inside'); // auto-advance to inside point picking
+    }, [cntPick]);
 
-    const stepLabel = (() => {
-        if (!pick) return null;
-        const on = pick.side === 'camera' ? 'camera frame' : 'floor plan';
-        if (pick.tool === 'point') return `Click a point on the ${on}`;
-        if (pick.tool === 'line')  return `Drag to draw line on the ${on}`;
-        return null;
-    })();
+    const handleCntClick = useCallback((x: number, y: number) => {
+        if (cntPick !== 'inside') return;
+        setCounting(prev => ({ ...prev, insidePoint: { x, y } }));
+        setCntPick(null);
+    }, [cntPick]);
+
+    const editCntPx = useCallback((pt: 'lineStart' | 'lineEnd' | 'insidePoint', axis: 'x' | 'y', px: number) => {
+        const rW = camRef.current?.naturalWidth  || 1920;
+        const rH = camRef.current?.naturalHeight || 1080;
+        setCounting(prev => {
+            const old = prev[pt]; if (!old) return prev;
+            return { ...prev, [pt]: { ...old, [axis]: px / (axis === 'x' ? rW : rH) } };
+        });
+    }, []);
+
+    const saveCounting = async () => {
+        const { lineStart: s, lineEnd: e, insidePoint: ip, crossingMargin: cm } = counting;
+        if (!s || !e || !ip) return;
+        const fW = camRef.current?.naturalWidth  || 1920;
+        const fH = camRef.current?.naturalHeight || 1080;
+        setCntSaving(true); setCntResult(null);
+        try {
+            const res = await fetch(`${API_BASE}/api/lab_management/settings/counting`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    line_start:      [+(s.x  * fW).toFixed(4), +(s.y  * fH).toFixed(4)],
+                    line_end:        [+(e.x  * fW).toFixed(4), +(e.y  * fH).toFixed(4)],
+                    inside_point:    [+(ip.x * fW).toFixed(4), +(ip.y * fH).toFixed(4)],
+                    crossing_margin: cm,
+                    frame_width:     fW,
+                    frame_height:    fH,
+                }),
+            });
+            setCntResult(res.ok ? 'success' : 'error');
+        } catch { setCntResult('error'); }
+        finally   { setCntSaving(false); }
+    };
+
+    // ── Derived state ─────────────────────────────────────────────────────────
+    const isMappingCamPicking = mode === 'mapping' && mapPick?.side === 'camera';
+    const isMappingMapPicking = mode === 'mapping' && mapPick?.side === 'map';
+    const isCntPicking        = mode === 'counting' && cntPick !== null;
+    const isCntLinePicking    = mode === 'counting' && cntPick === 'line';
+
+    const stepLabel = mode === 'mapping'
+        ? (mapPick?.side === 'camera' ? 'Click a point on Camera Frame'
+            : mapPick?.side === 'map' ? 'Click corresponding point on Floor Plan'
+            : null)
+        : (cntPick === 'line'   ? 'Drag to draw counting line'
+            : cntPick === 'inside' ? 'Click to place "inside" point'
+            : null);
 
     const selLabel = (() => {
-        if (!selectedDot) return null;
-        const si = shapes.findIndex(s => s.id === selectedDot.shapeId);
-        if (si < 0) return null;
-        const s  = shapes[si];
-        const pt = selectedDot.side === 'camera' ? s.camera[selectedDot.ptIdx] : s.floorPlan[selectedDot.ptIdx];
-        const rW = selectedDot.side === 'camera' ? (camRef.current?.naturalWidth || 1280) : (fpRef.current?.naturalWidth || 1000);
-        const rH = selectedDot.side === 'camera' ? (camRef.current?.naturalHeight || 720)  : (fpRef.current?.naturalHeight || 1000);
-        const ptName = s.type === 'line' ? (selectedDot.ptIdx === 0 ? 'Start' : 'End') : 'Point';
-        return `${ptName} #${si + 1} @ (${Math.round((pt?.x ?? 0) * rW)}, ${Math.round((pt?.y ?? 0) * rH)}) — ↑↓←→ to move · Shift×5 · Ctrl×10`;
+        if (!sel) return null;
+        if (sel.scope === 'mapping') {
+            const i = pairs.findIndex(p => p.id === sel.pairId); if (i < 0) return null;
+            const pt = sel.side === 'camera' ? pairs[i].camera : pairs[i].map;
+            const rW = sel.side === 'camera' ? (camRef.current?.naturalWidth || 1920) : (fpRef.current?.naturalWidth || 1000);
+            const rH = sel.side === 'camera' ? (camRef.current?.naturalHeight || 1080) : (fpRef.current?.naturalHeight || 1000);
+            return `p${i+1} (${sel.side}) @ (${Math.round(pt.x*rW)}, ${Math.round(pt.y*rH)}) — ↑↓←→`;
+        } else {
+            const ptName = (sel as { scope: 'counting'; pt: string }).pt;
+            const pt = counting[ptName as 'lineStart' | 'lineEnd' | 'insidePoint'];
+            if (!pt) return null;
+            const rW = camRef.current?.naturalWidth  || 1920;
+            const rH = camRef.current?.naturalHeight || 1080;
+            const labels: Record<string, string> = { lineStart: 'Line Start', lineEnd: 'Line End', insidePoint: 'Inside Point' };
+            return `${labels[ptName]} @ (${Math.round(pt.x*rW)}, ${Math.round(pt.y*rH)}) — ↑↓←→`;
+        }
     })();
 
-    const toolBtns: { tool: ToolType; icon: string; label: string }[] = [
-        { tool: 'point', icon: 'location_on', label: 'Point' },
-        { tool: 'line',  icon: 'timeline',    label: 'Line'  },
-    ];
+    // Overlay factories
+    const camMapOverlay  = (v: ViewState, cW: number, cH: number) => (
+        <MappingDotsOverlay pairs={pairs} mapPick={mapPick} sel={sel} onSelect={setSel}
+            side="camera" view={v} cW={cW} cH={cH} />
+    );
+    const fpMapOverlay   = (v: ViewState, cW: number, cH: number) => (
+        <MappingDotsOverlay pairs={pairs} mapPick={mapPick} sel={sel} onSelect={setSel}
+            side="map" view={v} cW={cW} cH={cH} />
+    );
+    const camCntOverlay  = (v: ViewState, cW: number, cH: number) => (
+        <CountingDotsOverlay counting={counting} sel={sel} onSelect={setSel} view={v} cW={cW} cH={cH} />
+    );
 
-    // Overlay factories — close over latest state each render
-    const camOverlay = (view: ViewState, cW: number, cH: number) => (
-        <DotsOverlay shapes={shapes} pending={pending} pickTool={pick?.tool ?? null}
-            side="camera" view={view} cW={cW} cH={cH}
-            selectedDot={selectedDot} onSelectDot={handleSelectDot} />
-    );
-    const fpOverlay = (view: ViewState, cW: number, cH: number) => (
-        <DotsOverlay shapes={shapes} pending={pending} pickTool={pick?.tool ?? null}
-            side="floorPlan" view={view} cW={cW} cH={cH}
-            selectedDot={selectedDot} onSelectDot={handleSelectDot} />
-    );
+    const saving = mode === 'mapping' ? mapSaving : cntSaving;
+    const result = mode === 'mapping' ? mapResult  : cntResult;
+    const canSave = mode === 'mapping'
+        ? (pairs.length >= 1 && !mapPick)
+        : (!!(counting.lineStart && counting.lineEnd && counting.insidePoint));
+
+    const handleSave = () => mode === 'mapping' ? saveMapping() : saveCounting();
 
     const modal = (
         <div className="fixed inset-0 flex items-center justify-center bg-black/80 backdrop-blur-sm"
@@ -779,48 +867,83 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
                 onClick={e => e.stopPropagation()}>
 
                 {/* ── Header ── */}
-                <div className="shrink-0 flex items-center gap-3 px-5 py-3.5 border-b border-border-default flex-wrap gap-y-2">
+                <div className="shrink-0 flex items-center gap-3 px-5 py-3 border-b border-border-default flex-wrap gap-y-2">
                     <span className="material-symbols-outlined text-accent shrink-0">map</span>
-                    <div className="shrink-0 mr-1">
-                        <h2 className="text-sm font-bold text-text-primary">2D Mapping Calibration</h2>
-                        <p className="text-[10px] text-text-tertiary">Place shapes on both views · double-click a dot to select &amp; move with arrow keys</p>
-                    </div>
 
-                    {/* Tool buttons */}
-                    <div className="flex items-center gap-1.5">
-                        {toolBtns.map(tb => (
-                            <button key={tb.tool}
-                                onClick={() => { cancelPick(); startAdd(tb.tool); }}
-                                disabled={!!pick}
-                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-md)] text-xs font-medium border transition-all
-                                    disabled:opacity-40 disabled:cursor-not-allowed
-                                    ${pick?.tool === tb.tool
-                                        ? 'bg-accent border-accent text-white'
-                                        : 'bg-surface-2 border-border-default text-text-secondary hover:border-accent hover:text-accent'}`}>
-                                <span className="material-symbols-outlined text-sm">{tb.icon}</span>
-                                + {tb.label}
+                    {/* Mode tabs */}
+                    <div className="flex items-stretch gap-0 border border-border-default rounded-[var(--radius-md)] overflow-hidden shrink-0">
+                        {([
+                            { id: 'mapping'  as ModeType, icon: 'location_on', label: 'Mapping',  sub: 'Point pairs' },
+                            { id: 'counting' as ModeType, icon: 'show_chart',  label: 'Counting', sub: 'Tripwire line' },
+                        ] as const).map(tab => (
+                            <button key={tab.id}
+                                onClick={() => switchMode(tab.id)}
+                                className={`flex items-center gap-2 px-4 py-2 text-xs font-medium transition-all
+                                    ${mode === tab.id
+                                        ? 'bg-accent text-white'
+                                        : 'text-text-secondary hover:bg-surface-2'}`}>
+                                <span className="material-symbols-outlined text-[15px]">{tab.icon}</span>
+                                <span>
+                                    <span className="font-semibold">{tab.label}</span>
+                                    <span className={`block text-[9px] ${mode === tab.id ? 'text-white/70' : 'text-text-tertiary'}`}>{tab.sub}</span>
+                                </span>
                             </button>
                         ))}
                     </div>
 
-                    {/* Active pick hint */}
+                    {/* Mode-specific tool buttons */}
+                    {mode === 'mapping' && (
+                        <button onClick={startAddPair} disabled={!!mapPick}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-md)] text-xs font-medium border transition-all
+                                bg-surface-2 border-border-default text-text-secondary hover:border-accent hover:text-accent
+                                disabled:opacity-40 disabled:cursor-not-allowed">
+                            <span className="material-symbols-outlined text-sm">add_location</span>
+                            + Add Point
+                        </button>
+                    )}
+                    {mode === 'counting' && (
+                        <div className="flex items-center gap-1.5">
+                            <button onClick={() => { setSel(null); setCntPick('line'); }}
+                                disabled={cntPick !== null}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-md)] text-xs font-medium border transition-all
+                                    disabled:opacity-40 disabled:cursor-not-allowed
+                                    ${cntPick === 'line'
+                                        ? 'bg-accent border-accent text-white'
+                                        : 'bg-surface-2 border-border-default text-text-secondary hover:border-accent hover:text-accent'}`}>
+                                <span className="material-symbols-outlined text-sm">show_chart</span>
+                                Draw Line
+                            </button>
+                            <button onClick={() => { setSel(null); setCntPick('inside'); }}
+                                disabled={cntPick !== null || !counting.lineStart}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-md)] text-xs font-medium border transition-all
+                                    disabled:opacity-40 disabled:cursor-not-allowed
+                                    ${cntPick === 'inside'
+                                        ? 'bg-emerald-500 border-emerald-500 text-white'
+                                        : 'bg-surface-2 border-border-default text-text-secondary hover:border-emerald-500 hover:text-emerald-500'}`}>
+                                <span className="material-symbols-outlined text-sm">my_location</span>
+                                Inside Point
+                            </button>
+                        </div>
+                    )}
+
+                    {/* Step hint */}
                     {stepLabel && (
                         <div className="flex items-center gap-2 bg-accent/10 border border-accent/30 rounded-[var(--radius-md)] px-3 py-1.5">
                             <span className="material-symbols-outlined text-accent text-sm animate-pulse">my_location</span>
                             <span className="text-xs text-accent font-medium">{stepLabel}</span>
-                            <button onClick={cancelPick}
+                            <button onClick={() => { setMapPick(null); setCntPick(null); }}
                                 className="ml-1 text-[10px] text-accent/70 hover:text-accent underline underline-offset-2">
                                 Cancel
                             </button>
                         </div>
                     )}
 
-                    {/* Selected dot hint */}
-                    {selLabel && !pick && (
+                    {/* Selection hint */}
+                    {selLabel && !mapPick && !cntPick && (
                         <div className="flex items-center gap-2 bg-warning/10 border border-warning/30 rounded-[var(--radius-md)] px-3 py-1.5">
                             <span className="material-symbols-outlined text-warning text-sm">open_with</span>
                             <span className="text-xs text-warning font-medium font-mono">{selLabel}</span>
-                            <button onClick={() => setSelectedDot(null)}
+                            <button onClick={() => setSel(null)}
                                 className="ml-1 text-[10px] text-warning/70 hover:text-warning underline underline-offset-2">
                                 Deselect
                             </button>
@@ -829,22 +952,28 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
 
                     {/* Right controls */}
                     <div className="ml-auto flex items-center gap-2 shrink-0">
-                        <button onClick={() => { setShapes([]); cancelPick(); setSelectedDot(null); setResult(null); }}
-                            disabled={shapes.length === 0 && !pick}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-md)] border border-border-default text-xs text-text-secondary hover:border-danger hover:text-danger disabled:opacity-40 transition-all">
-                            <span className="material-symbols-outlined text-sm">delete_sweep</span>
-                            Clear all
-                        </button>
+                        {mode === 'mapping' && (
+                            <>
+                                <span className={`text-xs font-mono px-2.5 py-1 rounded-full border
+                                    ${pairs.length >= 4 ? 'border-success/40 text-success bg-success/10' : 'border-border-subtle text-text-tertiary'}`}>
+                                    {pairs.length} pair{pairs.length !== 1 ? 's' : ''}
+                                    {pairs.length < 4 && ` / 4 min`}
+                                </span>
+                                <button onClick={() => { setPairs([]); setMapPick(null); setSel(null); setMapResult(null); }}
+                                    disabled={pairs.length === 0 && !mapPick}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-md)] border border-border-default text-xs text-text-secondary hover:border-danger hover:text-danger disabled:opacity-40 transition-all">
+                                    <span className="material-symbols-outlined text-sm">delete_sweep</span>
+                                    Clear
+                                </button>
+                            </>
+                        )}
                         <div className="w-px h-5 bg-border-subtle" />
-                        <span className={`text-xs font-mono px-2.5 py-1 rounded-full border ${shapes.length >= 4 ? 'border-success/40 text-success bg-success/10' : 'border-border-subtle text-text-tertiary'}`}>
-                            {shapes.length} shape{shapes.length !== 1 ? 's' : ''}
-                        </span>
-                        <button onClick={handleSave} disabled={shapes.length === 0 || saving || !!pick}
+                        <button onClick={handleSave} disabled={!canSave || saving}
                             className="flex items-center gap-1.5 px-4 py-1.5 rounded-[var(--radius-md)] bg-success text-white text-xs font-medium hover:bg-success/90 disabled:opacity-40 transition-all">
                             <span className={`material-symbols-outlined text-sm ${saving ? 'animate-spin' : ''}`}>
                                 {saving ? 'progress_activity' : 'save'}
                             </span>
-                            {saving ? 'Saving…' : 'Apply'}
+                            {saving ? 'Saving…' : `Apply ${mode === 'mapping' ? 'Mapping' : 'Counting'}`}
                         </button>
                         <div className="w-px h-5 bg-border-subtle" />
                         <button onClick={onClose}
@@ -856,59 +985,97 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
 
                 {/* Save result */}
                 {result && (
-                    <div className={`shrink-0 flex items-center gap-2 px-5 py-2 text-xs border-b ${result === 'success' ? 'bg-success/10 border-success/20 text-success' : 'bg-danger/10 border-danger/20 text-danger'}`}>
+                    <div className={`shrink-0 flex items-center gap-2 px-5 py-2 text-xs border-b
+                        ${result === 'success' ? 'bg-success/10 border-success/20 text-success' : 'bg-danger/10 border-danger/20 text-danger'}`}>
                         <span className="material-symbols-outlined text-sm">{result === 'success' ? 'check_circle' : 'error'}</span>
-                        {result === 'success' ? 'Calibration saved. Backend will recompute the mapping.' : 'Failed to save. Check backend connection.'}
+                        {result === 'success'
+                            ? `${mode === 'mapping' ? 'Mapping' : 'Counting'} config saved. Backend will apply the new settings.`
+                            : 'Failed to save. Check backend connection.'}
                     </div>
                 )}
 
                 {/* ── Body ── */}
                 <div className="flex flex-1 min-h-0 overflow-hidden">
                     <div className="flex-1 min-w-0 p-4 flex flex-col gap-3 min-h-0">
-                        <p className="shrink-0 text-[11px] text-text-tertiary">
-                            <span className="text-accent font-medium">Scroll / ±</span> zoom ·
-                            <span className="text-accent font-medium ml-1">Drag</span> pan ·
-                            <span className="text-accent font-medium ml-1">Line:</span> drag to draw ·
-                            <span className="text-accent font-medium ml-1">Double-click dot</span> → arrow keys to nudge
-                        </p>
-                        <div className="flex gap-4 flex-1 min-h-0">
-                            <ZoomableCanvas ref={camZoom} label="Camera Frame"
-                                labelExtra={wsStatus !== 'connected' && <span className="text-warning normal-case font-normal">(no stream)</span>}
-                                isPicking={isCamPicking}
-                                isDragTool={isDragTool && isCamPicking}
-                                activeTool={pick?.tool ?? null}
-                                onNormClick={onCamClick}
-                                onNormDragEnd={onCamDrag}
-                                onCanvasClick={handleDeselect}
-                                overlay={camOverlay}>
-                                {currentFrame
-                                    ? <img ref={camRef} src={currentFrame} alt="" draggable={false} className="absolute inset-0 w-full h-full object-contain bg-black" />
-                                    : <div className="absolute inset-0 bg-surface-0 flex flex-col items-center justify-center gap-2">
-                                        <span className="material-symbols-outlined text-5xl text-text-tertiary">videocam_off</span>
-                                        <p className="text-xs text-text-tertiary">No live frame</p>
-                                      </div>
-                                }
-                                <ShapeLayer shapes={shapes} pending={pending} pickTool={pick?.tool ?? null} side="camera" />
-                            </ZoomableCanvas>
 
-                            <ZoomableCanvas ref={fpZoom} label="Floor Plan"
-                                isPicking={isFpPicking}
-                                isDragTool={isDragTool && isFpPicking}
-                                activeTool={pick?.tool ?? null}
-                                onNormClick={onFpClick}
-                                onNormDragEnd={onFpDrag}
-                                onCanvasClick={handleDeselect}
-                                overlay={fpOverlay}>
-                                <img ref={fpRef} src="/labmap.svg" alt="" draggable={false} className="absolute inset-0 w-full h-full object-contain bg-surface-0" />
-                                <ShapeLayer shapes={shapes} pending={pending} pickTool={pick?.tool ?? null} side="floorPlan" />
-                            </ZoomableCanvas>
-                        </div>
+                        {/* ── Mapping mode ── */}
+                        {mode === 'mapping' && (
+                            <>
+                                <p className="shrink-0 text-[11px] text-text-tertiary">
+                                    <span className="text-accent font-medium">Scroll / ±</span> zoom ·
+                                    <span className="text-accent font-medium ml-1">Drag</span> pan ·
+                                    <span className="text-accent font-medium ml-1">Double-click dot</span> → ↑↓←→ nudge
+                                </p>
+                                <div className="flex gap-4 flex-1 min-h-0">
+                                    <ZoomableCanvas ref={camZoom} label="Camera Frame"
+                                        labelExtra={wsStatus !== 'connected' && <span className="text-warning normal-case font-normal ml-1">(no stream)</span>}
+                                        isPicking={isMappingCamPicking} isDragTool={false}
+                                        activeTool="point"
+                                        onNormClick={onCamMapClick}
+                                        onNormDragEnd={() => {}}
+                                        onCanvasClick={() => setSel(null)}
+                                        overlay={camMapOverlay}>
+                                        {currentFrame
+                                            ? <img ref={camRef} src={currentFrame} alt="" draggable={false} className="absolute inset-0 w-full h-full object-contain bg-black" />
+                                            : <div className="absolute inset-0 bg-surface-0 flex flex-col items-center justify-center gap-2">
+                                                <span className="material-symbols-outlined text-5xl text-text-tertiary">videocam_off</span>
+                                                <p className="text-xs text-text-tertiary">No live frame</p>
+                                              </div>
+                                        }
+                                    </ZoomableCanvas>
+
+                                    <ZoomableCanvas ref={fpZoom} label="Floor Plan (Map)"
+                                        isPicking={isMappingMapPicking} isDragTool={false}
+                                        activeTool="point"
+                                        onNormClick={onFpMapClick}
+                                        onNormDragEnd={() => {}}
+                                        onCanvasClick={() => setSel(null)}
+                                        overlay={fpMapOverlay}>
+                                        <img ref={fpRef} src="/labmap.svg" alt="" draggable={false} className="absolute inset-0 w-full h-full object-contain bg-surface-0" />
+                                    </ZoomableCanvas>
+                                </div>
+                            </>
+                        )}
+
+                        {/* ── Counting mode ── */}
+                        {mode === 'counting' && (
+                            <>
+                                <p className="shrink-0 text-[11px] text-text-tertiary">
+                                    <span className="text-accent font-medium">Draw Line:</span> drag to set tripwire ·
+                                    <span className="text-accent font-medium ml-1">Inside Point:</span> click the "entry" side ·
+                                    <span className="text-accent font-medium ml-1">Double-click dot</span> → ↑↓←→ nudge
+                                </p>
+                                <ZoomableCanvas ref={camZoom} label="Camera Frame"
+                                    labelExtra={wsStatus !== 'connected' && <span className="text-warning normal-case font-normal ml-1">(no stream)</span>}
+                                    isPicking={isCntPicking} isDragTool={isCntLinePicking}
+                                    activeTool={cntPick === 'line' ? 'line' : 'point'}
+                                    onNormClick={handleCntClick}
+                                    onNormDragEnd={handleCntDrag}
+                                    onCanvasClick={() => setSel(null)}
+                                    overlay={camCntOverlay}>
+                                    {currentFrame
+                                        ? <img ref={camRef} src={currentFrame} alt="" draggable={false} className="absolute inset-0 w-full h-full object-contain bg-black" />
+                                        : <div className="absolute inset-0 bg-surface-0 flex flex-col items-center justify-center gap-2">
+                                            <span className="material-symbols-outlined text-5xl text-text-tertiary">videocam_off</span>
+                                            <p className="text-xs text-text-tertiary">No live frame</p>
+                                          </div>
+                                    }
+                                    <CountingShapeLayer counting={counting} />
+                                </ZoomableCanvas>
+                            </>
+                        )}
                     </div>
 
-                    <Sidebar shapes={shapes} pending={pending} pickTool={pick?.tool ?? null}
-                        onRemove={removeShape} onEditPx={editPx}
-                        camRef={camRef} fpRef={fpRef}
-                        selectedDot={selectedDot} />
+                    {/* ── Sidebar (mode-specific) ── */}
+                    {mode === 'mapping' && (
+                        <MappingSidebar pairs={pairs} mapPick={mapPick} sel={sel}
+                            onRemove={removePair} onEditPx={editMapPx}
+                            camRef={camRef} fpRef={fpRef} />
+                    )}
+                    {mode === 'counting' && (
+                        <CountingSidebar counting={counting} sel={sel} cntPick={cntPick}
+                            setCounting={setCounting} onEditPx={editCntPx} camRef={camRef} />
+                    )}
                 </div>
             </div>
         </div>
@@ -928,10 +1095,10 @@ export default function MappingCalibration() {
                         <span className="material-symbols-outlined text-accent">pin_drop</span>
                     </div>
                     <div>
-                        <p className="text-sm font-medium text-text-primary">Homography Calibration</p>
+                        <p className="text-sm font-medium text-text-primary">Calibration Setup</p>
                         <p className="text-xs text-text-tertiary mt-1 leading-relaxed max-w-md">
-                            Place points and lines on the camera view and floor plan to
-                            define the coordinate mapping used by the backend.
+                            Configure <span className="text-text-secondary font-medium">Mapping Service</span> (camera↔floor plan point pairs)
+                            and <span className="text-text-secondary font-medium">Counting Service</span> (virtual tripwire line) independently.
                         </p>
                     </div>
                 </div>
