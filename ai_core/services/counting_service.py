@@ -1,6 +1,7 @@
 import numpy as np
 import cv2
-from typing import Tuple
+from typing import Tuple, Optional
+from utils.utils import scale_points
 
 class LineCounter:
     """
@@ -131,14 +132,60 @@ class CountingService:
         line_end: tuple,
         inside_point: tuple,
         crossing_margin: int = 10,
+        source_frame_size: Optional[Tuple[int, int]] = None,
+        current_frame_size: Optional[Tuple[int, int]] = None,
+        normalized: bool = False,
     ):
-        """Initialize with line points."""
+        """Initialize with line points. Points can be normalized (0–1) or in a source frame size and will be scaled to the current frame size."""
+
+        start, end, inside = self._scale_geometry(
+            line_start,
+            line_end,
+            inside_point,
+            source_frame_size=source_frame_size,
+            current_frame_size=current_frame_size,
+            normalized=normalized,
+        )
+
         self.line_counter = LineCounter(
-            start_point=line_start,
-            end_point=line_end,
-            inside_point=inside_point,
+            start_point=start,
+            end_point=end,
+            inside_point=inside,
             crossing_margin=crossing_margin,
         )
+
+    @staticmethod
+    def _scale_geometry(
+        line_start: tuple,
+        line_end: tuple,
+        inside_point: tuple,
+        source_frame_size: Optional[Tuple[int, int]],
+        current_frame_size: Optional[Tuple[int, int]],
+        normalized: bool,
+    ) -> Tuple[tuple, tuple, tuple]:
+        """Scale geometry from source frame to current frame or from normalized coordinates."""
+        if normalized:
+            if current_frame_size is None:
+                raise ValueError("current_frame_size is required when using normalized coordinates")
+            dst_w, dst_h = current_frame_size
+            scale = (dst_w, dst_h)
+            pts = np.array([line_start, line_end, inside_point], dtype=np.float64) * np.array(scale, dtype=np.float64)
+            return tuple(pts[0]), tuple(pts[1]), tuple(pts[2])
+
+        if current_frame_size is None:
+            # No scaling requested
+            return line_start, line_end, inside_point
+
+        if source_frame_size is None:
+            # Assume already in current frame size
+            return line_start, line_end, inside_point
+
+        scaled_pts = scale_points(
+            points=[line_start, line_end, inside_point],
+            src_size=source_frame_size,
+            dst_size=current_frame_size,
+        )
+        return tuple(scaled_pts[0]), tuple(scaled_pts[1]), tuple(scaled_pts[2])
 
     def update(self, bboxes: list, track_ids: list):
         """
@@ -205,6 +252,39 @@ class CountingService:
         line_end: tuple,
         inside_point: tuple,
         crossing_margin: int = 10,
+        source_frame_size: Optional[Tuple[int, int]] = None,
+        current_frame_size: Optional[Tuple[int, int]] = None,
+        normalized: bool = False,
     ):
-        """Update all line parameters (coordinates, margin) at runtime."""
-        self.line_counter.update_line(line_start, line_end, inside_point, crossing_margin)
+        """Update all line parameters (coordinates, margin) at runtime with optional scaling to the current frame size."""
+        start, end, inside = self._scale_geometry(
+            line_start,
+            line_end,
+            inside_point,
+            source_frame_size=source_frame_size,
+            current_frame_size=current_frame_size,
+            normalized=normalized,
+        )
+        self.line_counter.update_line(start, end, inside, crossing_margin)
+
+
+    @classmethod
+    def from_config(
+        cls,
+        config,
+        current_frame_size: Optional[Tuple[int, int]] = None,
+    ):
+        """Construct from a CountingConfig-like object, scaling using its frame size or normalization flags."""
+        src_size = None
+        if getattr(config, "frame_width", None) and getattr(config, "frame_height", None):
+            src_size = (config.frame_width, config.frame_height)
+
+        return cls(
+            line_start=config.line_start,
+            line_end=config.line_end,
+            inside_point=config.inside_point,
+            crossing_margin=config.crossing_margin,
+            source_frame_size=src_size,
+            current_frame_size=current_frame_size,
+            normalized=getattr(config, "normalized", False),
+        )

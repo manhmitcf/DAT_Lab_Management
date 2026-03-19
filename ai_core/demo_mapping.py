@@ -55,21 +55,8 @@ mapping_service.update_mapping(
     map_size=map_size,
 )
 
-line_start, line_end, inside_point = args2.line_start, args2.line_end, args2.inside_point
-if args2.frame_width and args2.frame_height and width and height:
-    scaled_pts = scale_points(
-        points=[line_start, line_end, inside_point],
-        src_size=(args2.frame_width, args2.frame_height),
-        dst_size=(width, height),
-    )
-    line_start, line_end, inside_point = [tuple(pt) for pt in scaled_pts]
-
-counting_service = CountingService(
-    line_start=tuple(line_start),
-    line_end=tuple(line_end),
-    inside_point=tuple(inside_point),
-    crossing_margin=args2.crossing_margin,
-)
+# Initialize counting service with built-in scaling to current frame size
+counting_service = CountingService.from_config(args2, current_frame_size=video_size)
 
 vid_writer = cv2.VideoWriter("./videos/result_demo.mp4", cv2.VideoWriter_fourcc(*"mp4v"), fps, (int(width), int(height)))
 map_writer = cv2.VideoWriter("./videos/result_map.mp4", cv2.VideoWriter_fourcc(*"mp4v"), fps, (int(map_width), int(map_height)))
