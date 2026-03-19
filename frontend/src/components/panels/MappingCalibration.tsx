@@ -43,21 +43,25 @@ const gc    = (i: number) => COLORS[i % COLORS.length];
 const clamp = (v: number) => Math.max(0, Math.min(1, v));
 const round2 = (n: number) => +n.toFixed(2);
 
+const HOVER_DRAG_MS = 500;  // hover this long to enable drag on next mousedown
+const PRESS_DRAG_MS  = 300;  // hold mousedown this long to start drag
+
 export interface ZoomHandle { zoomIn(): void; zoomOut(): void; reset(): void; }
 
 // ── ShapeDot ──────────────────────────────────────────────────────────────────
 function ShapeDot({ x, y, size, color, label, isPending = false,
-    isSelected = false, isPartner = false, isHovered = false,
-    onClick, onDoubleClick, onMouseEnter, onMouseLeave }: {
+    isSelected = false, isPartner = false, isHovered = false, isDragging = false,
+    onClick, onDoubleClick, onMouseEnter, onMouseLeave, onMouseDown }: {
     x: number; y: number; size: number; color: string; label?: string;
-    isPending?: boolean; isSelected?: boolean; isPartner?: boolean; isHovered?: boolean;
+    isPending?: boolean; isSelected?: boolean; isPartner?: boolean; isHovered?: boolean; isDragging?: boolean;
     onClick?: () => void;
     onDoubleClick?: () => void;
     onMouseEnter?: () => void;
     onMouseLeave?: () => void;
+    onMouseDown?: (e: React.MouseEvent) => void;
 }) {
-    const interactive = !!(onClick || onDoubleClick);
-    const glow = isSelected
+    const interactive = !!(onClick || onDoubleClick || onMouseDown);
+    const glow = isSelected || isDragging
         ? `0 0 0 3px ${color}66, 0 0 8px ${color}44, 0 1px 6px rgba(0,0,0,0.6)`
         : isHovered
             ? `0 0 0 2.5px ${color}88, 0 0 10px ${color}55, 0 1px 5px rgba(0,0,0,0.5)`
@@ -69,22 +73,22 @@ function ShapeDot({ x, y, size, color, label, isPending = false,
             className={`absolute flex items-center justify-center ${isPending ? 'animate-pulse' : ''}`}
             style={{
                 left: x, top: y,
-                width:  isSelected || isHovered ? size + 4 : size,
-                height: isSelected || isHovered ? size + 4 : size,
+                width:  isSelected || isHovered || isDragging ? size + 4 : size,
+                height: isSelected || isHovered || isDragging ? size + 4 : size,
                 transform: 'translate(-50%, -50%)',
                 backgroundColor: color,
                 borderRadius: '50%',
-                border: `${isSelected || isPartner || isHovered ? 2 : 1.5}px solid rgba(255,255,255,${isSelected || isHovered ? 1 : 0.85})`,
+                border: `${isSelected || isPartner || isHovered || isDragging ? 2 : 1.5}px solid rgba(255,255,255,${isSelected || isHovered || isDragging ? 1 : 0.85})`,
                 boxShadow: glow,
                 opacity: isPending ? 0.75 : 1,
                 fontSize: '6px', lineHeight: 1, color: 'white', fontWeight: 'bold',
                 userSelect: 'none',
                 pointerEvents: interactive ? 'auto' : 'none',
-                cursor: interactive ? 'pointer' : undefined,
-                transition: 'width .12s, height .12s, box-shadow .12s',
-                zIndex: isSelected ? 20 : isPartner || isHovered ? 10 : 1,
+                cursor: isDragging ? 'grabbing' : interactive ? 'grab' : undefined,
+                transition: isDragging ? 'none' : 'width .12s, height .12s, box-shadow .12s',
+                zIndex: isSelected || isDragging ? 20 : isPartner || isHovered ? 10 : 1,
             }}
-            onMouseDown={interactive ? e => e.stopPropagation() : undefined}
+            onMouseDown={interactive ? (e) => { e.stopPropagation(); onMouseDown?.(e); } : undefined}
             onClick={interactive && onClick ? e => { e.stopPropagation(); onClick(); } : undefined}
             onDoubleClick={interactive && onDoubleClick ? e => { e.stopPropagation(); onDoubleClick(); } : undefined}
             onMouseEnter={onMouseEnter}
@@ -95,16 +99,134 @@ function ShapeDot({ x, y, size, color, label, isPending = false,
     );
 }
 
+// ── DraggableShapeDot: hover/press-to-drag ────────────────────────────────────
+function DraggableShapeDot(props: {
+    x: number; y: number; size: number; color: string; label?: string;
+    isSelected?: boolean; isPartner?: boolean;
+    clientToNorm: (cx: number, cy: number) => { x: number; y: number } | null;
+    onMove: (norm: { x: number; y: number }) => void;
+    onClick?: () => void;
+    onDoubleClick?: () => void;
+    disabled?: boolean;
+}) {
+    const { clientToNorm, onMove, onClick, onDoubleClick, disabled, ...dotProps } = props;
+    const [isHovered, setIsHovered] = useState(false);
+    const [isDragging, setIsDragging] = useState(false);
+    const [hoverDragReady, setHoverDragReady] = useState(false);
+    const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const pressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const didEnterDragRef = useRef(false);  // true if we started drag (hover-ready or press timer)
+
+    const clearHoverTimer = useCallback(() => {
+        if (hoverTimerRef.current) {
+            clearTimeout(hoverTimerRef.current);
+            hoverTimerRef.current = null;
+        }
+        setHoverDragReady(false);
+    }, []);
+
+    const clearPressTimer = useCallback(() => {
+        if (pressTimerRef.current) {
+            clearTimeout(pressTimerRef.current);
+            pressTimerRef.current = null;
+        }
+    }, []);
+
+    const startDrag = useCallback((clientX: number, clientY: number) => {
+        const n = clientToNorm(clientX, clientY);
+        if (!n) return;
+        didEnterDragRef.current = true;
+        setIsDragging(true);
+        clearPressTimer();
+        clearHoverTimer();
+
+        const onMM = (e: MouseEvent) => {
+            const nn = clientToNorm(e.clientX, e.clientY);
+            if (!nn) return;
+            onMove(nn);
+        };
+        const onMU = (e: MouseEvent) => {
+            const nn = clientToNorm(e.clientX, e.clientY);
+            if (nn) onMove(nn);
+            setIsDragging(false);
+            window.removeEventListener('mousemove', onMM);
+            window.removeEventListener('mouseup', onMU);
+        };
+        window.addEventListener('mousemove', onMM);
+        window.addEventListener('mouseup', onMU);
+    }, [clientToNorm, onMove, clearPressTimer, clearHoverTimer]);
+
+    const handleMouseEnter = useCallback(() => {
+        if (disabled) return;
+        setIsHovered(true);
+        hoverTimerRef.current = setTimeout(() => setHoverDragReady(true), HOVER_DRAG_MS);
+    }, [disabled]);
+
+    const handleMouseLeave = useCallback(() => {
+        setIsHovered(false);
+        clearHoverTimer();
+    }, [clearHoverTimer]);
+
+    const handleMouseDown = useCallback((e: React.MouseEvent) => {
+        if (disabled) return;
+        e.preventDefault();
+        if (hoverDragReady) {
+            startDrag(e.clientX, e.clientY);
+            return;
+        }
+        pressTimerRef.current = setTimeout(() => {
+            startDrag(e.clientX, e.clientY);
+        }, PRESS_DRAG_MS);
+        const cancelPress = () => {
+            clearPressTimer();
+            window.removeEventListener('mouseup', cancelPress);
+        };
+        window.addEventListener('mouseup', cancelPress, { once: true });
+    }, [disabled, hoverDragReady, startDrag]);
+
+    const handleClick = useCallback(() => {
+        clearPressTimer();
+        if (didEnterDragRef.current) {
+            didEnterDragRef.current = false;
+            return;
+        }
+        onClick?.();
+    }, [onClick, clearPressTimer]);
+
+    useEffect(() => () => {
+        clearHoverTimer();
+        clearPressTimer();
+    }, [clearHoverTimer, clearPressTimer]);
+
+    if (disabled) {
+        return (
+            <ShapeDot {...dotProps} isSelected={props.isSelected} isPartner={props.isPartner}
+                isHovered={isHovered} onClick={onClick} onDoubleClick={onDoubleClick}
+                onMouseDown={e => e.stopPropagation()}
+                onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave} />
+        );
+    }
+
+    return (
+        <ShapeDot {...dotProps} isSelected={props.isSelected} isPartner={props.isPartner}
+            isHovered={isHovered} isDragging={isDragging}
+            onClick={handleClick} onDoubleClick={onDoubleClick}
+            onMouseDown={handleMouseDown}
+            onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave} />
+    );
+}
+
 // ── MappingDotsOverlay ────────────────────────────────────────────────────────
-function MappingDotsOverlay({ pairs, mapPick, sel, onSelect, side, view, cW, cH }: {
+function MappingDotsOverlay({ pairs, mapPick, sel, onSelect, onMovePoint, clientToNorm, side, view, cW, cH }: {
     pairs: PointPair[];
     mapPick: MapPick | null;
     sel: SelPt | null;
     onSelect: (s: SelPt) => void;
+    onMovePoint: (pairId: number, side: 'camera' | 'map', norm: NormPt) => void;
+    clientToNorm: (cx: number, cy: number) => { x: number; y: number } | null;
     side: 'camera' | 'map';
     view: ViewState; cW: number; cH: number;
 }) {
-    const [hoveredId, setHoveredId] = useState<number | null>(null);
     if (!cW || !cH) return null;
     const toS = (p: NormPt) => ({ x: view.tx + p.x * cW * view.scale, y: view.ty + p.y * cH * view.scale });
     const isSel  = (id: number) => sel?.scope === 'mapping' && sel.pairId === id && sel.side === side;
@@ -115,13 +237,12 @@ function MappingDotsOverlay({ pairs, mapPick, sel, onSelect, side, view, cW, cH 
                 const pt = side === 'camera' ? pair.camera : pair.map;
                 const { x, y } = toS(pt);
                 return (
-                    <ShapeDot key={pair.id} x={x} y={y} size={10} color={gc(i)}
+                    <DraggableShapeDot key={pair.id} x={x} y={y} size={10} color={gc(i)}
                         label={`p${i + 1}`}
                         isSelected={isSel(pair.id)} isPartner={isPart(pair.id)}
-                        isHovered={hoveredId === pair.id}
-                        onClick={() => onSelect({ scope: 'mapping', pairId: pair.id, side })}
-                        onMouseEnter={() => setHoveredId(pair.id)}
-                        onMouseLeave={() => setHoveredId(null)} />
+                        clientToNorm={clientToNorm}
+                        onMove={(norm) => onMovePoint(pair.id, side, norm)}
+                        onClick={() => onSelect({ scope: 'mapping', pairId: pair.id, side })} />
                 );
             })}
             {/* Pending camera point while waiting for map click */}
@@ -135,14 +256,23 @@ function MappingDotsOverlay({ pairs, mapPick, sel, onSelect, side, view, cW, cH 
 }
 
 // ── CountingDotsOverlay ───────────────────────────────────────────────────────
-function CountingDotsOverlay({ counting, sel, onSelect, cntPick, view, cW, cH }: {
+function CountingDotsOverlay({ counting, sel, onSelect, onMovePoint, onMoveLine, clientToNorm, cntPick, view, cW, cH }: {
     counting: CountingCfg;
     sel: SelPt | null;
     onSelect: (s: SelPt) => void;
+    onMovePoint: (pt: 'lineStart' | 'lineEnd' | 'insidePoint', norm: NormPt) => void;
+    onMoveLine: (delta: NormPt) => void;
+    clientToNorm: (cx: number, cy: number) => { x: number; y: number } | null;
     cntPick: CountingPick;
     view: ViewState; cW: number; cH: number;
 }) {
-    const [hoveredPt, setHoveredPt] = useState<'lineStart' | 'lineEnd' | 'insidePoint' | null>(null);
+    const [lineHovered, setLineHovered] = useState(false);
+    const [lineDragging, setLineDragging] = useState(false);
+    const [lineHoverReady, setLineHoverReady] = useState(false);
+    const lineHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const linePressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const lineStartNormRef = useRef<{ x: number; y: number } | null>(null);
+
     if (!cW || !cH) return null;
     const toS = (p: NormPt) => ({ x: view.tx + p.x * cW * view.scale, y: view.ty + p.y * cH * view.scale });
     const isSel = (pt: 'lineStart' | 'lineEnd' | 'insidePoint') =>
@@ -156,59 +286,132 @@ function CountingDotsOverlay({ counting, sel, onSelect, cntPick, view, cW, cH }:
 
     const lineStartScreen = counting.lineStart ? toS(counting.lineStart) : null;
     const lineEndScreen   = counting.lineEnd   ? toS(counting.lineEnd)   : null;
-    const [lineHovered, setLineHovered] = useState(false);
+
+    const startLineDrag = useCallback((clientX: number, clientY: number) => {
+        const n = clientToNorm(clientX, clientY);
+        if (!n || !counting.lineStart || !counting.lineEnd) return;
+        lineStartNormRef.current = n;
+        setLineDragging(true);
+        if (lineHoverTimerRef.current) {
+            clearTimeout(lineHoverTimerRef.current);
+            lineHoverTimerRef.current = null;
+        }
+        setLineHoverReady(false);
+        if (linePressTimerRef.current) {
+            clearTimeout(linePressTimerRef.current);
+            linePressTimerRef.current = null;
+        }
+
+        const onMM = (e: MouseEvent) => {
+            const nn = clientToNorm(e.clientX, e.clientY);
+            if (!nn || !lineStartNormRef.current) return;
+            const dx = nn.x - lineStartNormRef.current.x;
+            const dy = nn.y - lineStartNormRef.current.y;
+            lineStartNormRef.current = nn;
+            onMoveLine({ x: dx, y: dy });
+        };
+        const onMU = () => {
+            setLineDragging(false);
+            lineStartNormRef.current = null;
+            window.removeEventListener('mousemove', onMM);
+            window.removeEventListener('mouseup', onMU);
+        };
+        window.addEventListener('mousemove', onMM);
+        window.addEventListener('mouseup', onMU);
+    }, [clientToNorm, onMoveLine, counting.lineStart, counting.lineEnd]);
+
+    const handleLineMouseEnter = useCallback(() => {
+        if (!lineDotsInteractive) return;
+        setLineHovered(true);
+        lineHoverTimerRef.current = setTimeout(() => setLineHoverReady(true), HOVER_DRAG_MS);
+    }, [lineDotsInteractive]);
+
+    const handleLineMouseLeave = useCallback(() => {
+        setLineHovered(false);
+        if (lineHoverTimerRef.current) {
+            clearTimeout(lineHoverTimerRef.current);
+            lineHoverTimerRef.current = null;
+        }
+        setLineHoverReady(false);
+    }, []);
+
+    const handleLineMouseDown = useCallback((e: React.MouseEvent) => {
+        if (!lineDotsInteractive) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (lineHoverReady) {
+            startLineDrag(e.clientX, e.clientY);
+            return;
+        }
+        linePressTimerRef.current = setTimeout(() => startLineDrag(e.clientX, e.clientY), PRESS_DRAG_MS);
+        const cancelPress = () => {
+            if (linePressTimerRef.current) {
+                clearTimeout(linePressTimerRef.current);
+                linePressTimerRef.current = null;
+            }
+            window.removeEventListener('mouseup', cancelPress);
+        };
+        window.addEventListener('mouseup', cancelPress, { once: true });
+    }, [lineDotsInteractive, lineHoverReady, startLineDrag]);
+
+    useEffect(() => () => {
+        if (lineHoverTimerRef.current) clearTimeout(lineHoverTimerRef.current);
+        if (linePressTimerRef.current) clearTimeout(linePressTimerRef.current);
+    }, []);
 
     return (
         <>
-            {/* Line hover highlight + hit area - only show brighter overlay when hovered */}
+            {/* Line hover highlight + hit area - draggable when hover/press long enough */}
             {lineStartScreen && lineEndScreen && lineDotsInteractive && (
-                <svg className="absolute inset-0 w-full h-full overflow-visible" style={{ zIndex: 1 }}>
-                    {/* Invisible wide stroke for hit detection */}
+                <svg className="absolute inset-0 w-full h-full overflow-visible" style={{ zIndex: 1, pointerEvents: 'none' }}>
+                    <line
+                        x1={lineStartScreen.x} y1={lineStartScreen.y}
+                        x2={lineEndScreen.x}   y2={lineEndScreen.y}
+                        stroke={lineHovered || lineDragging ? '#60a5fa' : '#3b82f6'}
+                        strokeWidth={lineHovered || lineDragging ? 4 : 2.5}
+                        opacity={1}
+                    />
+                </svg>
+            )}
+            {lineStartScreen && lineEndScreen && lineDotsInteractive && (
+                <svg className="absolute inset-0 w-full h-full overflow-visible" style={{ zIndex: 2 }}>
                     <line
                         x1={lineStartScreen.x} y1={lineStartScreen.y}
                         x2={lineEndScreen.x}   y2={lineEndScreen.y}
                         stroke="transparent"
                         strokeWidth={16}
-                        style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
-                        onMouseEnter={() => setLineHovered(true)}
-                        onMouseLeave={() => setLineHovered(false)}
+                        style={{ pointerEvents: 'stroke', cursor: lineDragging ? 'grabbing' : 'grab' }}
+                        onMouseEnter={handleLineMouseEnter}
+                        onMouseLeave={handleLineMouseLeave}
+                        onMouseDown={handleLineMouseDown}
                     />
-                    {/* Visible highlight when hovered */}
-                    {lineHovered && (
-                        <line
-                            x1={lineStartScreen.x} y1={lineStartScreen.y}
-                            x2={lineEndScreen.x}   y2={lineEndScreen.y}
-                            stroke="#60a5fa"
-                            strokeWidth={4}
-                            opacity={1}
-                            style={{ pointerEvents: 'none' }}
-                        />
-                    )}
                 </svg>
             )}
             {counting.lineStart && (() => {
                 const { x, y } = toS(counting.lineStart!);
-                return <ShapeDot x={x} y={y} size={9} color={LINE_CLR} label="S"
-                    isSelected={isSel('lineStart')} isHovered={hoveredPt === 'lineStart'}
+                return <DraggableShapeDot x={x} y={y} size={9} color={LINE_CLR} label="S"
+                    isSelected={isSel('lineStart')}
+                    clientToNorm={clientToNorm}
+                    onMove={(norm) => onMovePoint('lineStart', norm)}
                     onClick={lineDotsInteractive ? () => onSelect({ scope: 'counting', pt: 'lineStart' }) : undefined}
-                    onMouseEnter={lineDotsInteractive ? () => setHoveredPt('lineStart') : undefined}
-                    onMouseLeave={lineDotsInteractive ? () => setHoveredPt(null) : undefined} />;
+                    disabled={!lineDotsInteractive} />;
             })()}
             {counting.lineEnd && (() => {
                 const { x, y } = toS(counting.lineEnd!);
-                return <ShapeDot x={x} y={y} size={9} color={LINE_CLR} label="E"
-                    isSelected={isSel('lineEnd')} isHovered={hoveredPt === 'lineEnd'}
+                return <DraggableShapeDot x={x} y={y} size={9} color={LINE_CLR} label="E"
+                    isSelected={isSel('lineEnd')}
+                    clientToNorm={clientToNorm}
+                    onMove={(norm) => onMovePoint('lineEnd', norm)}
                     onClick={lineDotsInteractive ? () => onSelect({ scope: 'counting', pt: 'lineEnd' }) : undefined}
-                    onMouseEnter={lineDotsInteractive ? () => setHoveredPt('lineEnd') : undefined}
-                    onMouseLeave={lineDotsInteractive ? () => setHoveredPt(null) : undefined} />;
+                    disabled={!lineDotsInteractive} />;
             })()}
             {counting.insidePoint && (() => {
                 const { x, y } = toS(counting.insidePoint!);
-                return <ShapeDot x={x} y={y} size={10} color={INSIDE_CLR} label="I"
-                    isSelected={isSel('insidePoint')} isHovered={hoveredPt === 'insidePoint'}
-                    onClick={() => onSelect({ scope: 'counting', pt: 'insidePoint' })}
-                    onMouseEnter={() => setHoveredPt('insidePoint')}
-                    onMouseLeave={() => setHoveredPt(null)} />;
+                return <DraggableShapeDot x={x} y={y} size={10} color={INSIDE_CLR} label="I"
+                    isSelected={isSel('insidePoint')}
+                    clientToNorm={clientToNorm}
+                    onMove={(norm) => onMovePoint('insidePoint', norm)}
+                    onClick={() => onSelect({ scope: 'counting', pt: 'insidePoint' })} />;
             })()}
         </>
     );
@@ -224,7 +427,7 @@ const ZoomableCanvas = forwardRef<ZoomHandle, {
     onNormClick(x: number, y: number): void;
     onNormDragEnd(x1: number, y1: number, x2: number, y2: number): void;
     onCanvasClick?: () => void;
-    overlay?: (view: ViewState, cW: number, cH: number) => React.ReactNode;
+    overlay?: (view: ViewState, cW: number, cH: number, clientToNorm: (cx: number, cy: number) => { x: number; y: number } | null) => React.ReactNode;
     children: React.ReactNode;
 }>(function ZoomableCanvas({
     label, labelExtra, isPicking, isDragTool, activeTool,
@@ -269,6 +472,11 @@ const ZoomableCanvas = forwardRef<ZoomHandle, {
             y: clamp((clientY - r.top  - v.ty) / (r.height * v.scale)),
         };
     }
+    const clientToNorm = useCallback((cx: number, cy: number) => {
+        const r = containerRef.current?.getBoundingClientRect();
+        if (!r) return null;
+        return normPos(cx, cy, view, r);
+    }, [view]);
 
     useEffect(() => {
         const el = containerRef.current; if (!el) return;
@@ -374,7 +582,7 @@ const ZoomableCanvas = forwardRef<ZoomHandle, {
                 </div>
                 {/* Zoom-invariant overlay */}
                 <div className="absolute inset-0 pointer-events-none">
-                    {overlay?.(view, cSize.w, cSize.h)}
+                    {overlay?.(view, cSize.w, cSize.h, clientToNorm)}
                 </div>
                 {isPicking && !drawPrev && (
                     <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
@@ -789,6 +997,10 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
         }));
     }, []);
 
+    const moveMapPoint = useCallback((pairId: number, side: 'camera' | 'map', norm: NormPt) => {
+        setPairs(prev => prev.map(p => p.id !== pairId ? p : { ...p, [side]: norm }));
+    }, []);
+
     const saveMapping = async () => {
         if (pairs.length < 1) return;
         const iW = camRef.current?.naturalWidth  || 1920, iH = camRef.current?.naturalHeight || 1080;
@@ -832,6 +1044,21 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
         setCounting(prev => {
             const old = prev[pt]; if (!old) return prev;
             return { ...prev, [pt]: { ...old, [axis]: px / (axis === 'x' ? rW : rH) } };
+        });
+    }, []);
+
+    const moveCntPoint = useCallback((pt: 'lineStart' | 'lineEnd' | 'insidePoint', norm: NormPt) => {
+        setCounting(prev => ({ ...prev, [pt]: norm }));
+    }, []);
+
+    const moveCntLine = useCallback((delta: NormPt) => {
+        setCounting(prev => {
+            if (!prev.lineStart || !prev.lineEnd) return prev;
+            return {
+                ...prev,
+                lineStart: { x: clamp(prev.lineStart.x + delta.x), y: clamp(prev.lineStart.y + delta.y) },
+                lineEnd:   { x: clamp(prev.lineEnd.x + delta.x),   y: clamp(prev.lineEnd.y + delta.y) },
+            };
         });
     }, []);
 
@@ -893,16 +1120,20 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
     })();
 
     // Overlay factories
-    const camMapOverlay  = (v: ViewState, cW: number, cH: number) => (
+    const camMapOverlay  = (v: ViewState, cW: number, cH: number, clientToNorm: (cx: number, cy: number) => { x: number; y: number } | null) => (
         <MappingDotsOverlay pairs={pairs} mapPick={mapPick} sel={sel} onSelect={setSel}
+            onMovePoint={moveMapPoint} clientToNorm={clientToNorm}
             side="camera" view={v} cW={cW} cH={cH} />
     );
-    const fpMapOverlay   = (v: ViewState, cW: number, cH: number) => (
+    const fpMapOverlay   = (v: ViewState, cW: number, cH: number, clientToNorm: (cx: number, cy: number) => { x: number; y: number } | null) => (
         <MappingDotsOverlay pairs={pairs} mapPick={mapPick} sel={sel} onSelect={setSel}
+            onMovePoint={moveMapPoint} clientToNorm={clientToNorm}
             side="map" view={v} cW={cW} cH={cH} />
     );
-    const camCntOverlay  = (v: ViewState, cW: number, cH: number) => (
-        <CountingDotsOverlay counting={counting} sel={sel} onSelect={setSel} cntPick={cntPick} view={v} cW={cW} cH={cH} />
+    const camCntOverlay  = (v: ViewState, cW: number, cH: number, clientToNorm: (cx: number, cy: number) => { x: number; y: number } | null) => (
+        <CountingDotsOverlay counting={counting} sel={sel} onSelect={setSel}
+            onMovePoint={moveCntPoint} onMoveLine={moveCntLine} clientToNorm={clientToNorm}
+            cntPick={cntPick} view={v} cW={cW} cH={cH} />
     );
 
     const saving = mode === 'mapping' ? mapSaving : cntSaving;
@@ -1058,7 +1289,8 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
                                 <p className="shrink-0 text-[11px] text-text-tertiary">
                                     <span className="text-accent font-medium">Scroll / ±</span> zoom ·
                                     <span className="text-accent font-medium ml-1">Drag</span> pan ·
-                                    <span className="text-accent font-medium ml-1">Click dot</span> → ↑↓←→ nudge
+                                    <span className="text-accent font-medium ml-1">Click dot</span> → ↑↓←→ ·
+                                    <span className="text-accent font-medium ml-1">Hover 0.5s or hold 0.3s</span> → drag to move
                                 </p>
                                 <div className="flex gap-4 flex-1 min-h-0">
                                     <ZoomableCanvas ref={camZoom} label="Camera Frame"
@@ -1097,7 +1329,8 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
                                 <p className="shrink-0 text-[11px] text-text-tertiary">
                                     <span className="text-accent font-medium">Draw Line:</span> drag to set tripwire ·
                                     <span className="text-accent font-medium ml-1">Inside Point:</span> click the "entry" side ·
-                                    <span className="text-accent font-medium ml-1">Click dot</span> → ↑↓←→ nudge
+                                    <span className="text-accent font-medium ml-1">Click dot</span> → ↑↓←→ ·
+                                    <span className="text-accent font-medium ml-1">Hover 0.5s or hold 0.3s</span> → drag point/line
                                 </p>
                                 <ZoomableCanvas ref={camZoom} label="Camera Frame"
                                     labelExtra={wsStatus !== 'connected' && <span className="text-warning normal-case font-normal ml-1">(no stream)</span>}
