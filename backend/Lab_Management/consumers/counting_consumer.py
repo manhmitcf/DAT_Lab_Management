@@ -27,6 +27,20 @@ class CountingConsumer(AsyncJsonWebsocketConsumer):
         await self.channel_layer.group_discard(COUNTING_GROUP_NAME, self.channel_name)
         logger.info(f"Client disconnected from counting WebSocket. Code: {close_code}")
 
+    async def receive(self, text_data=None, bytes_data=None, **kwargs):
+        if text_data:
+            try:
+                data = await self.decode_json(text_data)
+            except json.JSONDecodeError:
+                await self.send_json({
+                    "error": {
+                        "code": "INVALID_JSON",
+                        "message": "Malformed JSON data format."
+                    }
+                })
+                return
+            await self.receive_json(data, **kwargs)
+
     async def receive_json(self, content):
         try:
             # 1. Validate data using Pydantic schema

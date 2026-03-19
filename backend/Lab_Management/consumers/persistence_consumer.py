@@ -39,6 +39,20 @@ class PersistenceConsumer(AsyncJsonWebsocketConsumer):
         )
         logger.info(f"Client disconnected from metadata stream. Code: {close_code}")
 
+    async def receive(self, text_data=None, bytes_data=None, **kwargs):
+        if text_data:
+            try:
+                data = await self.decode_json(text_data)
+            except json.JSONDecodeError:
+                await self.send_json({
+                    "error": {
+                        "code": "INVALID_JSON",
+                        "message": "Malformed JSON data format."
+                    }
+                })
+                return
+            await self.receive_json(data, **kwargs)
+
     async def receive_json(self, content):
         """
         Receives metadata from the Edge Device, validates it, broadcasts it, and dispatches it for persistence.
