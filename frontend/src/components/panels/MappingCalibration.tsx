@@ -47,28 +47,34 @@ export interface ZoomHandle { zoomIn(): void; zoomOut(): void; reset(): void; }
 
 // ── ShapeDot ──────────────────────────────────────────────────────────────────
 function ShapeDot({ x, y, size, color, label, isPending = false,
-    isSelected = false, isPartner = false, onDoubleClick }: {
+    isSelected = false, isPartner = false, isHovered = false,
+    onClick, onDoubleClick, onMouseEnter, onMouseLeave }: {
     x: number; y: number; size: number; color: string; label?: string;
-    isPending?: boolean; isSelected?: boolean; isPartner?: boolean;
+    isPending?: boolean; isSelected?: boolean; isPartner?: boolean; isHovered?: boolean;
+    onClick?: () => void;
     onDoubleClick?: () => void;
+    onMouseEnter?: () => void;
+    onMouseLeave?: () => void;
 }) {
-    const interactive = !!onDoubleClick;
+    const interactive = !!(onClick || onDoubleClick);
     const glow = isSelected
         ? `0 0 0 3px ${color}66, 0 0 8px ${color}44, 0 1px 6px rgba(0,0,0,0.6)`
-        : isPartner
-            ? `0 0 0 2.5px ${color}55, 0 1px 5px rgba(0,0,0,0.5)`
-            : '0 1px 4px rgba(0,0,0,0.55)';
+        : isHovered
+            ? `0 0 0 2.5px ${color}88, 0 0 10px ${color}55, 0 1px 5px rgba(0,0,0,0.5)`
+            : isPartner
+                ? `0 0 0 2.5px ${color}55, 0 1px 5px rgba(0,0,0,0.5)`
+                : '0 1px 4px rgba(0,0,0,0.55)';
     return (
         <div
             className={`absolute flex items-center justify-center ${isPending ? 'animate-pulse' : ''}`}
             style={{
                 left: x, top: y,
-                width:  isSelected ? size + 4 : size,
-                height: isSelected ? size + 4 : size,
+                width:  isSelected || isHovered ? size + 4 : size,
+                height: isSelected || isHovered ? size + 4 : size,
                 transform: 'translate(-50%, -50%)',
                 backgroundColor: color,
                 borderRadius: '50%',
-                border: `${isSelected || isPartner ? 2 : 1.5}px solid rgba(255,255,255,${isSelected ? 1 : 0.85})`,
+                border: `${isSelected || isPartner || isHovered ? 2 : 1.5}px solid rgba(255,255,255,${isSelected || isHovered ? 1 : 0.85})`,
                 boxShadow: glow,
                 opacity: isPending ? 0.75 : 1,
                 fontSize: '6px', lineHeight: 1, color: 'white', fontWeight: 'bold',
@@ -76,10 +82,13 @@ function ShapeDot({ x, y, size, color, label, isPending = false,
                 pointerEvents: interactive ? 'auto' : 'none',
                 cursor: interactive ? 'pointer' : undefined,
                 transition: 'width .12s, height .12s, box-shadow .12s',
-                zIndex: isSelected ? 20 : isPartner ? 10 : 1,
+                zIndex: isSelected ? 20 : isPartner || isHovered ? 10 : 1,
             }}
             onMouseDown={interactive ? e => e.stopPropagation() : undefined}
-            onDoubleClick={interactive ? e => { e.stopPropagation(); onDoubleClick(); } : undefined}
+            onClick={interactive && onClick ? e => { e.stopPropagation(); onClick(); } : undefined}
+            onDoubleClick={interactive && onDoubleClick ? e => { e.stopPropagation(); onDoubleClick(); } : undefined}
+            onMouseEnter={onMouseEnter}
+            onMouseLeave={onMouseLeave}
         >
             {label}
         </div>
@@ -95,6 +104,7 @@ function MappingDotsOverlay({ pairs, mapPick, sel, onSelect, side, view, cW, cH 
     side: 'camera' | 'map';
     view: ViewState; cW: number; cH: number;
 }) {
+    const [hoveredId, setHoveredId] = useState<number | null>(null);
     if (!cW || !cH) return null;
     const toS = (p: NormPt) => ({ x: view.tx + p.x * cW * view.scale, y: view.ty + p.y * cH * view.scale });
     const isSel  = (id: number) => sel?.scope === 'mapping' && sel.pairId === id && sel.side === side;
@@ -108,7 +118,10 @@ function MappingDotsOverlay({ pairs, mapPick, sel, onSelect, side, view, cW, cH 
                     <ShapeDot key={pair.id} x={x} y={y} size={10} color={gc(i)}
                         label={`p${i + 1}`}
                         isSelected={isSel(pair.id)} isPartner={isPart(pair.id)}
-                        onDoubleClick={() => onSelect({ scope: 'mapping', pairId: pair.id, side })} />
+                        isHovered={hoveredId === pair.id}
+                        onClick={() => onSelect({ scope: 'mapping', pairId: pair.id, side })}
+                        onMouseEnter={() => setHoveredId(pair.id)}
+                        onMouseLeave={() => setHoveredId(null)} />
                 );
             })}
             {/* Pending camera point while waiting for map click */}
@@ -122,39 +135,80 @@ function MappingDotsOverlay({ pairs, mapPick, sel, onSelect, side, view, cW, cH 
 }
 
 // ── CountingDotsOverlay ───────────────────────────────────────────────────────
-function CountingDotsOverlay({ counting, sel, onSelect, view, cW, cH }: {
+function CountingDotsOverlay({ counting, sel, onSelect, cntPick, view, cW, cH }: {
     counting: CountingCfg;
     sel: SelPt | null;
     onSelect: (s: SelPt) => void;
+    cntPick: CountingPick;
     view: ViewState; cW: number; cH: number;
 }) {
+    const [hoveredPt, setHoveredPt] = useState<'lineStart' | 'lineEnd' | 'insidePoint' | null>(null);
     if (!cW || !cH) return null;
     const toS = (p: NormPt) => ({ x: view.tx + p.x * cW * view.scale, y: view.ty + p.y * cH * view.scale });
-    const isSel = (pt: SelPt['pt' & keyof { lineStart: 1; lineEnd: 1; insidePoint: 1 }]) =>
+    const isSel = (pt: 'lineStart' | 'lineEnd' | 'insidePoint') =>
         sel?.scope === 'counting' && (sel as { scope: 'counting'; pt: string }).pt === pt;
 
     const LINE_CLR   = '#3b82f6';
     const INSIDE_CLR = '#10b981';
 
+    // When picking (line or inside), dots/line must NOT capture events so canvas receives clicks/drags
+    const lineDotsInteractive = cntPick === null;
+
+    const lineStartScreen = counting.lineStart ? toS(counting.lineStart) : null;
+    const lineEndScreen   = counting.lineEnd   ? toS(counting.lineEnd)   : null;
+    const [lineHovered, setLineHovered] = useState(false);
+
     return (
         <>
+            {/* Line hover highlight + hit area - only show brighter overlay when hovered */}
+            {lineStartScreen && lineEndScreen && lineDotsInteractive && (
+                <svg className="absolute inset-0 w-full h-full overflow-visible" style={{ zIndex: 1 }}>
+                    {/* Invisible wide stroke for hit detection */}
+                    <line
+                        x1={lineStartScreen.x} y1={lineStartScreen.y}
+                        x2={lineEndScreen.x}   y2={lineEndScreen.y}
+                        stroke="transparent"
+                        strokeWidth={16}
+                        style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
+                        onMouseEnter={() => setLineHovered(true)}
+                        onMouseLeave={() => setLineHovered(false)}
+                    />
+                    {/* Visible highlight when hovered */}
+                    {lineHovered && (
+                        <line
+                            x1={lineStartScreen.x} y1={lineStartScreen.y}
+                            x2={lineEndScreen.x}   y2={lineEndScreen.y}
+                            stroke="#60a5fa"
+                            strokeWidth={4}
+                            opacity={1}
+                            style={{ pointerEvents: 'none' }}
+                        />
+                    )}
+                </svg>
+            )}
             {counting.lineStart && (() => {
                 const { x, y } = toS(counting.lineStart!);
                 return <ShapeDot x={x} y={y} size={9} color={LINE_CLR} label="S"
-                    isSelected={isSel('lineStart' as never)}
-                    onDoubleClick={() => onSelect({ scope: 'counting', pt: 'lineStart' })} />;
+                    isSelected={isSel('lineStart')} isHovered={hoveredPt === 'lineStart'}
+                    onClick={lineDotsInteractive ? () => onSelect({ scope: 'counting', pt: 'lineStart' }) : undefined}
+                    onMouseEnter={lineDotsInteractive ? () => setHoveredPt('lineStart') : undefined}
+                    onMouseLeave={lineDotsInteractive ? () => setHoveredPt(null) : undefined} />;
             })()}
             {counting.lineEnd && (() => {
                 const { x, y } = toS(counting.lineEnd!);
                 return <ShapeDot x={x} y={y} size={9} color={LINE_CLR} label="E"
-                    isSelected={isSel('lineEnd' as never)}
-                    onDoubleClick={() => onSelect({ scope: 'counting', pt: 'lineEnd' })} />;
+                    isSelected={isSel('lineEnd')} isHovered={hoveredPt === 'lineEnd'}
+                    onClick={lineDotsInteractive ? () => onSelect({ scope: 'counting', pt: 'lineEnd' }) : undefined}
+                    onMouseEnter={lineDotsInteractive ? () => setHoveredPt('lineEnd') : undefined}
+                    onMouseLeave={lineDotsInteractive ? () => setHoveredPt(null) : undefined} />;
             })()}
             {counting.insidePoint && (() => {
                 const { x, y } = toS(counting.insidePoint!);
                 return <ShapeDot x={x} y={y} size={10} color={INSIDE_CLR} label="I"
-                    isSelected={isSel('insidePoint' as never)}
-                    onDoubleClick={() => onSelect({ scope: 'counting', pt: 'insidePoint' })} />;
+                    isSelected={isSel('insidePoint')} isHovered={hoveredPt === 'insidePoint'}
+                    onClick={() => onSelect({ scope: 'counting', pt: 'insidePoint' })}
+                    onMouseEnter={() => setHoveredPt('insidePoint')}
+                    onMouseLeave={() => setHoveredPt(null)} />;
             })()}
         </>
     );
@@ -848,7 +902,7 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
             side="map" view={v} cW={cW} cH={cH} />
     );
     const camCntOverlay  = (v: ViewState, cW: number, cH: number) => (
-        <CountingDotsOverlay counting={counting} sel={sel} onSelect={setSel} view={v} cW={cW} cH={cH} />
+        <CountingDotsOverlay counting={counting} sel={sel} onSelect={setSel} cntPick={cntPick} view={v} cW={cW} cH={cH} />
     );
 
     const saving = mode === 'mapping' ? mapSaving : cntSaving;
@@ -1004,7 +1058,7 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
                                 <p className="shrink-0 text-[11px] text-text-tertiary">
                                     <span className="text-accent font-medium">Scroll / ±</span> zoom ·
                                     <span className="text-accent font-medium ml-1">Drag</span> pan ·
-                                    <span className="text-accent font-medium ml-1">Double-click dot</span> → ↑↓←→ nudge
+                                    <span className="text-accent font-medium ml-1">Click dot</span> → ↑↓←→ nudge
                                 </p>
                                 <div className="flex gap-4 flex-1 min-h-0">
                                     <ZoomableCanvas ref={camZoom} label="Camera Frame"
@@ -1043,7 +1097,7 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
                                 <p className="shrink-0 text-[11px] text-text-tertiary">
                                     <span className="text-accent font-medium">Draw Line:</span> drag to set tripwire ·
                                     <span className="text-accent font-medium ml-1">Inside Point:</span> click the "entry" side ·
-                                    <span className="text-accent font-medium ml-1">Double-click dot</span> → ↑↓←→ nudge
+                                    <span className="text-accent font-medium ml-1">Click dot</span> → ↑↓←→ nudge
                                 </p>
                                 <ZoomableCanvas ref={camZoom} label="Camera Frame"
                                     labelExtra={wsStatus !== 'connected' && <span className="text-warning normal-case font-normal ml-1">(no stream)</span>}
