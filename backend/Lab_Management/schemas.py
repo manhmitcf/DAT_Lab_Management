@@ -39,9 +39,12 @@ class FrameData(BaseModel):
     # Line crossing statistics (Realtime count)
     count_in: int = Field(0, description="Cumulative count of entries")
     count_out: int = Field(0, description="Cumulative count of exits")
+    occupancy: int = Field(0, description="Current occupancy (count_in - count_out, clamped to >=0 if provided that way)")
 
     # Alert level
     alert: AlertType = Field('none', description="Alert level (none, info, warning, critical)")
+
+    fps: Optional[float] = Field(None, description="Processing FPS for the current frame")
 
     # Flag to signal the Backend to persist data in PostgreSQL for Heatmap/Analytics
     save_to_db: bool = Field(True, description="true = save to DB, false = do nothing")

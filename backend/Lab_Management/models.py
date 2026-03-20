@@ -14,6 +14,8 @@ class FrameData(models.Model):
     
     count_in = models.IntegerField(default=0, help_text="Cumulative count of entries")
     count_out = models.IntegerField(default=0, help_text="Cumulative count of exits")
+    occupancy = models.IntegerField(default=0, help_text="Current occupancy")
+    fps = models.FloatField(null=True, blank=True, help_text="Processing FPS")
     
     alert = models.CharField(
         max_length=10,

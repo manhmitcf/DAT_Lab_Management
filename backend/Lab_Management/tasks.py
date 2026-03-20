@@ -22,6 +22,8 @@ def save_frame_task(frame_data_json):
                 timestamp=frame_schema.timestamp,
                 count_in=frame_schema.count_in,
                 count_out=frame_schema.count_out,
+                occupancy=frame_schema.occupancy,
+                fps=frame_schema.fps,
                 alert=frame_schema.alert,
                 height_frame=frame_schema.height_frame,
                 width_frame=frame_schema.width_frame,
