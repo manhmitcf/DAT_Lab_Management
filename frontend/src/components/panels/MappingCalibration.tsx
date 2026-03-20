@@ -6,9 +6,10 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useTrackingStore } from '@/stores/trackingStore';
+import { sendCalibrationPayload } from '@/lib/settingsWebSocket';
 
-const API_BASE =
-    'https://labmanagementbackend-hte4hyczd0fef4ah.eastasia-01.azurewebsites.net';
+const LS_KEY_MAPPING = 'edgesentinel.calibration.mapping.v1';
+const LS_KEY_COUNTING = 'edgesentinel.calibration.counting.v1';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type ModeType = 'mapping' | 'counting';
@@ -868,12 +869,14 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
     const [mapPick, setMapPick]     = useState<MapPick | null>(null);
     const [mapSaving, setMapSaving] = useState(false);
     const [mapResult, setMapResult] = useState<'success' | 'error' | null>(null);
+    const [mapErrorText, setMapErrorText] = useState<string | null>(null);
 
     // Counting state
     const [counting, setCounting]   = useState<CountingCfg>({ lineStart: null, lineEnd: null, insidePoint: null, crossingMargin: 10 });
     const [cntPick, setCntPick]     = useState<CountingPick>(null);
     const [cntSaving, setCntSaving] = useState(false);
     const [cntResult, setCntResult] = useState<'success' | 'error' | null>(null);
+    const [cntErrorText, setCntErrorText] = useState<string | null>(null);
 
     // Shared selection
     const [sel, setSel] = useState<SelPt | null>(null);
@@ -886,34 +889,61 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
     const selRef  = useRef<SelPt | null>(null);
     useEffect(() => { selRef.current = sel; }, [sel]);
 
-    // Pre-load existing configs from backend
+    // Restore last applied configs (BE exposes settings only via WebSocket — no GET)
     useEffect(() => {
-        fetch(`${API_BASE}/api/lab_management/settings/mapping`)
-            .then(r => r.json())
-            .then((d: { image_size?: { width: number; height: number }; map_size?: { width: number; height: number }; correspondences?: { label: string; camera: number[]; map: number[] }[] }) => {
-                if (!d.correspondences?.length) return;
-                const iW = d.image_size?.width  || 1920, iH = d.image_size?.height || 1080;
-                const mW = d.map_size?.width    || 1000, mH = d.map_size?.height   || 1000;
-                setPairs(d.correspondences.map((c, i) => ({
-                    id: i + 1,
-                    camera: { x: c.camera[0] / iW, y: c.camera[1] / iH },
-                    map:    { x: c.map[0]    / mW, y: c.map[1]    / mH },
-                })));
-                nextId.current = d.correspondences.length + 1;
-            }).catch(() => {});
-
-        fetch(`${API_BASE}/api/lab_management/settings/counting`)
-            .then(r => r.json())
-            .then((d: { line_start?: number[]; line_end?: number[]; inside_point?: number[]; crossing_margin?: number; frame_width?: number; frame_height?: number }) => {
-                if (!d.line_start || !d.line_end) return;
-                const fW = d.frame_width || 1920, fH = d.frame_height || 1080;
-                setCounting({
-                    lineStart:      { x: d.line_start[0]  / fW, y: d.line_start[1]  / fH },
-                    lineEnd:        { x: d.line_end[0]    / fW, y: d.line_end[1]    / fH },
-                    insidePoint:    d.inside_point ? { x: d.inside_point[0] / fW, y: d.inside_point[1] / fH } : null,
-                    crossingMargin: d.crossing_margin ?? 10,
-                });
-            }).catch(() => {});
+        try {
+            const rawM = localStorage.getItem(LS_KEY_MAPPING);
+            if (rawM) {
+                const d = JSON.parse(rawM) as {
+                    image_size?: { width: number; height: number };
+                    map_size?: { width: number; height: number };
+                    correspondences?: { label: string; camera: number[]; map: number[] }[];
+                };
+                if (d.correspondences?.length) {
+                    const iW = d.image_size?.width ?? 1920;
+                    const iH = d.image_size?.height ?? 1080;
+                    const mW = d.map_size?.width ?? 1000;
+                    const mH = d.map_size?.height ?? 1000;
+                    setPairs(
+                        d.correspondences.map((c, i) => ({
+                            id: i + 1,
+                            camera: { x: c.camera[0] / iW, y: c.camera[1] / iH },
+                            map: { x: c.map[0] / mW, y: c.map[1] / mH },
+                        }))
+                    );
+                    nextId.current = d.correspondences.length + 1;
+                }
+            }
+        } catch {
+            /* ignore */
+        }
+        try {
+            const rawC = localStorage.getItem(LS_KEY_COUNTING);
+            if (rawC) {
+                const d = JSON.parse(rawC) as {
+                    line_start?: number[];
+                    line_end?: number[];
+                    inside_point?: number[];
+                    crossing_margin?: number;
+                    frame_width?: number;
+                    frame_height?: number;
+                };
+                if (d.line_start && d.line_end) {
+                    const fW = d.frame_width ?? 1920;
+                    const fH = d.frame_height ?? 1080;
+                    setCounting({
+                        lineStart: { x: d.line_start[0] / fW, y: d.line_start[1] / fH },
+                        lineEnd: { x: d.line_end[0] / fW, y: d.line_end[1] / fH },
+                        insidePoint: d.inside_point
+                            ? { x: d.inside_point[0] / fW, y: d.inside_point[1] / fH }
+                            : null,
+                        crossingMargin: d.crossing_margin ?? 10,
+                    });
+                }
+            }
+        } catch {
+            /* ignore */
+        }
     }, []);
 
     // Body scroll lock + ESC
@@ -1003,27 +1033,38 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
     }, []);
 
     const saveMapping = async () => {
-        if (pairs.length < 1) return;
-        const iW = camRef.current?.naturalWidth  || 1920, iH = camRef.current?.naturalHeight || 1080;
-        const mW = fpRef.current?.naturalWidth   || 1000, mH = fpRef.current?.naturalHeight  || 1000;
-        setMapSaving(true); setMapResult(null);
+        if (pairs.length < 4) return;
+        const iW = camRef.current?.naturalWidth || 1920;
+        const iH = camRef.current?.naturalHeight || 1080;
+        const mW = fpRef.current?.naturalWidth || 1000;
+        const mH = fpRef.current?.naturalHeight || 1000;
+        const body = {
+            image_size: { width: iW, height: iH },
+            map_size: { width: mW, height: mH },
+            correspondences: pairs.map((p, i) => ({
+                label: `p${i + 1}`,
+                camera: [round2(p.camera.x * iW), round2(p.camera.y * iH)],
+                map: [round2(p.map.x * mW), round2(p.map.y * mH)],
+            })),
+        };
+        setMapSaving(true);
+        setMapResult(null);
+        setMapErrorText(null);
         try {
-            const res = await fetch(`${API_BASE}/api/lab_management/settings/mapping`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    image_size: { width: iW, height: iH },
-                    map_size:   { width: mW, height: mH },
-                    correspondences: pairs.map((p, i) => ({
-                        label:  `p${i + 1}`,
-                        camera: [round2(p.camera.x * iW), round2(p.camera.y * iH)],
-                        map:    [round2(p.map.x    * mW), round2(p.map.y    * mH)],
-                    })),
-                }),
-            });
-            setMapResult(res.ok ? 'success' : 'error');
-        } catch { setMapResult('error'); }
-        finally   { setMapSaving(false); }
+            const res = await sendCalibrationPayload('mapping', body);
+            if (res.ok) {
+                setMapResult('success');
+                localStorage.setItem(LS_KEY_MAPPING, JSON.stringify(body));
+            } else {
+                setMapResult('error');
+                setMapErrorText(res.errorMessage);
+            }
+        } catch {
+            setMapResult('error');
+            setMapErrorText('Unexpected error');
+        } finally {
+            setMapSaving(false);
+        }
     };
 
     // ── Counting handlers ─────────────────────────────────────────────────────
@@ -1068,23 +1109,32 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
         if (!s || !e || !ip) return;
         const fW = camRef.current?.naturalWidth  || 1920;
         const fH = camRef.current?.naturalHeight || 1080;
-        setCntSaving(true); setCntResult(null);
+        const body = {
+            line_start: [+(s.x * fW).toFixed(4), +(s.y * fH).toFixed(4)],
+            line_end: [+(e.x * fW).toFixed(4), +(e.y * fH).toFixed(4)],
+            inside_point: [+(ip.x * fW).toFixed(4), +(ip.y * fH).toFixed(4)],
+            crossing_margin: cm,
+            frame_width: fW,
+            frame_height: fH,
+        };
+        setCntSaving(true);
+        setCntResult(null);
+        setCntErrorText(null);
         try {
-            const res = await fetch(`${API_BASE}/api/lab_management/settings/counting`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    line_start:      [+(s.x  * fW).toFixed(4), +(s.y  * fH).toFixed(4)],
-                    line_end:        [+(e.x  * fW).toFixed(4), +(e.y  * fH).toFixed(4)],
-                    inside_point:    [+(ip.x * fW).toFixed(4), +(ip.y * fH).toFixed(4)],
-                    crossing_margin: cm,
-                    frame_width:     fW,
-                    frame_height:    fH,
-                }),
-            });
-            setCntResult(res.ok ? 'success' : 'error');
-        } catch { setCntResult('error'); }
-        finally   { setCntSaving(false); }
+            const res = await sendCalibrationPayload('counting', body);
+            if (res.ok) {
+                setCntResult('success');
+                localStorage.setItem(LS_KEY_COUNTING, JSON.stringify(body));
+            } else {
+                setCntResult('error');
+                setCntErrorText(res.errorMessage);
+            }
+        } catch {
+            setCntResult('error');
+            setCntErrorText('Unexpected error');
+        } finally {
+            setCntSaving(false);
+        }
     };
 
     // ── Derived state ─────────────────────────────────────────────────────────
@@ -1140,8 +1190,8 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
     const saving = mode === 'mapping' ? mapSaving : cntSaving;
     const result = mode === 'mapping' ? mapResult  : cntResult;
     const canSave = mode === 'mapping'
-        ? (pairs.length >= 1 && !mapPick)
-        : (!!(counting.lineStart && counting.lineEnd && counting.insidePoint));
+        ? pairs.length >= 4 && !mapPick
+        : !!(counting.lineStart && counting.lineEnd && counting.insidePoint);
 
     const handleSave = () => mode === 'mapping' ? saveMapping() : saveCounting();
 
@@ -1271,12 +1321,19 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
 
                 {/* Save result */}
                 {result && (
-                    <div className={`shrink-0 flex items-center gap-2 px-5 py-2 text-xs border-b
+                    <div className={`shrink-0 flex flex-col gap-1 px-5 py-2 text-xs border-b
                         ${result === 'success' ? 'bg-success/10 border-success/20 text-success' : 'bg-danger/10 border-danger/20 text-danger'}`}>
-                        <span className="material-symbols-outlined text-sm">{result === 'success' ? 'check_circle' : 'error'}</span>
-                        {result === 'success'
-                            ? `${mode === 'mapping' ? 'Mapping' : 'Counting'} config saved. Backend will apply the new settings.`
-                            : 'Failed to save. Check backend connection.'}
+                        <div className="flex items-center gap-2">
+                            <span className="material-symbols-outlined text-sm">{result === 'success' ? 'check_circle' : 'error'}</span>
+                            {result === 'success'
+                                ? `${mode === 'mapping' ? 'Mapping' : 'Counting'} sent over WebSocket. Edge devices receive the payload.`
+                                : 'Failed to send. Check WebSocket / backend.'}
+                        </div>
+                        {result === 'error' && (mode === 'mapping' ? mapErrorText : cntErrorText) && (
+                            <p className="pl-8 font-mono text-[10px] opacity-90">
+                                {mode === 'mapping' ? mapErrorText : cntErrorText}
+                            </p>
+                        )}
                     </div>
                 )}
 

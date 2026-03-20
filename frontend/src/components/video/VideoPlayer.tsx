@@ -2,6 +2,9 @@
 
 import { useTrackingStore } from '@/stores/trackingStore';
 
+/** Optional MJPEG or still image when video is not sent on the metadata WebSocket (WebRTC/Janus path). */
+const CAMERA_STREAM_URL = process.env.NEXT_PUBLIC_CAMERA_STREAM_URL ?? '';
+
 export default function VideoPlayer() {
     const currentFrame = useTrackingStore((state) => state.currentFrame);
     const wsStatus = useTrackingStore((state) => state.wsStatus);
@@ -9,12 +12,15 @@ export default function VideoPlayer() {
 
     const isConnecting = wsStatus === 'connecting';
     const isDisconnected = wsStatus === 'disconnected' || wsStatus === 'error';
+    const metadataConnected = wsStatus === 'connected';
+
+    const videoSrc = currentFrame || CAMERA_STREAM_URL || null;
 
     return (
         <div className="flex-1 relative rounded-[var(--radius-lg)] overflow-hidden bg-black">
-            {currentFrame ? (
+            {videoSrc ? (
                 <img
-                    src={currentFrame}
+                    src={videoSrc}
                     alt="Live camera feed"
                     className="absolute inset-0 w-full h-full object-contain"
                     draggable={false}
@@ -27,7 +33,7 @@ export default function VideoPlayer() {
                                 progress_activity
                             </span>
                             <p className="text-text-tertiary text-xs font-mono uppercase tracking-widest">
-                                Connecting to camera…
+                                Connecting to metadata…
                             </p>
                         </>
                     ) : isDisconnected ? (
@@ -37,6 +43,15 @@ export default function VideoPlayer() {
                             </span>
                             <p className="text-text-tertiary text-xs font-mono uppercase tracking-widest">
                                 No signal — reconnecting…
+                            </p>
+                        </>
+                    ) : metadataConnected ? (
+                        <>
+                            <span className="material-symbols-outlined text-4xl text-text-tertiary">
+                                hub
+                            </span>
+                            <p className="text-text-tertiary text-xs font-mono uppercase tracking-widest text-center max-w-[280px]">
+                                Metadata live — set NEXT_PUBLIC_CAMERA_STREAM_URL or WebRTC for video
                             </p>
                         </>
                     ) : (

@@ -1,9 +1,9 @@
 # EdgeSentinelAI — API Documentation
 
-> **Version:** 3.0.0 · **Updated:** 2026-03-06  
+> **Version:** 3.1.0 · **Updated:** 2026-03-20  
 > **Backend Base URL:** `https://labmanagementbackend-hte4hyczd0fef4ah.eastasia-01.azurewebsites.net`  
 > **REST prefix:** `/api/lab_management` · **Format:** JSON  
-> **Hệ thống:** 1 camera duy nhất — không cần endpoint quản lý nhiều camera.
+> **Hệ thống:** 1 camera duy nhất — video qua WebRTC/Janus, metadata & config qua WebSocket.
 
 ---
 
@@ -11,7 +11,9 @@
 
 | # | Method | Endpoint | FE Status | Mô tả ngắn |
 |---|--------|----------|-----------|------------|
-| — | WS | `wss://.../ws/frontend/frames/` | ✅ Implemented | Video frames realtime |
+| — | WS | `wss://.../ws/persist/metadata/` | ✅ Implemented | Metadata realtime (edge → FE) |
+| — | WS | `wss://.../ws/settings/mapping/` | ✅ Implemented | Calibration mapping (FE → edge) |
+| — | WS | `wss://.../ws/settings/counting/` | ✅ Implemented | Counting line config (FE → edge) |
 | 1 | GET | `/analytics/summary` | 🔄 Mock | KPI cards |
 | 2 | GET | `/analytics/occupancy-trends` | 🔄 Mock | Line chart |
 | 3 | GET | `/analytics/heatmap` | 🔄 Mock | Heatmap 24×7 |
@@ -26,10 +28,6 @@
 | 12 | PUT | `/alerts/threshold` | 🔄 Planned | Cấu hình ngưỡng |
 | 13 | GET | `/history/recordings` | 🔄 Mock | Danh sách recordings |
 | 14 | GET | `/history/recordings/{id}/stream` | 🔄 Planned | Video playback |
-| 15 | GET | `/settings/mapping` | ✅ Implemented | Load mapping config |
-| 16 | POST | `/settings/mapping` | ✅ Implemented | Lưu mapping config |
-| 17 | GET | `/settings/counting` | ✅ Implemented | Load counting config |
-| 18 | POST | `/settings/counting` | ✅ Implemented | Lưu counting config |
 
 > **Legend:** ✅ FE đã implement · 🔄 FE đang dùng mock data, chờ BE · 🚧 Planned
 
@@ -41,58 +39,48 @@ Trang chính, hiển thị realtime: video feed, floor plan 2D, stats.
 
 ---
 
-## WebSocket `wss://.../ws/frontend/frames/` ✅ Implemented
+## WebSocket `wss://.../ws/persist/metadata/` ✅ Implemented
 
-**Endpoint quan trọng nhất.** BE gửi từng frame đã xử lý qua WebSocket.
+**Endpoint chính cho realtime metadata.** Edge Device gửi metadata mỗi frame lên BE, BE broadcast ngay tới FE. Video stream xử lý riêng qua **WebRTC/Janus** — không đi qua endpoint này.
 
 **Full URL:**
 ```
-wss://labmanagementbackend-hte4hyczd0fef4ah.eastasia-01.azurewebsites.net/ws/frontend/frames/
+wss://labmanagementbackend-hte4hyczd0fef4ah.eastasia-01.azurewebsites.net/ws/persist/metadata/
 ```
 
-**FE config:** `ws.binaryType = 'arraybuffer'` · Auto-reconnect sau 5 000 ms.
+**FE config:** Kết nối với tư cách **Listener**. Auto-reconnect sau 5 000 ms.
 
 ### Message Format
 
-FE nhận 2 loại message và tự detect:
-
-**① Binary frame** — `typeof event.data === 'object'` (ArrayBuffer)
-
-Raw JPEG bytes. FE convert bằng `URL.createObjectURL(new Blob([data], { type: 'image/jpeg' }))` rồi set vào `<img>`.
-
-**② JSON text** — `typeof event.data === 'string'`
+FE nhận JSON text được BE forward từ Edge Device:
 
 ```json
 {
-  "timestamp":    "2023-10-27T10:00:00.123Z",
-  "count_in":     15,
-  "count_out":    8,
-  "alert":        "none",
+  "timestamp":    "2026-03-11T10:00:00Z",
+  "count_in":     5,
+  "count_out":    2,
+  "alert":        "info",
   "save_to_db":   true,
-
-  "height_frame": 1080,
-  "width_frame":  1920,
-  "height_2D":    500,
-  "width_2D":     500,
-
-  "frame_image":  "/9j/4AAQSkZJRg...",
-
+  "height_frame": 720,
+  "width_frame":  1280,
   "objects": [
     {
       "track_id":        101,
-      "bbox":            [100, 200, 150, 300],
-      "coordinates_2D":  [125, 250]
+      "bbox":            [100.5, 200.0, 150.5, 280.0],
+      "coordinates_2D":  [110, 220]
     }
   ]
 }
 ```
 
+> [!NOTE]
+> Không có `frame_image` trong payload này. Video được stream riêng qua WebRTC/Janus.
+
 ### FE sử dụng payload cho:
 
 | Thành phần UI | Trường | Cách xử lý |
 |---------------|--------|------------|
-| **Video feed** | Binary `ArrayBuffer` / `frame_image` | Binary → `URL.createObjectURL(Blob)` · Base64 → `data:image/jpeg;base64,...` |
-| **Floor Plan dots** | `objects[].coordinates_2D` + `width_2D`, `height_2D` | `x% = coord[0] / width_2D * 100` |
+| **Floor Plan dots** | `objects[].coordinates_2D` | Ánh xạ toạ độ lên floor plan |
 | **Occupancy count** | `objects.length` | Đếm trực tiếp |
 | **Ingress / Egress** | `count_in` / `count_out` | Hiển thị trực tiếp |
 | **Alert badge** | `alert` | `none` → xanh · `info` → vàng · `warning` → cam · `critical` → đỏ |
@@ -108,18 +96,13 @@ Raw JPEG bytes. FE convert bằng `URL.createObjectURL(new Blob([data], { type: 
 | `count_out` | int | Tổng người ra từ đầu session |
 | `alert` | string | `"none"` · `"info"` · `"warning"` · `"critical"` |
 | `save_to_db` | bool | `true` = frame này đã được lưu vào DB (History) |
-| `width_frame` / `height_frame` | int | Kích thước ảnh camera gốc (thường 1920×1080) |
-| `width_2D` / `height_2D` | int | Kích thước bản đồ 2D |
-| `frame_image` | string | Base64 JPEG (fallback nếu không gửi binary) |
+| `width_frame` / `height_frame` | int | Kích thước camera frame gốc |
 | `objects[].track_id` | int | ID theo dõi duy nhất mỗi người |
-| `objects[].bbox` | int[4] | `[x1, y1, x2, y2]` pixel trên ảnh gốc |
-| `objects[].coordinates_2D` | int[2] | `[x, y]` pixel trên bản đồ 2D |
+| `objects[].bbox` | float[4] | `[x1, y1, x2, y2]` pixel trên ảnh gốc |
+| `objects[].coordinates_2D` | int[2] | `[x, y]` pixel trên floor plan |
 
 > [!NOTE]
 > `save_to_db: true` = BE đã lưu snapshot vào DB, FE có thể thấy trong History sau đó.
-
-> [!NOTE]
-> Bounding box (`bbox`) không được FE vẽ — AI server đã render trực tiếp lên ảnh trước khi gửi.
 
 ---
 
@@ -455,44 +438,29 @@ Video playback.
 
 # Tab 5 — Settings (`/settings`)
 
-Cấu hình Mapping Service (homography) và Counting Service (virtual tripwire).
+Cấu hình Mapping Service (homography) và Counting Service (virtual tripwire) qua **WebSocket**. FE là **Sender**, Edge Device là **Listener** nhận config để áp dụng vào pipeline.
 
 > [!NOTE]
-> Đây là **2 service độc lập** với 2 endpoint riêng biệt.  
+> Cả hai settings đều dùng **WebSocket**, không phải REST.  
 > FE có 2 tab trong modal Calibration: **Mapping** và **Counting**.
 
 ---
 
 ## Mapping Service ✅ Implemented
 
-### `GET /api/lab_management/settings/mapping`
+### `WS /ws/settings/mapping/`
 
-Load cấu hình mapping hiện tại khi mở modal Calibration.
-
-**Response:**
-
-```json
-{
-  "image_size": { "width": 1920, "height": 1080 },
-  "map_size":   { "width": 1000, "height": 1000 },
-  "correspondences": [
-    { "label": "p1", "camera": [523.2, 412.8],  "map": [120.5, 300.0] },
-    { "label": "p2", "camera": [1020.1, 500.4], "map": [400.2, 320.6] },
-    { "label": "p3", "camera": [1500.0, 800.0], "map": [800.0, 700.0] }
-  ]
-}
+**Full URL:**
+```
+wss://labmanagementbackend-hte4hyczd0fef4ah.eastasia-01.azurewebsites.net/ws/settings/mapping/
 ```
 
----
-
-### `POST /api/lab_management/settings/mapping` ⭐
-
-Gửi tập cặp điểm tương ứng camera ↔ floor plan để BE tính **homography matrix**.
+FE gửi cặp điểm camera ↔ floor plan, BE tính **homography matrix** và broadcast tới Edge Device.
 
 > [!IMPORTANT]
 > Cần tối thiểu **4 cặp điểm** không thẳng hàng để tính homography chính xác.
 
-**Request Body:**
+**Message gửi từ FE (Sender):**
 
 ```json
 {
@@ -507,6 +475,8 @@ Gửi tập cặp điểm tương ứng camera ↔ floor plan để BE tính **h
 }
 ```
 
+**Message nhận về:** FE nhận confirmation thành công. Edge Device nhận đúng payload trên.
+
 **Schema:**
 
 | Field | Type | Mô tả |
@@ -514,17 +484,8 @@ Gửi tập cặp điểm tương ứng camera ↔ floor plan để BE tính **h
 | `image_size.width/height` | int | Kích thước camera frame (thường 1920×1080) |
 | `map_size.width/height` | int | Kích thước floor plan image |
 | `correspondences[].label` | string | Auto-generated: `p1`, `p2`, ... |
-| `correspondences[].camera` | float[2] | `[x, y]` px trên camera frame (2 decimal places) |
-| `correspondences[].map` | float[2] | `[x, y]` px trên floor plan (2 decimal places) |
-
-**Response `200 OK`:** Echo lại body đã lưu (same schema as request).
-
-**Errors:**
-
-| HTTP | Trường hợp |
-|------|-----------|
-| `400` | Ít hơn 4 cặp · thiếu field |
-| `422` | Các điểm thẳng hàng (không tính được homography) |
+| `correspondences[].camera` | float[2] | `[x, y]` px trên camera frame |
+| `correspondences[].map` | float[2] | `[x, y]` px trên floor plan |
 
 **FE UI Flow:**
 ```
@@ -533,8 +494,8 @@ Mapping tab → "+ Add Point"
   → click Floor Plan     (đặt điểm map tương ứng)
   → lặp × ≥ 4 lần
 → "Apply Mapping"
-  → POST /settings/mapping
-  → BE tính homography → apply cho pipeline
+  → Gửi qua WS /ws/settings/mapping/
+  → BE broadcast tới Edge Device → apply homography pipeline
 ```
 
 > [!TIP]
@@ -544,41 +505,29 @@ Mapping tab → "+ Add Point"
 
 ## Counting Service ✅ Implemented
 
-### `GET /api/lab_management/settings/counting`
+### `WS /ws/settings/counting/`
 
-Load cấu hình counting hiện tại khi mở modal Calibration.
+**Full URL:**
+```
+wss://labmanagementbackend-hte4hyczd0fef4ah.eastasia-01.azurewebsites.net/ws/settings/counting/
+```
 
-**Response:**
+FE gửi cấu hình **virtual tripwire** (đường đếm ảo), BE broadcast tới Edge Device.
+
+**Message gửi từ FE (Sender):**
 
 ```json
 {
-  "line_start":      [984.4736842105265, 346.4473684210526],
-  "line_end":        [903.6842105263158, 383.81578947368416],
-  "inside_point":    [1001.3157894736844, 375.3947368421052],
+  "line_start":      [984.47, 346.44],
+  "line_end":        [903.68, 383.81],
+  "inside_point":    [1001.31, 375.39],
   "crossing_margin": 10,
   "frame_height":    1080,
   "frame_width":     1920
 }
 ```
 
----
-
-### `POST /api/lab_management/settings/counting` ⭐
-
-Gửi cấu hình **virtual tripwire** (đường đếm ảo) cho Counting Service.
-
-**Request Body:**
-
-```json
-{
-  "line_start":      [984.4736842105265, 346.4473684210526],
-  "line_end":        [903.6842105263158, 383.81578947368416],
-  "inside_point":    [1001.3157894736844, 375.3947368421052],
-  "crossing_margin": 10,
-  "frame_width":     1920,
-  "frame_height":    1080
-}
-```
+**Message nhận về:** FE nhận confirmation thành công. Edge Device nhận đúng payload trên.
 
 **Schema:**
 
@@ -594,8 +543,6 @@ Gửi cấu hình **virtual tripwire** (đường đếm ảo) cho Counting Serv
 > [!NOTE]
 > `inside_point` xác định **hướng đếm**: object đi từ phía ngoài → phía `inside_point` = đếm **"in"**.
 
-**Response `200 OK`:** Echo lại body đã lưu (same schema as request).
-
 **FE UI Flow:**
 ```
 Counting tab → "Draw Line"
@@ -604,8 +551,8 @@ Counting tab → "Draw Line"
   → click phía "entry" trên camera → set inside_point
   → điều chỉnh crossing_margin trong sidebar (default: 10)
 → "Apply Counting"
-  → POST /settings/counting
-  → BE update tripwire config → apply cho counting pipeline
+  → Gửi qua WS /ws/settings/counting/
+  → BE broadcast tới Edge Device → apply counting pipeline
 ```
 
 ---
@@ -614,7 +561,9 @@ Counting tab → "Draw Line"
 
 ## Errors
 
-Tất cả lỗi đều theo format:
+### REST Errors
+
+Tất cả lỗi REST đều theo format:
 
 ```json
 { "error": { "code": "ERROR_CODE", "message": "Human-readable message" } }
@@ -628,15 +577,42 @@ Tất cả lỗi đều theo format:
 | `422` | `UNPROCESSABLE` | Data hợp lệ nhưng không xử lý được (vd: điểm thẳng hàng) |
 | `500` | `INTERNAL_ERROR` | Lỗi server |
 
+### WebSocket Errors
+
+Khi payload không hợp lệ, connection **giữ nguyên** và server trả về JSON lỗi:
+
+**JSON syntax error:**
+```json
+{
+  "error": {
+    "code": "INVALID_JSON",
+    "message": "Malformed JSON data format."
+  }
+}
+```
+
+**Schema validation error (thiếu field, sai kiểu):**
+```json
+{
+  "error": {
+    "code": "BAD_REQUEST",
+    "message": "Invalid data format.",
+    "details": [
+      { "type": "...", "loc": ["..."], "msg": "..." }
+    ]
+  }
+}
+```
+
 ## WebSocket Summary
 
-| Endpoint | Protocol | Dữ liệu | Tần suất |
-|----------|----------|---------|----------|
-| `.../ws/frontend/frames/` | WSS | Binary JPEG + JSON metadata | ~30 fps |
+| Endpoint | Actors | Dữ liệu | Tần suất |
+|----------|--------|---------|----------|
+| `.../ws/persist/metadata/` | Edge → BE → FE | JSON metadata (không có video) | ~30 fps |
+| `.../ws/settings/mapping/` | FE → BE → Edge | JSON mapping config | On-demand |
+| `.../ws/settings/counting/` | FE → BE → Edge | JSON counting config | On-demand |
 
-> FE set `ws.binaryType = 'arraybuffer'`.  
-> Binary message → raw JPEG frame.  
-> Text message → JSON với đầy đủ metadata + base64 frame (fallback).  
+> Video stream được xử lý riêng qua **WebRTC/Janus**, không qua các endpoint trên.  
 > Auto-reconnect sau 5 000 ms khi mất kết nối.
 
 ## Rate Limits
