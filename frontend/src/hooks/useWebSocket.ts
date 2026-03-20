@@ -95,6 +95,7 @@ export function useWebSocket() {
             behavior_distribution: { walking: 0, standing: 0, loitering: 0, other: 0 },
             throughput: store.stats.throughput,
         });
+        store.pushOccupancySample(personCount);
     }, []);
 
     const connect = useCallback(() => {

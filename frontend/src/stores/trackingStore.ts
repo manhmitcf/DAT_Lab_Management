@@ -1,5 +1,9 @@
 import { create } from 'zustand';
+import { analyticsData } from '@/lib/mockData';
 import { Person, Detection, SystemStats, FloorPlanMarker } from '@/types';
+
+const OCC_HISTORY_MAX = 48;
+const initialOccupancyHistory = analyticsData.occupancyTrends.current.map((d) => d.occupancy);
 
 export type AlertLevel = 'none' | 'info' | 'warning' | 'critical';
 export type WsStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
@@ -41,6 +45,10 @@ interface TrackingState {
     // WebSocket connection status
     wsStatus: WsStatus;
     setWsStatus: (status: WsStatus) => void;
+
+    /** Rolling occupancy samples for Live header mini chart (synced with WS / seed from analytics mock) */
+    occupancyHistory: number[];
+    pushOccupancySample: (value: number) => void;
 }
 
 // Initial mock data
@@ -144,4 +152,10 @@ export const useTrackingStore = create<TrackingState>((set) => ({
 
     wsStatus: 'disconnected',
     setWsStatus: (status) => set({ wsStatus: status }),
+
+    occupancyHistory: initialOccupancyHistory,
+    pushOccupancySample: (value) =>
+        set((state) => ({
+            occupancyHistory: [...state.occupancyHistory.slice(-(OCC_HISTORY_MAX - 1)), value],
+        })),
 }));
