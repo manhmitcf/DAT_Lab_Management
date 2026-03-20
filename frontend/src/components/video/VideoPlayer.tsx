@@ -17,7 +17,7 @@ export default function VideoPlayer() {
     const videoSrc = currentFrame || CAMERA_STREAM_URL || null;
 
     return (
-        <div className="flex-1 relative rounded-[var(--radius-lg)] overflow-hidden bg-black">
+        <div className="flex-1 min-h-[180px] min-w-0 relative rounded-[var(--radius-lg)] overflow-hidden bg-black">
             {videoSrc ? (
                 <img
                     src={videoSrc}
