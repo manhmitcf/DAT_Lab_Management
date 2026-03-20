@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useSidebarStore } from '@/stores/sidebarStore';
 
 const navItems = [
     { href: '/', icon: 'monitoring', label: 'Live Monitor' },
@@ -14,6 +15,7 @@ const bottomNavItems = [{ href: '/settings', icon: 'settings', label: 'Settings'
 
 export default function MainSidebar() {
     const pathname = usePathname();
+    const { isCollapsed, toggleSidebar } = useSidebarStore();
 
     const isActive = (href: string) => {
         if (href === '/') return pathname === '/';
@@ -22,20 +24,28 @@ export default function MainSidebar() {
 
     return (
         <nav
-            className="flex w-[216px] shrink-0 flex-col justify-between border-r border-[#283039] bg-[#151b22]"
+            className={`
+                flex shrink-0 flex-col justify-between border-r border-[#283039] bg-[#151b22]
+                transition-[width] duration-200 ease-out
+                ${isCollapsed ? 'w-[72px]' : 'w-[216px]'}
+            `}
             aria-label="Main navigation"
         >
-            <div className="flex flex-col gap-1 px-3 pt-5 pb-3">
-                <div className="mb-6 flex items-center gap-3 px-2">
+            <div className={`flex flex-col gap-1 pb-3 ${isCollapsed ? 'px-2 pt-4' : 'px-3 pt-5'}`}>
+                <div
+                    className={`mb-5 flex items-center ${isCollapsed ? 'justify-center px-0' : 'gap-3 px-2'}`}
+                >
                     <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#137fec]/15 text-[#137fec] ring-1 ring-[#137fec]/25">
                         <span className="material-symbols-outlined text-[22px]">shield_person</span>
                     </div>
-                    <div className="min-w-0">
-                        <p className="truncate text-[13px] font-bold tracking-tight text-white">DAT Lab</p>
-                        <p className="truncate text-[10px] font-medium uppercase tracking-wider text-gray-500">
-                            Management
-                        </p>
-                    </div>
+                    {!isCollapsed && (
+                        <div className="min-w-0">
+                            <p className="truncate text-[13px] font-bold tracking-tight text-white">DAT Lab</p>
+                            <p className="truncate text-[10px] font-medium uppercase tracking-wider text-gray-500">
+                                Management
+                            </p>
+                        </div>
+                    )}
                 </div>
 
                 <div className="flex flex-col gap-1">
@@ -45,8 +55,10 @@ export default function MainSidebar() {
                             <Link
                                 key={item.href}
                                 href={item.href}
+                                title={isCollapsed ? item.label : undefined}
                                 className={`
-                                    relative flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors
+                                    relative flex items-center rounded-xl transition-colors
+                                    ${isCollapsed ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2.5'}
                                     ${active
                                         ? 'bg-[#137fec]/12 text-white shadow-sm ring-1 ring-[#137fec]/20'
                                         : 'text-gray-400 hover:bg-[#1f2937] hover:text-gray-200'
@@ -62,9 +74,18 @@ export default function MainSidebar() {
                                 >
                                     {item.icon}
                                 </span>
-                                <span className="flex-1 text-[13px] font-medium">{item.label}</span>
-                                {item.badge ? (
-                                    <span className="flex min-w-[20px] items-center justify-center rounded-full bg-red-500/90 px-1.5 text-[10px] font-bold text-white">
+                                {!isCollapsed && (
+                                    <>
+                                        <span className="flex-1 text-[13px] font-medium">{item.label}</span>
+                                        {item.badge ? (
+                                            <span className="flex min-w-[20px] items-center justify-center rounded-full bg-red-500/90 px-1.5 text-[10px] font-bold text-white">
+                                                {item.badge}
+                                            </span>
+                                        ) : null}
+                                    </>
+                                )}
+                                {isCollapsed && item.badge ? (
+                                    <span className="absolute -right-0.5 -top-0.5 flex size-4 items-center justify-center rounded-full bg-red-500 text-[8px] font-bold text-white">
                                         {item.badge}
                                     </span>
                                 ) : null}
@@ -72,15 +93,36 @@ export default function MainSidebar() {
                         );
                     })}
                 </div>
+
+                {/* Toggle: full-width text when open (no corner chevron); icon + tooltip when collapsed */}
+                <button
+                    type="button"
+                    onClick={toggleSidebar}
+                    title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                    className={`
+                        mt-3 flex w-full items-center rounded-lg border border-[#283039]/60 bg-[#1a222a]/40
+                        text-gray-500 transition-colors hover:border-[#137fec]/25 hover:bg-[#1f2937] hover:text-gray-300
+                        ${isCollapsed ? 'justify-center py-2.5' : 'justify-center gap-2 py-2 px-2'}
+                    `}
+                >
+                    <span className="material-symbols-outlined text-[20px] text-gray-400">
+                        {isCollapsed ? 'dock_to_left' : 'dock_to_right'}
+                    </span>
+                    {!isCollapsed && (
+                        <span className="text-[11px] font-medium tracking-wide">Narrow menu</span>
+                    )}
+                </button>
             </div>
 
-            <div className="flex flex-col gap-1 border-t border-[#283039] p-3">
+            <div className={`flex flex-col gap-1 border-t border-[#283039] p-3 ${isCollapsed ? 'px-2' : ''}`}>
                 {bottomNavItems.map((item) => (
                     <Link
                         key={item.href}
                         href={item.href}
+                        title={isCollapsed ? item.label : undefined}
                         className={`
-                            flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors
+                            flex items-center rounded-xl transition-colors
+                            ${isCollapsed ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2.5'}
                             ${isActive(item.href)
                                 ? 'bg-[#137fec]/12 text-white ring-1 ring-[#137fec]/20'
                                 : 'text-gray-400 hover:bg-[#1f2937] hover:text-gray-200'
@@ -88,16 +130,20 @@ export default function MainSidebar() {
                         `}
                     >
                         <span className="material-symbols-outlined text-[22px]">{item.icon}</span>
-                        <span className="text-[13px] font-medium">{item.label}</span>
+                        {!isCollapsed && <span className="text-[13px] font-medium">{item.label}</span>}
                     </Link>
                 ))}
                 <button
                     type="button"
-                    className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-gray-500 transition-colors hover:bg-[#1f2937] hover:text-gray-300"
+                    title={isCollapsed ? 'Log out' : undefined}
+                    className={`
+                        flex items-center rounded-xl text-gray-500 transition-colors hover:bg-[#1f2937] hover:text-gray-300
+                        ${isCollapsed ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2.5'}
+                    `}
                     aria-label="Log out"
                 >
                     <span className="material-symbols-outlined text-[22px]">logout</span>
-                    <span className="text-[13px] font-medium">Log out</span>
+                    {!isCollapsed && <span className="text-[13px] font-medium">Log out</span>}
                 </button>
             </div>
         </nav>
