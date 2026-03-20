@@ -3,29 +3,24 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { FLOOR_PLAN_MAP_SIZE, WS_URLS } from '@/config/api';
 import { useTrackingStore } from '@/stores/trackingStore';
-import type { Person, FloorPlanMarker } from '@/types';
+import type { FrameData, Person, FloorPlanMarker } from '@/types';
 
 const RECONNECT_DELAY_MS = 5000;
 
-interface WsObject {
-    track_id: number;
-    bbox: [number, number, number, number];
-    coordinates_2D: [number, number];
+function resolvePersonCount(data: FrameData, objectsLen: number): number {
+    const o = data.occupancy;
+    if (typeof o === 'number' && Number.isFinite(o) && o >= 0) {
+        return Math.floor(o);
+    }
+    return objectsLen;
 }
 
-interface WsPayload {
-    timestamp?: string;
-    count_in?: number;
-    count_out?: number;
-    alert?: 'none' | 'info' | 'warning' | 'critical';
-    save_to_db?: boolean;
-    height_frame?: number;
-    width_frame?: number;
-    /** Legacy optional map size from server */
-    height_2D?: number;
-    width_2D?: number;
-    frame_image?: string;
-    objects?: WsObject[];
+function resolveFpsFromPayload(data: FrameData, clientFps: number): number {
+    const f = data.fps;
+    if (typeof f === 'number' && Number.isFinite(f) && f >= 0) {
+        return Math.round(f * 10) / 10;
+    }
+    return clientFps;
 }
 
 export function useWebSocket() {
@@ -50,9 +45,10 @@ export function useWebSocket() {
         return Math.round(1000 / avg);
     };
 
-    const applyPayload = useCallback((data: WsPayload) => {
+    const applyPayload = useCallback((data: FrameData) => {
         const store = useTrackingStore.getState();
-        const fps = computeFps();
+        const clientFps = computeFps();
+        const fps = resolveFpsFromPayload(data, clientFps);
 
         if (typeof data.frame_image === 'string' && data.frame_image.length > 0) {
             store.setCurrentFrame(`data:image/jpeg;base64,${data.frame_image}`);
@@ -63,6 +59,7 @@ export function useWebSocket() {
         const frameH = data.height_frame ?? 720;
         const mapW = data.width_2D ?? FLOOR_PLAN_MAP_SIZE.width;
         const mapH = data.height_2D ?? FLOOR_PLAN_MAP_SIZE.height;
+        const personCount = resolvePersonCount(data, objects.length);
 
         const persons: Person[] = objects.map((obj) => ({
             track_id: obj.track_id,
@@ -90,7 +87,7 @@ export function useWebSocket() {
         store.setMarkers(markers);
         store.setAlertLevel(data.alert ?? 'none');
         store.setStats({
-            person_count: objects.length,
+            person_count: personCount,
             person_count_change: 0,
             entry_today: data.count_in ?? 0,
             exit_today: data.count_out ?? 0,
@@ -136,7 +133,7 @@ export function useWebSocket() {
 
             if (typeof event.data === 'string') {
                 try {
-                    const data: WsPayload = JSON.parse(event.data);
+                    const data = JSON.parse(event.data) as FrameData;
                     applyPayload(data);
                 } catch (err) {
                     console.error('[WS] parse error:', err);

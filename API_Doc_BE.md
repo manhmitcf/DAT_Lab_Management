@@ -99,17 +99,21 @@ This is a dual-purpose endpoint for both real-time UI updates and data persisten
 #### Messages Sent by Client (Edge Device)
 
 - **Action**: Send a JSON object representing the metadata of a single frame.
-- **Payload Schema**: `FrameData` (without `frame_image`)
+- **Payload Schema**: `FrameData` (Pydantic `BaseModel`; optional `frame_image` not part of the standard model)
 - **Example Payload**:
   ```json
   {
     "timestamp": "2026-03-11T10:00:00Z",
     "count_in": 5,
     "count_out": 2,
+    "occupancy": 3,
     "alert": "info",
+    "fps": 28.5,
     "save_to_db": true,
     "height_frame": 720,
     "width_frame": 1280,
+    "height_2D": 1000,
+    "width_2D": 1000,
     "objects": [
       {
         "track_id": 101,
@@ -119,6 +123,19 @@ This is a dual-purpose endpoint for both real-time UI updates and data persisten
     ]
   }
   ```
+
+| Field | Type | Notes |
+|-------|------|--------|
+| `timestamp` | ISO 8601 string | UTC inference time |
+| `count_in` | int | Cumulative entries |
+| `count_out` | int | Cumulative exits |
+| `occupancy` | int | Current occupancy (e.g. in − out, clamped ≥ 0) |
+| `alert` | string | `none` · `info` · `warning` · `critical` |
+| `fps` | float \| omitted | Edge processing FPS |
+| `save_to_db` | bool | When `true`, backend may persist for analytics/heatmap |
+| `height_frame` / `width_frame` | int \| null | Original frame size (px) |
+| `height_2D` / `width_2D` | int \| null | Floor map size for `coordinates_2D` |
+| `objects` | array | `ObjectDetection` list |
 
 #### Messages Received by Client (Frontend)
 

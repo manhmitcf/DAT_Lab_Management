@@ -6,8 +6,11 @@ import StatsBar from '@/components/panels/StatsBar';
 import CameraLayoutSelector from '@/components/video/CameraLayoutSelector';
 import CameraGrid from '@/components/video/CameraGrid';
 import FloorPlan from '@/components/panels/FloorPlan';
+import { useWebSocket } from '@/hooks/useWebSocket';
 
 export default function LiveViewPage() {
+  useWebSocket();
+
   const [cameraLayout, setCameraLayout] = useState(4);
   const [showFloorPlan, setShowFloorPlan] = useState(true);
 
@@ -66,16 +69,14 @@ export default function LiveViewPage() {
         {/* Stats Bar */}
         <StatsBar />
 
-        {/* Main Content */}
-        <div className="flex-1 flex overflow-hidden">
-          <main className="flex-1 flex flex-col bg-[#0b0e11] overflow-hidden p-4">
-            {/* Camera Grid */}
+        {/* Main Content — min-h-0 so nested flex children (floor map) keep height */}
+        <div className="flex-1 flex min-h-0 overflow-hidden">
+          <main className="flex-1 flex flex-col min-h-0 bg-[#0b0e11] overflow-hidden p-4">
             <CameraGrid layout={cameraLayout} />
           </main>
 
-          {/* Floor Plan Panel (toggleable) */}
           {showFloorPlan && (
-            <aside className="w-[380px] shrink-0 border-l border-[#2a3441] bg-[#111418] p-4 overflow-hidden flex flex-col">
+            <aside className="w-[380px] max-w-[42vw] shrink-0 border-l border-[#2a3441] bg-[#111418] p-4 overflow-hidden flex flex-col min-h-0">
               <FloorPlan />
             </aside>
           )}

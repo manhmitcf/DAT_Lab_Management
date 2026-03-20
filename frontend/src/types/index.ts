@@ -1,3 +1,31 @@
+/** Matches backend FrameData (Pydantic) — /ws/persist/metadata/ JSON */
+export type AlertType = 'none' | 'info' | 'warning' | 'critical';
+
+export interface ObjectDetection {
+    track_id: number;
+    bbox: [number, number, number, number];
+    coordinates_2D: [number, number];
+}
+
+export interface FrameData {
+    timestamp?: string;
+    count_in?: number;
+    count_out?: number;
+    /** Authoritative current occupancy from edge (prefer over objects.length for KPI) */
+    occupancy?: number;
+    alert?: AlertType;
+    /** Processing FPS from edge; FE falls back to client-side estimate if omitted */
+    fps?: number | null;
+    save_to_db?: boolean;
+    height_frame?: number | null;
+    width_frame?: number | null;
+    height_2D?: number | null;
+    width_2D?: number | null;
+    objects?: ObjectDetection[];
+    /** Legacy optional JPEG base64 (not in standard FrameData) */
+    frame_image?: string;
+}
+
 // Person tracking data from AI detection
 export interface Keypoint {
     x: number;

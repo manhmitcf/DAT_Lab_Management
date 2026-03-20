@@ -59,10 +59,14 @@ FE nhận JSON text được BE forward từ Edge Device:
   "timestamp":    "2026-03-11T10:00:00Z",
   "count_in":     5,
   "count_out":    2,
+  "occupancy":    3,
   "alert":        "info",
+  "fps":          28.5,
   "save_to_db":   true,
   "height_frame": 720,
   "width_frame":  1280,
+  "height_2D":    1000,
+  "width_2D":     1000,
   "objects": [
     {
       "track_id":        101,
@@ -74,32 +78,35 @@ FE nhận JSON text được BE forward từ Edge Device:
 ```
 
 > [!NOTE]
-> Không có `frame_image` trong payload này. Video được stream riêng qua WebRTC/Janus.
+> Schema khớp Pydantic `FrameData` trên BE. Không có `frame_image` trong model chuẩn; video qua WebRTC/Janus.
 
 ### FE sử dụng payload cho:
 
 | Thành phần UI | Trường | Cách xử lý |
 |---------------|--------|------------|
-| **Floor Plan dots** | `objects[].coordinates_2D` | Ánh xạ toạ độ lên floor plan |
-| **Occupancy count** | `objects.length` | Đếm trực tiếp |
+| **Floor Plan dots** | `objects[].coordinates_2D` + `width_2D` / `height_2D` | Chuẩn hoá % (fallback config nếu null) |
+| **Occupancy KPI** | `occupancy` | Ưu tiên từ edge; fallback `objects.length` |
 | **Ingress / Egress** | `count_in` / `count_out` | Hiển thị trực tiếp |
 | **Alert badge** | `alert` | `none` → xanh · `info` → vàng · `warning` → cam · `critical` → đỏ |
 | **Timestamp** | `timestamp` | ISO → giờ địa phương |
-| **FPS** | — | Tính client-side từ khoảng cách giữa 2 frame |
+| **FPS** | `fps` | Dùng từ edge nếu có; không thì ước lượng client |
 
 ### Field Reference
 
 | Field | Type | Mô tả |
 |-------|------|--------|
-| `timestamp` | ISO 8601 string | Thời gian UTC của frame |
-| `count_in` | int | Tổng người vào từ đầu session |
-| `count_out` | int | Tổng người ra từ đầu session |
+| `timestamp` | ISO 8601 string | Thời gian UTC inference |
+| `count_in` | int | Tổng người vào (cumulative) |
+| `count_out` | int | Tổng người ra (cumulative) |
+| `occupancy` | int | Số người hiện tại trong vùng (theo edge) |
 | `alert` | string | `"none"` · `"info"` · `"warning"` · `"critical"` |
-| `save_to_db` | bool | `true` = frame này đã được lưu vào DB (History) |
-| `width_frame` / `height_frame` | int | Kích thước camera frame gốc |
-| `objects[].track_id` | int | ID theo dõi duy nhất mỗi người |
-| `objects[].bbox` | float[4] | `[x1, y1, x2, y2]` pixel trên ảnh gốc |
-| `objects[].coordinates_2D` | int[2] | `[x, y]` pixel trên floor plan |
+| `fps` | float \| null | FPS xử lý trên edge |
+| `save_to_db` | bool | `true` = BE có thể persist (heatmap/analytics) |
+| `width_frame` / `height_frame` | int \| null | Kích thước frame gốc (px) |
+| `width_2D` / `height_2D` | int \| null | Kích thước bản đồ 2D (px) |
+| `objects[].track_id` | int | ID theo dõi |
+| `objects[].bbox` | float[4] | `[x1, y1, x2, y2]` trên frame gốc |
+| `objects[].coordinates_2D` | number[2] | `[x, y]` trên floor plan |
 
 > [!NOTE]
 > `save_to_db: true` = BE đã lưu snapshot vào DB, FE có thể thấy trong History sau đó.
