@@ -31,9 +31,28 @@ export default function MainSidebar() {
             `}
             aria-label="Main navigation"
         >
-            <div className={`flex flex-col gap-1 pb-3 ${isCollapsed ? 'px-2 pt-4' : 'px-3 pt-5'}`}>
+            <div className={`flex flex-col gap-1 pb-3 ${isCollapsed ? 'px-2 pt-3' : 'px-3 pt-3'}`}>
+                {/* Narrow / expand — top of sidebar (easy to find, out of the nav flow) */}
+                <button
+                    type="button"
+                    onClick={toggleSidebar}
+                    title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                    className={`
+                        mb-3 flex w-full items-center rounded-lg border border-[#283039]/60 bg-[#1a222a]/40
+                        text-gray-500 transition-colors hover:border-[#137fec]/25 hover:bg-[#1f2937] hover:text-gray-300
+                        ${isCollapsed ? 'justify-center py-2.5' : 'justify-center gap-2 py-2 px-2'}
+                    `}
+                >
+                    <span className="material-symbols-outlined text-[20px] text-gray-400">
+                        {isCollapsed ? 'dock_to_left' : 'dock_to_right'}
+                    </span>
+                    {!isCollapsed && (
+                        <span className="text-[11px] font-medium tracking-wide">Narrow menu</span>
+                    )}
+                </button>
+
                 <div
-                    className={`mb-5 flex items-center ${isCollapsed ? 'justify-center px-0' : 'gap-3 px-2'}`}
+                    className={`mb-4 flex items-center ${isCollapsed ? 'justify-center px-0' : 'gap-3 px-2'}`}
                 >
                     <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#137fec]/15 text-[#137fec] ring-1 ring-[#137fec]/25">
                         <span className="material-symbols-outlined text-[22px]">shield_person</span>
@@ -93,25 +112,6 @@ export default function MainSidebar() {
                         );
                     })}
                 </div>
-
-                {/* Toggle: full-width text when open (no corner chevron); icon + tooltip when collapsed */}
-                <button
-                    type="button"
-                    onClick={toggleSidebar}
-                    title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-                    className={`
-                        mt-3 flex w-full items-center rounded-lg border border-[#283039]/60 bg-[#1a222a]/40
-                        text-gray-500 transition-colors hover:border-[#137fec]/25 hover:bg-[#1f2937] hover:text-gray-300
-                        ${isCollapsed ? 'justify-center py-2.5' : 'justify-center gap-2 py-2 px-2'}
-                    `}
-                >
-                    <span className="material-symbols-outlined text-[20px] text-gray-400">
-                        {isCollapsed ? 'dock_to_left' : 'dock_to_right'}
-                    </span>
-                    {!isCollapsed && (
-                        <span className="text-[11px] font-medium tracking-wide">Narrow menu</span>
-                    )}
-                </button>
             </div>
 
             <div className={`flex flex-col gap-1 border-t border-[#283039] p-3 ${isCollapsed ? 'px-2' : ''}`}>
