@@ -16,6 +16,10 @@ class CPPProbeService:
         if os.path.exists(lib_path):
             try:
                 self.lib = ctypes.CDLL(lib_path)
+                # Mapping Results Query
+                self.lib.get_object_mapping_coords.argtypes = [ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_float)]
+                self.lib.get_object_mapping_coords.restype = ctypes.c_bool
+                
                 logger.success(f"Successfully loaded C++ probe library from {lib_path}")
                 
                 # Setup argument types
@@ -113,5 +117,30 @@ class CPPProbeService:
             logger.info("Successfully attached C++ probe to GstPad.")
         except Exception as e:
             logger.error(f"Error attaching C++ probe: {e}")
+
+    def get_object_mapping(self, object_id: int):
+        """
+        Directly query cached mapping coordinates for an object.
+        Returns [x, y] or None if not found/mapping not ready.
+        """
+        if self.lib is None:
+            return None
+        
+        x = ctypes.c_float(0.0)
+        y = ctypes.c_float(0.0)
+        
+        try:
+            found = self.lib.get_object_mapping_coords(
+                ctypes.c_int(object_id),
+                ctypes.byref(x),
+                ctypes.byref(y)
+            )
+            
+            if found:
+                return [float(x.value), float(y.value)]
+        except Exception as e:
+            logger.error(f"Error calling C++ get_object_mapping_coords: {e}")
+            
+        return None
 
 cpp_probe_service = CPPProbeService()

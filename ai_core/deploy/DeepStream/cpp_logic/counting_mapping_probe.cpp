@@ -66,6 +66,7 @@ cv::Mat homography_matrix;
 bool is_mapping_ready = false;
 int map_w_runtime = 723;
 int map_h_runtime = 1266;
+std::map<uint64_t, Point2f> mapping_cache; // Internal cache for Python to query
 
 // ----------------------------------------------------------------------------
 // Step 3.1 & 3.4: Counting Logic Updates
@@ -108,8 +109,19 @@ extern "C" void update_mapping_config(float* cam_pts, float* map_pts, int num_pt
         is_mapping_ready = true;
         map_w_runtime = map_w;
         map_h_runtime = map_h;
+        mapping_cache.clear(); // Reset cache
         std::cout << "[C++ Probe] Mapping matrix updated successfully." << std::endl;
     }
+}
+
+extern "C" bool get_object_mapping_coords(int object_id, float* x, float* y) {
+    std::lock_guard<std::mutex> lock(settings_mutex);
+    if (mapping_cache.find(object_id) != mapping_cache.end()) {
+        *x = mapping_cache[object_id].x;
+        *y = mapping_cache[object_id].y;
+        return true;
+    }
+    return false;
 }
 
 // ----------------------------------------------------------------------------
@@ -186,20 +198,8 @@ extern "C" GstPadProbeReturn cpp_logic_pad_buffer_probe(GstPad *pad, GstPadProbe
                     obj_meta->text_params.display_text = g_strdup(new_text.c_str());
                 }
 
-                // --- INJECT NvDsUserMeta ---
-                NvDsUserMeta *user_meta = nvds_acquire_user_meta_from_pool(batch_meta);
-                if (user_meta) {
-                    CustomMappingData *meta_data = new CustomMappingData;
-                    meta_data->map_x = dst_pts[0].x;
-                    meta_data->map_y = dst_pts[0].y;
-                    
-                    user_meta->user_meta_data = (void *)meta_data;
-                    user_meta->base_meta.meta_type = NVDS_CUSTOM_MAPPING_META;
-                    user_meta->base_meta.copy_func = (NvDsMetaCopyFunc)copy_custom_mapping_meta;
-                    user_meta->base_meta.release_func = (NvDsMetaReleaseFunc)release_custom_mapping_meta;
-                    
-                    nvds_add_user_meta_to_obj(obj_meta, user_meta);
-                }
+                // --- CACHE COORDINATES FOR PYTHON ---
+                mapping_cache[obj_meta->object_id] = {dst_pts[0].x, dst_pts[0].y};
             }
         }
     }

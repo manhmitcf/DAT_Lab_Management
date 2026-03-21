@@ -71,23 +71,8 @@ class OSDProbeHandler:
                 
                 mapped_coords = None
                 if obj_meta.object_id > 0:
-                    l_user_meta = obj_meta.obj_user_meta_list
-                    while l_user_meta is not None:
-                        try:
-                            user_meta = pyds.NvDsUserMeta.cast(l_user_meta.data)
-                        except StopIteration:
-                            break
-                        
-                        target_type = pyds.nvds_get_user_meta_type("NVDS.CUSTOM.MAPPING.META")
-                        if user_meta.base_meta.meta_type == target_type:
-                            c_ptr = ctypes.cast(pyds.get_ptr(user_meta.user_meta_data), ctypes.POINTER(CustomMappingData))
-                            c_data = c_ptr.contents
-                            mapped_coords = [float(c_data.map_x), float(c_data.map_y)]
-                            
-                        try:
-                            l_user_meta = l_user_meta.next
-                        except StopIteration:
-                            break
+                    # Direct query from C++ cache (No Metadata iteration = NO DOUBLE FREE)
+                    mapped_coords = cpp_probe_service.get_object_mapping(obj_meta.object_id)
 
                 if obj_meta.object_id > 0:
                     rect = obj_meta.rect_params
