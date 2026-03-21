@@ -152,114 +152,45 @@ export const detectionActivity = [
     { hour: '22:00', count: 52 },
 ];
 
-// Analytics data
+// Analytics data — fallback when API fails (all zeros)
+const ZERO_HOURS = Array(24).fill(0);
+const HOUR_LABELS = Array.from({ length: 24 }, (_, i) => `${i.toString().padStart(2, '0')}:00`);
+const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
 export const analyticsData = {
     // GET /analytics/summary
     summary: {
-        current_occupancy: 42,
-        peak_occupancy: 84,
-        peak_time: '14:30',
-        avg_dwell_time_minutes: 23.5,
-        total_in: 847,
-        total_out: 743,
-        net_flow: 104,
+        current_occupancy: 0,
+        peak_occupancy: 0,
+        peak_time: '',
+        avg_dwell_time_minutes: 0,
+        total_in: 0,
+        total_out: 0,
+        net_flow: 0,
     },
     // GET /analytics/occupancy-trends
     occupancyTrends: {
-        current: [
-            { time: '00:00', occupancy: 12, entry: 5, exit: 3 },
-            { time: '02:00', occupancy: 8, entry: 2, exit: 6 },
-            { time: '04:00', occupancy: 5, entry: 1, exit: 4 },
-            { time: '06:00', occupancy: 15, entry: 12, exit: 2 },
-            { time: '08:00', occupancy: 45, entry: 35, exit: 5 },
-            { time: '10:00', occupancy: 68, entry: 28, exit: 5 },
-            { time: '12:00', occupancy: 52, entry: 10, exit: 26 },
-            { time: '14:00', occupancy: 84, entry: 42, exit: 10 },
-            { time: '16:00', occupancy: 62, entry: 8, exit: 30 },
-            { time: '18:00', occupancy: 35, entry: 5, exit: 32 },
-            { time: '20:00', occupancy: 18, entry: 3, exit: 20 },
-            { time: '22:00', occupancy: 10, entry: 2, exit: 10 },
-        ],
-        previous: [
-            { time: '00:00', occupancy: 15, entry: 7, exit: 4 },
-            { time: '02:00', occupancy: 10, entry: 3, exit: 8 },
-            { time: '04:00', occupancy: 6, entry: 2, exit: 6 },
-            { time: '06:00', occupancy: 18, entry: 14, exit: 2 },
-            { time: '08:00', occupancy: 50, entry: 38, exit: 6 },
-            { time: '10:00', occupancy: 72, entry: 30, exit: 8 },
-            { time: '12:00', occupancy: 55, entry: 12, exit: 29 },
-            { time: '14:00', occupancy: 78, entry: 35, exit: 12 },
-            { time: '16:00', occupancy: 58, entry: 10, exit: 30 },
-            { time: '18:00', occupancy: 30, entry: 4, exit: 32 },
-            { time: '20:00', occupancy: 15, entry: 2, exit: 17 },
-            { time: '22:00', occupancy: 8, entry: 1, exit: 8 },
-        ],
+        current: HOUR_LABELS.map((time) => ({ time, occupancy: 0, entry: 0, exit: 0 })),
+        previous: HOUR_LABELS.map((time) => ({ time, occupancy: 0, entry: 0, exit: 0 })),
     },
     // GET /analytics/heatmap
-    heatmap: [
-        { day: 'Mon', hours: [0.05, 0.03, 0.02, 0.02, 0.08, 0.25, 0.55, 0.72, 0.85, 0.92, 0.88, 0.78, 0.82, 0.75, 0.68, 0.62, 0.70, 0.65, 0.45, 0.38, 0.30, 0.22, 0.15, 0.08] },
-        { day: 'Tue', hours: [0.04, 0.02, 0.01, 0.02, 0.10, 0.30, 0.60, 0.75, 0.88, 0.95, 0.90, 0.80, 0.85, 0.78, 0.70, 0.65, 0.72, 0.68, 0.48, 0.40, 0.32, 0.25, 0.18, 0.10] },
-        { day: 'Wed', hours: [0.06, 0.04, 0.02, 0.03, 0.12, 0.35, 0.62, 0.80, 0.90, 0.98, 0.92, 0.85, 0.88, 0.82, 0.75, 0.70, 0.78, 0.72, 0.52, 0.42, 0.35, 0.28, 0.20, 0.12] },
-        { day: 'Thu', hours: [0.05, 0.03, 0.02, 0.02, 0.10, 0.28, 0.58, 0.74, 0.86, 0.94, 0.88, 0.80, 0.84, 0.76, 0.70, 0.64, 0.72, 0.66, 0.46, 0.38, 0.30, 0.24, 0.16, 0.09] },
-        { day: 'Fri', hours: [0.06, 0.04, 0.03, 0.03, 0.12, 0.32, 0.60, 0.78, 0.88, 0.96, 0.90, 0.82, 0.86, 0.80, 0.72, 0.68, 0.75, 0.70, 0.50, 0.42, 0.34, 0.26, 0.18, 0.10] },
-        { day: 'Sat', hours: [0.03, 0.02, 0.01, 0.01, 0.05, 0.15, 0.30, 0.42, 0.50, 0.55, 0.52, 0.48, 0.50, 0.46, 0.40, 0.35, 0.38, 0.32, 0.25, 0.20, 0.15, 0.10, 0.08, 0.05] },
-        { day: 'Sun', hours: [0.02, 0.01, 0.01, 0.01, 0.03, 0.10, 0.20, 0.30, 0.35, 0.40, 0.38, 0.35, 0.36, 0.32, 0.28, 0.25, 0.28, 0.24, 0.18, 0.14, 0.10, 0.08, 0.05, 0.03] },
-    ],
+    heatmap: DAY_NAMES.map((day) => ({ day, hours: [...ZERO_HOURS] })),
     // GET /analytics/traffic-daily
-    trafficDaily: [
-        { day: 'Mon', total_in: 120, total_out: 115 },
-        { day: 'Tue', total_in: 145, total_out: 138 },
-        { day: 'Wed', total_in: 160, total_out: 152 },
-        { day: 'Thu', total_in: 135, total_out: 128 },
-        { day: 'Fri', total_in: 155, total_out: 148 },
-        { day: 'Sat', total_in: 75, total_out: 70 },
-        { day: 'Sun', total_in: 55, total_out: 50 },
-    ],
+    trafficDaily: DAY_NAMES.map((day) => ({ day, total_in: 0, total_out: 0 })),
     // GET /analytics/flow-ratio
     flowRatio: {
-        entry_exit: { total_in: 847, total_out: 743, in_percentage: 53.3, out_percentage: 46.7 },
+        entry_exit: { total_in: 0, total_out: 0, in_percentage: 0, out_percentage: 0 },
         dwell_distribution: [
-            { range: '< 5 min', percentage: 25 },
-            { range: '5-15 min', percentage: 35 },
-            { range: '15-30 min', percentage: 25 },
-            { range: '> 30 min', percentage: 15 },
+            { range: '< 5 min', percentage: 0 },
+            { range: '5-15 min', percentage: 0 },
+            { range: '15-30 min', percentage: 0 },
+            { range: '> 30 min', percentage: 0 },
         ],
     },
     // GET /analytics/peak-daily
-    peakDaily: [
-        { day: 'Mon', peak: 72, time: '14:30' },
-        { day: 'Tue', peak: 85, time: '10:15' },
-        { day: 'Wed', peak: 94, time: '14:00' },
-        { day: 'Thu', peak: 78, time: '11:30' },
-        { day: 'Fri', peak: 88, time: '15:00' },
-        { day: 'Sat', peak: 45, time: '12:00' },
-        { day: 'Sun', peak: 32, time: '10:30' },
-    ],
+    peakDaily: DAY_NAMES.map((day) => ({ day, peak: 0, time: '' })),
     // GET /analytics/cumulative-traffic
-    cumulativeTraffic: [
-        { time: '00:00', cumulative_in: 0, cumulative_out: 0 },
-        { time: '02:00', cumulative_in: 12, cumulative_out: 8 },
-        { time: '04:00', cumulative_in: 18, cumulative_out: 15 },
-        { time: '06:00', cumulative_in: 45, cumulative_out: 28 },
-        { time: '08:00', cumulative_in: 150, cumulative_out: 82 },
-        { time: '10:00', cumulative_in: 320, cumulative_out: 195 },
-        { time: '12:00', cumulative_in: 480, cumulative_out: 350 },
-        { time: '14:00', cumulative_in: 620, cumulative_out: 475 },
-        { time: '16:00', cumulative_in: 720, cumulative_out: 590 },
-        { time: '18:00', cumulative_in: 790, cumulative_out: 680 },
-        { time: '20:00', cumulative_in: 825, cumulative_out: 720 },
-        { time: '22:00', cumulative_in: 847, cumulative_out: 743 },
-    ],
+    cumulativeTraffic: HOUR_LABELS.map((time) => ({ time, cumulative_in: 0, cumulative_out: 0 })),
     // GET /analytics/dwell-by-hour
-    dwellByHour: [
-        { time: '06:00', avg_dwell: 8 },
-        { time: '08:00', avg_dwell: 15 },
-        { time: '10:00', avg_dwell: 28 },
-        { time: '12:00', avg_dwell: 35 },
-        { time: '14:00', avg_dwell: 42 },
-        { time: '16:00', avg_dwell: 30 },
-        { time: '18:00', avg_dwell: 22 },
-        { time: '20:00', avg_dwell: 12 },
-        { time: '22:00', avg_dwell: 6 },
-    ],
+    dwellByHour: HOUR_LABELS.map((time) => ({ time, avg_dwell: 0 })),
 };
