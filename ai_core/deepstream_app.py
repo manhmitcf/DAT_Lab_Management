@@ -225,5 +225,18 @@ class DeepStreamApp:
             self.pub_thread.join()
 
 if __name__ == "__main__":
+    import sys
+    
+    logger.remove()
+    logger.add(
+        sys.stdout, 
+        colorize=True, 
+        format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
+    )
+    
+    os.makedirs("logs", exist_ok=True)
+    logger.add("logs/app.log", rotation="50 MB", retention="5", level="INFO")
+    
+    logger.info("DeepStream AI Application Initializing...")
     app = DeepStreamApp()
     app.run()
