@@ -215,6 +215,11 @@ class DeepStreamApp:
         tracker = Gst.ElementFactory.make("nvtracker", "tracker")
         tracker_lib = os.getenv("TRACKER_LIB_PATH", "/workspace/ai_core/deploy/OCSort/cpp/build/libnvds_ocsort.so")
         tracker.set_property("ll-lib-file", tracker_lib)
+        tracker.set_property("tracker-width", 640)
+        tracker.set_property("tracker-height", 640)
+        tracker.set_property("gpu-id", 0)
+        tracker.set_property("enable-batch-process", 1)
+        tracker.set_property("display-tracking-id", 1)
 
         nvvidconv = Gst.ElementFactory.make("nvvideoconvert", "convertor")
         nvosd = Gst.ElementFactory.make("nvdsosd", "onscreendisplay")
