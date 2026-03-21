@@ -213,7 +213,7 @@ class DeepStreamApp:
         streammux.set_property("width", 1280)
         streammux.set_property("height", 720)
         streammux.set_property("batch-size", 1)
-        streammux.set_property("batched-push-timeout", 40000)
+        streammux.set_property("batched-push-timeout", 33000)
         if is_live:
             streammux.set_property("live-source", 1)  # CRITICAL for USB Cameras
 
