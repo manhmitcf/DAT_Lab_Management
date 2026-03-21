@@ -170,6 +170,30 @@ class DeepStreamApp:
         except Exception as e:
             logger.error(f"Error handling counting update: {e}")
 
+    def load_initial_configs(self):
+        """Loads counting and mapping settings from local JSON if available."""
+        # 1. Counting Config
+        counting_path = "config/counting_config.json"
+        if os.path.exists(counting_path):
+            try:
+                with open(counting_path, 'r') as f:
+                    cfg = json.load(f)
+                self.handle_counting_update(cfg)
+                logger.info(f"[CONFIG] Initial Counting settings loaded from {counting_path}")
+            except Exception as e:
+                logger.error(f"[CONFIG] Failed to load initial counting config: {e}")
+
+        # 2. Mapping Config
+        mapping_path = "config/mapping_config.json"
+        if os.path.exists(mapping_path):
+            try:
+                with open(mapping_path, 'r') as f:
+                    cfg = json.load(f)
+                self.handle_mapping_update(cfg)
+                logger.info(f"[CONFIG] Initial Mapping settings loaded from {mapping_path}")
+            except Exception as e:
+                logger.error(f"[CONFIG] Failed to load initial mapping config: {e}")
+
     def build_pipeline(self) -> None:
         """Creates and links the entire GStreamer DeepStream network pipeline."""
         logger.info("[PIPELINE] Initializing GStreamer elements...")
@@ -333,7 +357,7 @@ class DeepStreamApp:
             if cpp_probe_service.is_available:
                 tracker_src_pad = tracker.get_static_pad("src")
                 if tracker_src_pad:
-                    pad_ptr = hash(tracker_src_pad)
+                    pad_ptr = pyds.get_ptr(tracker_src_pad)
                     cpp_probe_service.attach_probe(pad_ptr)
                     logger.success("C++ Counting & Mapping Probe successfully attached to Tracker src pad.")
         except Exception as e:
