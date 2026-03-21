@@ -182,14 +182,20 @@ class DeepStreamApp:
         source = Gst.ElementFactory.make("v4l2src", "source")
         source.set_property("device", self.video_source)
         source.set_property("io-mode", 2)
+        source.set_property("do-timestamp", True)
         
         caps_v4l2src = Gst.ElementFactory.make("capsfilter", "v4l2src_caps")
-        caps_v4l2src.set_property("caps", Gst.Caps.from_string("image/jpeg,width=1920,height=1080,framerate=30/1"))
+        caps_v4l2src.set_property("caps", Gst.Caps.from_string("image/jpeg,width=1280,height=720,framerate=30/1"))
+        
+        cam_queue = Gst.ElementFactory.make("queue", "camera-queue")
+        cam_queue.set_property("max-size-buffers", 1)
+        cam_queue.set_property("leaky", 2)  # leaky=downstream
+
         jpegdec = Gst.ElementFactory.make("nvjpegdec", "jpeg-decoder")
 
         streammux = Gst.ElementFactory.make("nvstreammux", "stream-muxer")
-        streammux.set_property("width", 1920)
-        streammux.set_property("height", 1080)
+        streammux.set_property("width", 1280)
+        streammux.set_property("height", 720)
         streammux.set_property("batch-size", 1)
         streammux.set_property("batched-push-timeout", 40000)
 
@@ -224,6 +230,7 @@ class DeepStreamApp:
 
         rtppay = Gst.ElementFactory.make("rtph264pay", "rtp-payer")
         rtppay.set_property("pt", 96)
+        rtppay.set_property("aggregate-mode", 1)  # 1 = zero-latency
 
         udpsink = Gst.ElementFactory.make("udpsink", "udp-sink")
         udpsink.set_property("host", self.janus_ip)
@@ -231,7 +238,7 @@ class DeepStreamApp:
         udpsink.set_property("async", False)
         udpsink.set_property("sync", False)
 
-        elements = [source, caps_v4l2src, jpegdec, streammux, pgie, tracker, nvvidconv, nvosd, nvvidconv2, caps_enc, encoder, h264parse, rtppay, udpsink]
+        elements = [source, caps_v4l2src, cam_queue, jpegdec, streammux, pgie, tracker, nvvidconv, nvosd, nvvidconv2, caps_enc, encoder, h264parse, rtppay, udpsink]
 
         for elem in elements:
             if not elem:
@@ -252,7 +259,8 @@ class DeepStreamApp:
                 logger.debug(f"[PIPELINE] Linked {e1.get_name()} → {e2.get_name()}")
 
         _link(source, caps_v4l2src)
-        _link(caps_v4l2src, jpegdec)
+        _link(caps_v4l2src, cam_queue)
+        _link(cam_queue, jpegdec)
         
         sinkpad = streammux.get_request_pad("sink_0")
         srcpad = jpegdec.get_static_pad("src")
