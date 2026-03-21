@@ -13,7 +13,7 @@
 #include <opencv2/calib3d.hpp>
 #include <opencv2/core.hpp>
 
-#include "nvds_meta.h"
+#include "nvdsmeta.h"
 #include "gstnvdsmeta.h"
 #include "nvdstracker.h"
 
