@@ -71,7 +71,7 @@ RUN cd deploy/DeepStream && make
 RUN cd deploy/OCSort/cpp && mkdir -p build && cd build && cmake .. && make
 
 # Compile the Custom C++ Counting & Mapping Probe (libcounting_mapping.so)
-RUN cd deploy/DeepStream/cpp_logic && make
+RUN echo "=== Locating nvds_meta.h ===" && find /opt/nvidia -name "nvds_meta.h" 2>/dev/null && echo "=== Done ===" && cd deploy/DeepStream/cpp_logic && make
 
 # =========================================================
 # 7. Setup Project in Editable Mode
