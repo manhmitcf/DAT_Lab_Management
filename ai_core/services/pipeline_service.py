@@ -19,9 +19,8 @@ class PipelineService:
         mapping_config: MappingConfig,
         video_size: Tuple[int, int],
         map_size: Tuple[int, int],
-        info_threshold: Optional[int] = None,
-        warning_threshold: Optional[int] = None,
-        critical_threshold: Optional[int] = None,
+        warning_threshold: Optional[int] = 25,
+        critical_threshold: Optional[int] = 10,
     ) -> None:
         self.video_size = video_size
         self.map_size = map_size or mapping_config.map_size
@@ -31,7 +30,6 @@ class PipelineService:
         self.counting_config = counting_config
         self.mapping_config = mapping_config
 
-        self.info_threshold = info_threshold
         self.warning_threshold = warning_threshold
         self.critical_threshold = critical_threshold
 
@@ -111,7 +109,7 @@ class PipelineService:
             alert = "critical"
         elif self.warning_threshold is not None and current_people >= self.warning_threshold:
             alert = "warning"
-        elif self.info_threshold is not None and current_people < self.info_threshold:
+        else:
             alert = "info"
 
         return FrameData(
