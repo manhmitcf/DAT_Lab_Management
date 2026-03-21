@@ -52,13 +52,16 @@ COPY . .
 RUN mkdir -p pretrained videos YOLOX_outputs weights config
 
 # =========================================================
-# 5. Build C++ Extensions (Custom YOLOX Parser + OCSort NvMOT)
+# 5. Build C++ Extensions (Custom YOLOX Parser + OCSort NvMOT + Probe)
 # =========================================================
 # Compile the custom YOLOX BBox parser for DeepStream (libnvdsinfer_custom_impl_YoloX.so)
 RUN cd deploy/DeepStream && make || echo "Warning: YoloX Makefile failed."
 
 # Compile the OCSort Tracker wrapped in NvMOT API (libnvds_ocsort.so)
 RUN cd deploy/OCSort/cpp && mkdir -p build && cd build && cmake .. && make || echo "Warning: OCSort CMake failed."
+
+# Compile the Custom C++ Counting & Mapping Probe (libcounting_mapping.so)
+RUN cd deploy/DeepStream/cpp_logic && make || echo "Warning: C++ Metric Probe Makefile failed."
 
 # =========================================================
 # 6. Setup Project in Editable Mode
@@ -69,4 +72,4 @@ RUN pip3 install --no-build-isolation -e .
 # =========================================================
 # 7. Default Command
 # =========================================================
-CMD ["python3", "main.py"]
+CMD ["python3", "deepstream_app.py"]

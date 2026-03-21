@@ -1,14 +1,11 @@
-# TODO: Update with exact module version
-numpy==1.23.5
-torch==1.9.1+cu111
-opencv_python
+
+# Jetson Requirements (L4T r36.4.0)
+# Note: torch, torchvision, opencv-python are pre-installed in L4T base image or handled via apt
+# numpy version is not pinned to support Python 3.12
+numpy
 loguru
-pydantic>=2.5.0
-python-dotenv
-websocket-client
 scikit-image
 tqdm
-torchvision==0.10.1+cu111
 Pillow
 thop
 ninja
@@ -20,7 +17,12 @@ filterpy
 h5py
 protobuf==3.20.3
 
-# verified versions
-onnx==1.8.1
-onnxruntime==1.8.0
-onnx-simplifier==0.3.5
+# Release version constraints for ARM64 compatibility
+onnx
+onnxruntime
+onnx-simplifier
+
+# Backend & Settings synchronization
+pydantic>=2.5.0
+python-dotenv
+websocket-client
