@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef } from 'react';
-import MainSidebar from '@/components/layout/MainSidebar';
+import MainSidebar, { SidebarHamburger } from '@/components/layout/MainSidebar';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
@@ -339,11 +339,12 @@ export default function AnalyticsPage() {
 
             <div className="flex-1 flex flex-col min-h-screen overflow-hidden">
                 {/* Toolbar */}
-                <div className="px-6 py-3.5 bg-surface-1 border-b border-border-default flex items-center justify-between animate-fade-in">
-                    <div className="flex items-center gap-4">
+                <div className="px-4 md:px-6 py-3 md:py-3.5 bg-surface-1 border-b border-border-default flex flex-wrap items-center justify-between gap-3 animate-fade-in">
+                    <div className="flex flex-wrap items-center gap-3 md:gap-4">
+                        <SidebarHamburger />
                         <div className="flex items-center gap-2.5">
                             <span className="material-symbols-outlined text-accent text-xl">analytics</span>
-                            <h1 className="text-lg font-bold text-text-primary tracking-tight">Analytics</h1>
+                            <h1 className="text-base md:text-lg font-bold text-text-primary tracking-tight">Analytics</h1>
                         </div>
                         <div className="h-5 w-px bg-border-subtle" />
                         <SegmentedControl options={timeFrameOptions} value={timeFrame} onChange={setTimeFrame} />
@@ -364,10 +365,10 @@ export default function AnalyticsPage() {
                 </div>
 
                 {/* Scrollable Content */}
-                <main ref={reportRef} className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
+                <main ref={reportRef} className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 md:space-y-6 custom-scrollbar">
 
                     {/* ══════ ROW 1: KPI Cards ══════ */}
-                    <div className="grid grid-cols-5 gap-5 stagger-children">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 md:gap-5 stagger-children">
                         {/* 1. Entry */}
                         <Card className="group" hover>
                             <p className="text-text-tertiary text-[11px] font-medium uppercase tracking-wider mb-2">Entry</p>

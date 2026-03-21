@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import MainSidebar from '@/components/layout/MainSidebar';
+import MainSidebar, { SidebarHamburger } from '@/components/layout/MainSidebar';
 import MappingCalibration from '@/components/panels/MappingCalibration';
 
 export default function SettingsPage() {
@@ -34,11 +34,12 @@ export default function SettingsPage() {
             <MainSidebar />
 
             <div className="flex-1 flex flex-col h-full overflow-hidden animate-fade-in">
-                <header className="shrink-0 bg-surface-1 border-b border-border-default h-16 flex items-center px-8">
-                    <h2 className="text-xl font-bold text-text-primary tracking-tight">Settings</h2>
+                <header className="shrink-0 bg-surface-1 border-b border-border-default h-14 md:h-16 flex items-center px-4 md:px-8 gap-3">
+                    <SidebarHamburger />
+                    <h2 className="text-lg md:text-xl font-bold text-text-primary tracking-tight">Settings</h2>
                 </header>
 
-                <main className="flex-1 overflow-y-auto p-8 space-y-8 bg-surface-0 custom-scrollbar">
+                <main className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 md:space-y-8 bg-surface-0 custom-scrollbar">
                     {/* --- APPEARANCE --- */}
                     <section className="max-w-4xl animate-slide-up" style={{ animationDelay: '0ms' }}>
                         <div className="mb-4">

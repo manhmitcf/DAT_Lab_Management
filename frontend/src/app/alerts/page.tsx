@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import MainSidebar from '@/components/layout/MainSidebar';
+import MainSidebar, { SidebarHamburger } from '@/components/layout/MainSidebar';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
 import StatusDot from '@/components/ui/StatusDot';
@@ -65,11 +65,12 @@ export default function AlertsPage() {
 
             <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
                 {/* Toolbar */}
-                <div className="px-6 py-3.5 bg-surface-1 border-b border-border-default flex items-center justify-between gap-4 animate-fade-in">
-                    <div className="flex items-center gap-4">
+                <div className="px-4 md:px-6 py-3 md:py-3.5 bg-surface-1 border-b border-border-default flex flex-wrap items-center justify-between gap-3 animate-fade-in">
+                    <div className="flex flex-wrap items-center gap-3 md:gap-4">
+                        <SidebarHamburger />
                         <div className="flex items-center gap-2.5">
                             <span className="material-symbols-outlined text-danger text-xl">warning</span>
-                            <h1 className="text-lg font-bold text-text-primary tracking-tight">Alert Management</h1>
+                            <h1 className="text-base md:text-lg font-bold text-text-primary tracking-tight">Alert Management</h1>
                             <Badge variant="danger">{alerts.length} Total</Badge>
                         </div>
 
@@ -87,7 +88,7 @@ export default function AlertsPage() {
 
                 {/* Timeline feed */}
                 <div className="flex-1 overflow-y-auto">
-                    <div className="max-w-5xl mx-auto pl-12 pr-6 py-4 relative stagger-children">
+                    <div className="max-w-5xl mx-auto pl-6 md:pl-12 pr-4 md:pr-6 py-4 relative stagger-children">
                         {/* Vertical timeline line */}
                         <div className="absolute left-[42px] top-0 bottom-0 w-px bg-border-default" />
 

@@ -8,10 +8,23 @@ const MIN_MAP = 260;
 const MIN_VIDEO = 280;
 const HANDLE_W = 10;
 
+function useIsLg() {
+    const [isLg, setIsLg] = useState(false);
+    useEffect(() => {
+        const m = window.matchMedia('(min-width: 1024px)');
+        setIsLg(m.matches);
+        const h = () => setIsLg(m.matches);
+        m.addEventListener('change', h);
+        return () => m.removeEventListener('change', h);
+    }, []);
+    return isLg;
+}
+
 export default function LiveWorkspace() {
     const containerRef = useRef<HTMLDivElement>(null);
     const dragRef = useRef<{ startX: number; startMapW: number } | null>(null);
     const [mapWidth, setMapWidth] = useState(400);
+    const isLg = useIsLg();
 
     const onPointerMove = useCallback((e: PointerEvent) => {
         const drag = dragRef.current;
@@ -63,9 +76,9 @@ export default function LiveWorkspace() {
     return (
         <div
             ref={containerRef}
-            className="flex flex-1 min-h-0 w-full flex-row bg-[#0b0e11]"
+            className="flex flex-1 min-h-0 w-full flex-col lg:flex-row bg-[#0b0e11]"
         >
-            <section className="min-h-0 min-w-0 flex flex-1 flex-col" style={{ minWidth: MIN_VIDEO }}>
+            <section className="min-h-0 min-w-0 flex flex-1 flex-col flex-[2] lg:flex-[1]" style={{ minWidth: MIN_VIDEO, minHeight: 200 }}>
                 <VideoPlayer />
             </section>
 
@@ -74,14 +87,14 @@ export default function LiveWorkspace() {
                 aria-orientation="vertical"
                 aria-label="Resize camera and map panels"
                 onPointerDown={onPointerDown}
-                className="group relative z-20 flex w-2.5 shrink-0 cursor-col-resize items-center justify-center bg-[#0b0e11] hover:bg-[#1a222c]"
+                className="hidden lg:flex group relative z-20 w-2.5 shrink-0 cursor-col-resize items-center justify-center bg-[#0b0e11] hover:bg-[#1a222c]"
             >
                 <span className="h-16 w-1 rounded-full bg-[#3d4b5c] transition-colors group-hover:bg-[#137fec]/80 group-active:bg-[#137fec]" />
             </div>
 
             <section
-                className="flex min-h-0 shrink-0 flex-col overflow-hidden bg-[#0b0e11]"
-                style={{ width: mapWidth, maxWidth: '62%' }}
+                className="flex min-h-[200px] lg:min-h-0 flex-col overflow-hidden bg-[#0b0e11]"
+                style={isLg ? { width: mapWidth, maxWidth: '62%', flex: 'none' } : { flex: 1 }}
             >
                 <FloorPlan />
             </section>

@@ -1196,14 +1196,14 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
     const handleSave = () => mode === 'mapping' ? saveMapping() : saveCounting();
 
     const modal = (
-        <div className="fixed inset-0 flex items-center justify-center bg-black/80 backdrop-blur-sm"
+        <div className="fixed inset-0 flex items-center justify-center bg-black/80 backdrop-blur-sm p-2 sm:p-4"
             style={{ zIndex: 9999 }} onClick={onClose}>
-            <div className="bg-surface-1 border border-border-strong rounded-[var(--radius-xl)] shadow-2xl flex flex-col"
-                style={{ width: 'calc(100vw - 3rem)', height: 'calc(100vh - 3rem)', zIndex: 10000 }}
+            <div className="bg-surface-1 border border-border-strong rounded-[var(--radius-xl)] shadow-2xl flex flex-col w-full max-w-[calc(100vw-1rem)] sm:max-w-[calc(100vw-2rem)] lg:max-w-[calc(100vw-3rem)] h-[calc(100vh-1rem)] sm:h-[calc(100vh-2rem)] lg:h-[calc(100vh-3rem)]"
+                style={{ zIndex: 10000 }}
                 onClick={e => e.stopPropagation()}>
 
                 {/* ── Header ── */}
-                <div className="shrink-0 flex items-center gap-3 px-5 py-3 border-b border-border-default flex-wrap gap-y-2">
+                <div className="shrink-0 flex items-center gap-2 sm:gap-3 px-3 sm:px-5 py-2 sm:py-3 border-b border-border-default flex-wrap gap-y-2">
                     <span className="material-symbols-outlined text-accent shrink-0">map</span>
 
                     {/* Mode tabs */}
@@ -1338,8 +1338,8 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
                 )}
 
                 {/* ── Body ── */}
-                <div className="flex flex-1 min-h-0 overflow-hidden">
-                    <div className="flex-1 min-w-0 p-4 flex flex-col gap-3 min-h-0">
+                <div className="flex flex-col lg:flex-row flex-1 min-h-0 overflow-hidden">
+                    <div className="flex-1 min-w-0 p-3 sm:p-4 flex flex-col gap-2 sm:gap-3 min-h-0">
 
                         {/* ── Mapping mode ── */}
                         {mode === 'mapping' && (
@@ -1350,7 +1350,7 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
                                     <span className="text-accent font-medium ml-1">Click dot</span> → ↑↓←→ ·
                                     <span className="text-accent font-medium ml-1">Hover 0.5s or hold 0.3s</span> → drag to move
                                 </p>
-                                <div className="flex gap-4 flex-1 min-h-0">
+                                <div className="flex flex-col lg:flex-row gap-3 lg:gap-4 flex-1 min-h-0">
                                     <ZoomableCanvas ref={camZoom} label="Camera Frame"
                                         labelExtra={wsStatus !== 'connected' && <span className="text-warning normal-case font-normal ml-1">(no stream)</span>}
                                         isPicking={isMappingCamPicking} isDragTool={false}
@@ -1434,8 +1434,8 @@ export default function MappingCalibration() {
     const [open, setOpen] = useState(false);
     return (
         <>
-            <div className="bg-surface-1 border border-border-default rounded-[var(--radius-xl)] p-5 flex items-center justify-between gap-6">
-                <div className="flex items-start gap-4">
+            <div className="bg-surface-1 border border-border-default rounded-[var(--radius-xl)] p-4 sm:p-5 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 sm:gap-6">
+                <div className="flex items-start gap-3 sm:gap-4">
                     <div className="size-10 rounded-[var(--radius-md)] bg-accent/10 flex items-center justify-center shrink-0">
                         <span className="material-symbols-outlined text-accent">pin_drop</span>
                     </div>

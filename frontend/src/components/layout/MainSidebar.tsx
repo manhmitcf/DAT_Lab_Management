@@ -4,6 +4,20 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSidebarStore } from '@/stores/sidebarStore';
 
+export function SidebarHamburger() {
+    const { toggleMobileOpen } = useSidebarStore();
+    return (
+        <button
+            type="button"
+            onClick={toggleMobileOpen}
+            className="md:hidden flex size-9 items-center justify-center rounded-lg border border-[#283039]/60 bg-[#1a222a]/40 text-gray-400 hover:text-white hover:bg-[#1f2937] transition-colors"
+            aria-label="Open menu"
+        >
+            <span className="material-symbols-outlined text-[22px]">menu</span>
+        </button>
+    );
+}
+
 const navItems = [
     { href: '/', icon: 'monitoring', label: 'Live Monitor' },
     { href: '/analytics', icon: 'analytics', label: 'Analytics' },
@@ -15,7 +29,8 @@ const bottomNavItems = [{ href: '/settings', icon: 'settings', label: 'Settings'
 
 export default function MainSidebar() {
     const pathname = usePathname();
-    const { isCollapsed, toggleSidebar } = useSidebarStore();
+    const { isCollapsed, isMobileOpen, toggleSidebar, setMobileOpen } = useSidebarStore();
+    const closeMobile = () => setMobileOpen(false);
 
     const isActive = (href: string) => {
         if (href === '/') return pathname === '/';
@@ -23,14 +38,28 @@ export default function MainSidebar() {
     };
 
     return (
-        <nav
-            className={`
-                flex shrink-0 flex-col justify-between border-r border-[#283039] bg-[#151b22]
-                transition-[width] duration-200 ease-out
-                ${isCollapsed ? 'w-[72px]' : 'w-[216px]'}
-            `}
-            aria-label="Main navigation"
-        >
+        <>
+            {/* Mobile backdrop */}
+            <div
+                className={`fixed inset-0 z-40 bg-black/50 md:hidden transition-opacity duration-200 ${
+                    isMobileOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+                }`}
+                onClick={() => useSidebarStore.getState().setMobileOpen(false)}
+                aria-hidden
+            />
+            <nav
+                className={`
+                    flex flex-col justify-between border-r border-[#283039] bg-[#151b22]
+                    transition-all duration-200 ease-out z-50
+                    fixed inset-y-0 left-0
+                    w-[min(288px,85vw)] -translate-x-full
+                    md:relative md:translate-x-0 md:shrink-0
+                    md:w-[216px]
+                    ${isCollapsed ? 'md:w-[72px]' : ''}
+                    ${isMobileOpen ? 'translate-x-0' : ''}
+                `}
+                aria-label="Main navigation"
+            >
             <div className={`flex flex-col gap-1 pb-3 ${isCollapsed ? 'px-2 pt-3' : 'px-3 pt-3'}`}>
                 {/* Narrow / expand — top of sidebar (easy to find, out of the nav flow) */}
                 <button
@@ -38,7 +67,7 @@ export default function MainSidebar() {
                     onClick={toggleSidebar}
                     title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
                     className={`
-                        mb-3 flex w-full items-center rounded-lg border border-[#283039]/60 bg-[#1a222a]/40
+                        mb-3 hidden md:flex w-full items-center rounded-lg border border-[#283039]/60 bg-[#1a222a]/40
                         text-gray-500 transition-colors hover:border-[#137fec]/25 hover:bg-[#1f2937] hover:text-gray-300
                         ${isCollapsed ? 'justify-center py-2.5' : 'justify-center gap-2 py-2 px-2'}
                     `}
@@ -74,6 +103,7 @@ export default function MainSidebar() {
                             <Link
                                 key={item.href}
                                 href={item.href}
+                                onClick={closeMobile}
                                 title={isCollapsed ? item.label : undefined}
                                 className={`
                                     relative flex items-center rounded-xl transition-colors
@@ -119,6 +149,7 @@ export default function MainSidebar() {
                     <Link
                         key={item.href}
                         href={item.href}
+                        onClick={closeMobile}
                         title={isCollapsed ? item.label : undefined}
                         className={`
                             flex items-center rounded-xl transition-colors
@@ -147,5 +178,6 @@ export default function MainSidebar() {
                 </button>
             </div>
         </nav>
+        </>
     );
 }
