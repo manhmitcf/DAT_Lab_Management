@@ -156,3 +156,7 @@ videos/
 doc/
 
 .qodo/
+demo.py
+demo_counting.py
+demo_mapping.py
+demo_websocket.py
