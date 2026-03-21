@@ -1,4 +1,4 @@
-FROM nvcr.io/nvidia/deepstream:7.0-triton-multiarch
+FROM nvcr.io/nvidia/deepstream:7.0-samples-multiarch
 
 # Set non-interactive to avoid prompts during apt-get
 ENV DEBIAN_FRONTEND=noninteractive
