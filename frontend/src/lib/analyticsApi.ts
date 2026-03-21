@@ -64,11 +64,6 @@ export interface CumulativeTrafficPoint {
     cumulative_out: number;
 }
 
-export interface DwellByHourPoint {
-    time: string;
-    avg_dwell: number;
-}
-
 async function fetchJson<T>(url: string): Promise<T> {
     const res = await fetch(url);
     if (!res.ok) throw new Error(`Analytics API error: ${res.status}`);
@@ -101,10 +96,6 @@ export async function fetchPeakDaily(period: Period = '7d'): Promise<{ data: Pea
 
 export async function fetchCumulativeTraffic(period: Period): Promise<{ data: CumulativeTrafficPoint[] }> {
     return fetchJson(`${ANALYTICS_BASE}/cumulative-traffic?period=${period}`);
-}
-
-export async function fetchDwellByHour(period: Period): Promise<{ data: DwellByHourPoint[] }> {
-    return fetchJson(`${ANALYTICS_BASE}/dwell-by-hour?period=${period}`);
 }
 
 /** Returns CSV blob for download */

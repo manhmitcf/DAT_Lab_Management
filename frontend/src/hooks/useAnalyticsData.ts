@@ -10,7 +10,6 @@ import {
     fetchFlowRatio,
     fetchPeakDaily,
     fetchCumulativeTraffic,
-    fetchDwellByHour,
 } from '@/lib/analyticsApi';
 import { analyticsData } from '@/lib/mockData';
 
@@ -25,7 +24,6 @@ export interface AnalyticsDataState {
     flowRatio: typeof analyticsData.flowRatio;
     peakDaily: typeof analyticsData.peakDaily;
     cumulativeTraffic: typeof analyticsData.cumulativeTraffic;
-    dwellByHour: typeof analyticsData.dwellByHour;
 }
 
 function getDefaultData(): AnalyticsDataState {
@@ -37,7 +35,6 @@ function getDefaultData(): AnalyticsDataState {
         flowRatio: analyticsData.flowRatio,
         peakDaily: analyticsData.peakDaily,
         cumulativeTraffic: analyticsData.cumulativeTraffic,
-        dwellByHour: analyticsData.dwellByHour,
     };
 }
 
@@ -50,7 +47,7 @@ export function useAnalyticsData(period: Period) {
         setLoading(true);
         setError(null);
         try {
-            const [summary, trends, heatmapRes, trafficRes, flowRes, peakRes, cumRes, dwellRes] = await Promise.all([
+            const [summary, trends, heatmapRes, trafficRes, flowRes, peakRes, cumRes] = await Promise.all([
                 fetchSummary(period),
                 fetchOccupancyTrends(period),
                 fetchHeatmap(period === '1h' || period === 'today' ? '7d' : period),
@@ -58,7 +55,6 @@ export function useAnalyticsData(period: Period) {
                 fetchFlowRatio(period),
                 fetchPeakDaily(period === '1h' || period === 'today' ? '7d' : period),
                 fetchCumulativeTraffic(period),
-                fetchDwellByHour(period),
             ]);
 
             setData({
@@ -72,7 +68,6 @@ export function useAnalyticsData(period: Period) {
                 flowRatio: flowRes,
                 peakDaily: peakRes.data.map((p) => ({ ...p, time: p.time ?? '' })),
                 cumulativeTraffic: cumRes.data,
-                dwellByHour: dwellRes.data,
             });
         } catch (e) {
             setError(e instanceof Error ? e.message : 'Failed to load analytics');

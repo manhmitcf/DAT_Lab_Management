@@ -191,6 +191,4 @@ export const analyticsData = {
     peakDaily: DAY_NAMES.map((day) => ({ day, peak: 0, time: '' })),
     // GET /analytics/cumulative-traffic
     cumulativeTraffic: HOUR_LABELS.map((time) => ({ time, cumulative_in: 0, cumulative_out: 0 })),
-    // GET /analytics/dwell-by-hour
-    dwellByHour: HOUR_LABELS.map((time) => ({ time, avg_dwell: 0 })),
 };

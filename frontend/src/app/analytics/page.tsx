@@ -37,12 +37,10 @@ export default function AnalyticsPage() {
     const [csvExporting, setCsvExporting] = useState(false);
     const reportRef = useRef<HTMLElement>(null);
     const { data, loading, error, refetch } = useAnalyticsData(timeFrame);
-    const { summary, occupancyTrends, heatmap, trafficDaily, flowRatio, peakDaily, cumulativeTraffic, dwellByHour } =
-        data;
+    const { summary, occupancyTrends, heatmap, trafficDaily, flowRatio, peakDaily, cumulativeTraffic } = data;
     const occupancyChartRef = useRef<HTMLDivElement>(null);
     const flowChartRef = useRef<HTMLDivElement>(null);
     const cumulativeChartRef = useRef<HTMLDivElement>(null);
-    const dwellHourChartRef = useRef<HTMLDivElement>(null);
     const heatmapChartRef = useRef<HTMLDivElement>(null);
     const dailyTrafficChartRef = useRef<HTMLDivElement>(null);
     const peakDayChartRef = useRef<HTMLDivElement>(null);
@@ -210,9 +208,6 @@ export default function AnalyticsPage() {
             await addChart(cumulativeChartRef, 'Cumulative Traffic Build-up',
                 `Total throughput for the period has reached ${summary.total_in + summary.total_out} events. The cumulative growth curve demonstrates steady laboratory utilization without sudden surges, indicating controlled access and efficient management.`);
 
-            await addChart(dwellHourChartRef, 'Average Dwell Time by Hour',
-                `Engagement duration peaks correlate with specific activity windows. The average stay of ${summary.avg_dwell_time_minutes} minutes reflects typical deep-work laboratory sessions. Data-driven scheduling should account for these peak occupancy windows.`);
-
             doc.addPage(); yPos = 50;
             await addChart(heatmapChartRef, 'Weekly Activity Heatmap',
                 `The 24/7 heatmap identifies core operational hours and off-peak opportunities. High-intensity cells (blue zones) represent periods where laboratory occupancy frequently reaches maximum capacity, typically matching supervised operation hours.`);
@@ -271,8 +266,6 @@ export default function AnalyticsPage() {
     const maxPeak = peakDaily.length ? Math.max(...peakDaily.map(d => d.peak), 1) : 1;
     const cumVals = cumulativeTraffic.map(d => Math.max(d.cumulative_in, d.cumulative_out));
     const maxCum = cumVals.length ? Math.max(...cumVals, 1) : 1;
-    const dwellVals = dwellByHour.map(d => d.avg_dwell);
-    const maxDwell = dwellVals.length ? Math.max(...dwellVals, 1) : 1;
 
     const cumStep = cumulativeTraffic.length > 1 ? cumulativeTraffic.length - 1 : 1;
     const cumInPath = cumulativeTraffic.map((d, i) => {
@@ -285,14 +278,6 @@ export default function AnalyticsPage() {
         const y = 260 - (d.cumulative_out / maxCum) * 230;
         return `${i === 0 ? 'M' : 'L'}${x},${y}`;
     }).join(' ');
-
-    const dwellStep = dwellByHour.length > 1 ? dwellByHour.length - 1 : 1;
-    const dwellPath = dwellByHour.map((d, i) => {
-        const x = (i / dwellStep) * 1000;
-        const y = 260 - (d.avg_dwell / maxDwell) * 230;
-        return `${i === 0 ? 'M' : 'L'}${x},${y}`;
-    }).join(' ');
-    const dwellArea = dwellPath ? dwellPath + ' L1000,270 L0,270 Z' : '';
 
     return (
         <div className="flex h-screen w-full bg-surface-0">
@@ -486,10 +471,8 @@ export default function AnalyticsPage() {
                         </Card>
                     </div>
 
-                    {/* ══════ ROW 3: Cumulative Area + Dwell by Hour ══════ */}
-                    <div className="grid grid-cols-2 gap-5">
-                        {/* Cumulative Traffic (Area Chart) */}
-                        <Card ref={cumulativeChartRef} className="flex flex-col" padding="lg">
+                    {/* ══════ ROW 3: Cumulative Traffic (Area Chart) ══════ */}
+                    <Card ref={cumulativeChartRef} className="flex flex-col" padding="lg">
                             <div className="flex justify-between items-start mb-4">
                                 <div>
                                     <h3 className="text-[15px] font-bold text-text-primary">Cumulative Traffic</h3>
@@ -533,41 +516,6 @@ export default function AnalyticsPage() {
                                 ))}
                             </div>
                         </Card>
-
-                        {/* Dwell Time by Hour (Area Line Chart) */}
-                        <Card ref={dwellHourChartRef} className="flex flex-col" padding="lg">
-                            <div className="mb-4">
-                                <h3 className="text-[15px] font-bold text-text-primary">Avg Dwell Time by Hour</h3>
-                                <p className="text-[13px] text-text-tertiary mt-0.5">When do visitors stay longest?</p>
-                            </div>
-                            <div className="w-full" style={{ height: 200 }}>
-                                <svg className="w-full h-full" preserveAspectRatio="none" viewBox="0 0 1000 280">
-                                    <defs>
-                                        <linearGradient id="dwellGrad" x1="0" x2="0" y1="0" y2="1">
-                                            <stop offset="0%" stopColor="#a78bfa" stopOpacity="0.2" />
-                                            <stop offset="100%" stopColor="#a78bfa" stopOpacity="0" />
-                                        </linearGradient>
-                                    </defs>
-                                    {[65, 130, 195].map(y => (
-                                        <line key={y} stroke="var(--border-subtle)" x1="0" x2="1000" y1={y} y2={y} />
-                                    ))}
-                                    <path d={dwellArea} fill="url(#dwellGrad)" />
-                                    <path d={dwellPath} fill="none" stroke="#a78bfa" strokeWidth="2.5" strokeLinejoin="round" />
-                                    {/* Data points */}
-                                    {dwellByHour.map((d, i) => {
-                                        const x = (i / (dwellByHour.length - 1)) * 1000;
-                                        const y = 260 - (d.avg_dwell / maxDwell) * 230;
-                                        return <circle key={i} cx={x} cy={y} r="4" fill="#a78bfa" stroke="var(--surface-1)" strokeWidth="2" />;
-                                    })}
-                                </svg>
-                            </div>
-                            <div className="flex justify-between mt-2">
-                                {dwellByHour.map(d => (
-                                    <span key={d.time} className="text-[10px] text-text-tertiary font-mono">{d.time}</span>
-                                ))}
-                            </div>
-                        </Card>
-                    </div>
 
                     {/* ══════ Section: Breakdown ══════ */}
                     <div className="flex items-center gap-3">
