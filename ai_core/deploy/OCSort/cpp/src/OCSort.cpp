@@ -1,4 +1,4 @@
-﻿#include "../include/OCSort.hpp"
+#include "../include/OCSort.hpp"
 #include "iomanip"
 #include <utility>
 
@@ -44,9 +44,9 @@ namespace ocsort {
         auto inds_low = confs.array() > 0.1;
         auto inds_high = confs.array() < det_thresh;
         auto inds_second = inds_low && inds_high;
-        Eigen::Matrix<float, Eigen::Dynamic, 6> dets_second;
+        Eigen::Matrix<float, Eigen::Dynamic, 7> dets_second;
         Eigen::Matrix<bool, 1, Eigen::Dynamic> remain_inds = (confs.array() > det_thresh);
-        Eigen::Matrix<float, Eigen::Dynamic, 6> dets_first;
+        Eigen::Matrix<float, Eigen::Dynamic, 7> dets_first;
         for (int i = 0; i < output_results.rows(); i++) {
             if (true == inds_second(i)) {
                 dets_second.conservativeResize(dets_second.rows() + 1, Eigen::NoChange);
@@ -133,7 +133,7 @@ namespace ocsort {
 
 
         if (unmatched_dets.size() > 0 && unmatched_trks.size() > 0) {
-            Eigen::MatrixXf left_dets(unmatched_dets.size(), 6);
+            Eigen::MatrixXf left_dets(unmatched_dets.size(), 7);
             int inx_for_dets = 0;
             for (auto i : unmatched_dets) {
                 left_dets.row(inx_for_dets++) = dets_first.row(i);
