@@ -14,27 +14,21 @@ jobs:
       - name: Checkout Source Code
         uses: actions/checkout@v3
 
-      - name: Build Docker Image on Jetson (ARM64 Native)
+      - name: Sync Source Code to Desktop Directory
         run: |
-          echo "Building Docker Image directly on Jetson hardware..."
-          cd ai_core
-          docker build -t manhmitcf/dat_lab_management_aicore:deploy .
+          echo "Syncing new project files directly to ~/Desktop/DAT_Lab-Management (keeping models and envs safe)..."
+          rsync -av --exclude '.git' --exclude 'ai_core/pretrained' --exclude 'ai_core/config/.env' ./ ~/Desktop/DAT_Lab-Management/
 
-      - name: Sync Persistent Data Folders and Environment Variables
+      - name: Build Docker Image on Jetson
         run: |
-          echo "Symlinking persistent folders from Desktop to Runner working directory..."
-          cd ai_core
-          # Only mount the pretrained folder
-          ln -sfn ~/Desktop/DAT_Lab-Management/ai_core/pretrained ./pretrained
-          
-          # Link the environment variables file from Desktop to the correct path inside config/
-          mkdir -p ./config
-          ln -sfn ~/Desktop/DAT_Lab-Management/ai_core/config/.env ./config/.env
+          echo "Building Docker Image inside the Desktop path..."
+          cd ~/Desktop/DAT_Lab-Management/ai_core
+          docker build -t manhmitcf/dat_lab_management_aicore:deploy .
 
       - name: Deploy with Docker Compose
         run: |
           echo "Restarting services with the new image..."
-          cd ai_core
+          cd ~/Desktop/DAT_Lab-Management/ai_core
           docker-compose down
           docker-compose up -d
 
