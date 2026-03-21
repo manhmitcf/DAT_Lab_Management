@@ -11,9 +11,12 @@ export default function FloorPlan() {
     const setSelectedPersonId = useTrackingStore((state) => state.setSelectedPersonId);
 
     return (
-        <div className="flex h-full min-h-0 w-full flex-col bg-[#0b0e11]">
-            <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-1">
-                <div className="relative max-h-full max-w-full">
+        <div className="flex h-full min-h-0 min-w-0 w-full flex-col bg-[#0b0e11]">
+            <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden p-1">
+                <div
+                    className="relative flex items-center justify-center"
+                    style={{ aspectRatio: '483/845', maxWidth: '100%', maxHeight: '100%' }}
+                >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                         src="/labmap.svg"
@@ -23,7 +26,7 @@ export default function FloorPlan() {
                         loading="eager"
                         decoding="async"
                         draggable={false}
-                        className="block h-full max-h-full w-auto max-w-full object-contain select-none pointer-events-none"
+                        className="block w-full h-full object-contain select-none pointer-events-none"
                     />
                     <div className="pointer-events-none absolute inset-0">
                         {markers.map((marker) => {

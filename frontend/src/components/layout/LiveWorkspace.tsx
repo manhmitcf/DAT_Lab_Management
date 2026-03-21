@@ -93,7 +93,7 @@ export default function LiveWorkspace() {
             </div>
 
             <section
-                className="flex min-h-[200px] lg:min-h-0 flex-col overflow-hidden bg-[#0b0e11]"
+                className="flex min-h-[200px] min-w-0 lg:min-h-0 flex-col overflow-hidden bg-[#0b0e11]"
                 style={isLg ? { width: mapWidth, maxWidth: '62%', flex: 'none' } : { flex: 1 }}
             >
                 <FloorPlan />
