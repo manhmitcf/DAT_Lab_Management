@@ -185,6 +185,14 @@ USE_REDIS=True
 REDIS_HOST=redis # Use Docker service name
 ```
 
+### 5. Seed Analytics Test Data (optional)
+Populate the database with fake FrameData and ObjectDetection for analytics API testing:
+```bash
+python manage.py seed_analytics_data --clear --days 7
+```
+- `--clear`: Delete existing FrameData before seeding  
+- `--days N`: Generate data for N days (default: 7)
+
 ## 🏃‍♂️ Running the Server (Docker Compose)
 
 For a full development environment, use Docker Compose to run Django, Redis, and Celery.
