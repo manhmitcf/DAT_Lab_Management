@@ -18,71 +18,47 @@ export default function LiveViewPage() {
       <MainSidebar />
 
       <div className="flex min-w-0 flex-1 flex-col min-h-0 overflow-hidden">
-        <header className="z-50 flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-[#2a3441] bg-[#1B2431] px-3 py-2 sm:px-4 sm:py-2.5">
-          <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-4">
-            <SidebarHamburger />
-            <div className="flex items-center gap-2 shrink-0">
-              <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-[#137fec]/20 text-[#137fec]">
-                <span className="material-symbols-outlined text-xl">visibility</span>
-              </div>
-              <h1 className="text-sm sm:text-base font-bold tracking-tight">Live</h1>
+        <header className="z-50 flex shrink-0 flex-wrap items-center gap-0 border-b border-[#2a3441] bg-[#1B2431] px-3 py-2 sm:px-4 sm:py-2.5">
+          <SidebarHamburger />
+          <div className="h-6 w-px shrink-0 bg-[#2a3441] mx-2" />
+          <div className="flex items-center gap-2 shrink-0">
+            <div className="flex size-7 shrink-0 items-center justify-center rounded bg-[#137fec]/20 text-[#137fec]">
+              <span className="material-symbols-outlined text-lg">visibility</span>
             </div>
-
-            <div className="hidden h-8 w-px shrink-0 bg-[#2a3441] sm:block" />
-
-            <div className="flex flex-wrap items-stretch gap-1.5 sm:gap-3">
-              <div className="flex min-w-[4.5rem] sm:min-w-[5.5rem] items-center gap-1.5 sm:gap-2 rounded-lg bg-[#283039]/70 px-2 sm:px-2.5 py-1.5">
-                <span className="material-symbols-outlined shrink-0 text-lg text-emerald-400">groups</span>
-                <div>
-                  <p className="text-[9px] font-medium uppercase leading-none tracking-wide text-gray-500">
-                    Occupancy
-                  </p>
-                  <p className="text-sm font-semibold tabular-nums leading-tight text-white font-mono">
-                    {stats.person_count}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-1.5 sm:gap-2 rounded-lg bg-[#283039]/70 px-2 sm:px-2.5 py-1.5">
-                <span className="material-symbols-outlined shrink-0 text-lg text-sky-400">swap_horiz</span>
-                <div>
-                  <p className="text-[9px] font-medium uppercase leading-none tracking-wide text-gray-500">
-                    Entry / Exit
-                  </p>
-                  <p className="text-sm font-semibold tabular-nums leading-tight font-mono">
-                    <span className="text-emerald-400">{stats.entry_today}</span>
-                    <span className="mx-1 text-gray-500">/</span>
-                    <span className="text-orange-400">{stats.exit_today}</span>
-                  </p>
-                </div>
-              </div>
-
-              <div className="hidden sm:flex min-w-[6.5rem] items-center gap-2 rounded-lg bg-[#283039]/70 px-2.5 py-1.5">
-                <span className="material-symbols-outlined shrink-0 text-lg text-violet-400">speed</span>
-                <div>
-                  <p className="text-[9px] font-medium uppercase leading-none tracking-wide text-gray-500">
-                    Frames per second
-                  </p>
-                  <p className="text-sm font-semibold tabular-nums leading-tight text-white font-mono">{stats.fps}</p>
-                </div>
-              </div>
-
-              <Link
-                href="/alerts"
-                className="flex min-w-[4.5rem] sm:min-w-[5.5rem] items-center gap-1.5 sm:gap-2 rounded-lg bg-[#283039]/70 px-2 sm:px-2.5 py-1.5 transition-colors hover:bg-[#343f4d]"
-              >
-                <span className="material-symbols-outlined shrink-0 text-lg text-amber-400">warning</span>
-                <div>
-                  <p className="text-[9px] font-medium uppercase leading-none tracking-wide text-gray-500">
-                    Alert level
-                  </p>
-                  <p className="text-sm font-semibold uppercase leading-tight text-amber-300 font-mono">{alertLevel}</p>
-                </div>
-              </Link>
-            </div>
+            <h1 className="text-sm sm:text-base font-bold tracking-tight">Live</h1>
           </div>
-
-          <div className="hidden md:block shrink-0"><MiniOccupancyChart /></div>
+          <div className="h-6 w-px shrink-0 bg-[#2a3441] mx-2" />
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="material-symbols-outlined text-base text-emerald-400">groups</span>
+            <span className="text-xs text-gray-500 uppercase">Occupancy</span>
+            <span className="text-sm font-semibold tabular-nums text-white font-mono">{stats.person_count}</span>
+          </div>
+          <div className="h-6 w-px shrink-0 bg-[#2a3441] mx-2" />
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="material-symbols-outlined text-base text-sky-400">swap_horiz</span>
+            <span className="text-xs text-gray-500">Entry/Exit</span>
+            <span className="text-sm font-semibold tabular-nums font-mono">
+              <span className="text-emerald-400">{stats.entry_today}</span>
+              <span className="mx-0.5 text-gray-500">/</span>
+              <span className="text-orange-400">{stats.exit_today}</span>
+            </span>
+          </div>
+          <div className="hidden sm:flex h-6 w-px shrink-0 bg-[#2a3441] mx-2" />
+          <div className="hidden sm:flex items-center gap-1.5 shrink-0">
+            <span className="material-symbols-outlined text-base text-violet-400">speed</span>
+            <span className="text-xs text-gray-500">FPS</span>
+            <span className="text-sm font-semibold tabular-nums text-white font-mono">{stats.fps}</span>
+          </div>
+          <div className="h-6 w-px shrink-0 bg-[#2a3441] mx-2" />
+          <Link href="/alerts" className="flex items-center gap-1.5 shrink-0 text-white/90 hover:text-white transition-colors">
+            <span className="material-symbols-outlined text-base text-amber-400">warning</span>
+            <span className="text-xs text-gray-500">Alert</span>
+            <span className="text-sm font-semibold tabular-nums text-amber-300 font-mono">{alertLevel}</span>
+          </Link>
+          <div className="hidden md:block h-6 w-px shrink-0 bg-[#2a3441] mx-2" />
+          <div className="hidden md:block shrink-0">
+            <MiniOccupancyChart />
+          </div>
         </header>
 
         <LiveWorkspace />

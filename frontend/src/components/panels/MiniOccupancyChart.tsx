@@ -3,8 +3,8 @@
 import { useMemo } from 'react';
 import { useTrackingStore } from '@/stores/trackingStore';
 
-const W = 400;
-const H = 80;
+const W = 160;
+const H = 72;
 const PAD = 4;
 
 /** Mini line chart (same idea as Analytics occupancy trend — compact for Live header). */
@@ -34,10 +34,10 @@ export default function MiniOccupancyChart() {
 
     return (
         <div
-            className="flex flex-col items-end justify-center shrink-0 pl-2"
+            className="flex flex-col items-end justify-center shrink-0 pl-1"
             title={`Occupancy trend (max ${Math.round(maxY)})`}
         >
-            <p className="text-[9px] uppercase tracking-wider text-gray-500 mb-0.5 w-full text-right pr-0.5">
+            <p className="text-[9px] uppercase tracking-wider text-gray-500 mb-0.5 w-full text-right">
                 Occupancy trend
             </p>
             <svg width={W} height={H} className="overflow-visible" aria-hidden>
