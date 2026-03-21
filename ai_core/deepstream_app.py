@@ -357,7 +357,7 @@ class DeepStreamApp:
             if cpp_probe_service.is_available:
                 tracker_src_pad = tracker.get_static_pad("src")
                 if tracker_src_pad:
-                    pad_ptr = pyds.get_ptr(tracker_src_pad)
+                    pad_ptr = hash(tracker_src_pad)
                     cpp_probe_service.attach_probe(pad_ptr)
                     logger.success("C++ Counting & Mapping Probe successfully attached to Tracker src pad.")
         except Exception as e:
