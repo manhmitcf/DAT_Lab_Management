@@ -1,5 +1,4 @@
-# Base image with DeepStream & TensorRT natively pre-installed for JetPack 6
-FROM dustynv/deepstream:r36.4.0
+FROM nvcr.io/nvidia/deepstream:7.0-triton-multiarch
 
 # Set non-interactive to avoid prompts during apt-get
 ENV DEBIAN_FRONTEND=noninteractive
@@ -11,12 +10,12 @@ WORKDIR /workspace/ai_core
 # =========================================================
 # 1. Install System Dependencies (Least frequent change)
 # =========================================================
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     git cmake curl wget vim nano build-essential pkg-config \
     libglib2.0-0 libglib2.0-dev \
     protobuf-compiler libprotoc-dev \
     libgl1 libglx-mesa0 libegl1 libgles2 \
-    python3-opencv \
+    python3-opencv python3-pip python3-dev \
     # GStreamer Dev Headers (Required for C++ Makefile compilation)
     libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
     # Eigen3 (Required for OCSort CMake compilation)
