@@ -1,5 +1,6 @@
 import os
 import sys
+import glob
 import queue
 import threading
 from loguru import logger
@@ -49,17 +50,77 @@ class DeepStreamApp:
         self.janus_port = int(os.getenv("JANUS_UDP_PORT", "8000"))
         self.video_source = os.getenv("INPUT_VIDEO_SOURCE", "/dev/video0")
 
+    def preflight_check(self) -> bool:
+        """Runs essential diagnostic checks before starting the pipeline."""
+        success = True
+        logger.info("━" * 60)
+        logger.info("[DIAGNOSTIC] Checking system readiness...")
+        logger.info("━" * 60)
+
+        # 1. Check Camera
+        if os.path.exists(self.video_source):
+            logger.success(f"[CAMERA] Found source device: {self.video_source}")
+        else:
+            logger.error(f"[CAMERA] Device NOT FOUND: {self.video_source}. Pipeline will fail.")
+            success = False
+
+        # 2. Check Critical Files
+        files_to_check = {
+            "YOLOX Engine": "pretrained/ocsort_x_mot20_fp16.engine",
+            "PGIE Config": os.getenv("PGIE_CONFIG_PATH", "deploy/DeepStream/config_infer_primary_yolox.txt"),
+            "OCSort Lib": "/workspace/ai_core/deploy/OCSort/cpp/build/libnvds_ocsort.so",
+            "Parser Lib": "deploy/DeepStream/libnvdsinfer_custom_impl_YoloX.so",
+            "Mapping Config": "config/mapping_config.json",
+            "Counting Config": "config/counting_config.json",
+            ".env File": "config/.env"
+        }
+        for name, path in files_to_check.items():
+            if os.path.exists(path):
+                logger.success(f"[FILE] {name:15} | Found: {path}")
+            else:
+                logger.error(f"[FILE] {name:15} | NOT FOUND: {path}")
+                success = False
+
+        # 3. Check pyds
+        if pyds:
+            logger.success("[PYTHON] pyds bindings loaded successfully.")
+        else:
+            logger.warning("[PYTHON] pyds NOT found. OSD logic will be skipped.")
+
+        # 4. Check Environment
+        required_env = ["RESULTS_WS_URL", "MAPPING_SETTINGS_WS_URL", "COUNTING_SETTINGS_WS_URL"]
+        for env in required_env:
+            if os.getenv(env):
+                logger.success(f"[ENV] {env:25} | Set")
+            else:
+                logger.warning(f"[ENV] {env:25} | NOT SET")
+
+        logger.info("━" * 60)
+        if success:
+            logger.success("[DIAGNOSTIC] Pre-flight checks passed.")
+        else:
+            logger.warning("[DIAGNOSTIC] Pre-flight checks failed. Attempting to start anyway...")
+        logger.info("━" * 60)
+        return success
+
     def background_publisher(self) -> None:
         """Background thread to publish frame data synchronously to network limits."""
-        logger.info("Background publisher thread started.")
+        logger.info("[Publisher] Background publisher thread started. Waiting for frames...")
+        frames_sent = 0
         while True:
             try:
                 frame_data = self.frame_data_queue.get()
                 if frame_data is None:
+                    logger.info("[Publisher] Received shutdown signal. Stopping.")
                     break
                 self.result_publisher.send_frame(frame_data)
+                frames_sent += 1
+                if frames_sent == 1:
+                    logger.success(f"[Publisher] First frame published successfully to {os.getenv('RESULTS_WS_URL')}")
+                elif frames_sent % 300 == 0:
+                    logger.debug(f"[Publisher] {frames_sent} frames published so far.")
             except Exception as e:
-                logger.error(f"Error publishing frame data: {e}")
+                logger.error(f"[Publisher] Error publishing frame data: {e}")
 
     def handle_mapping_update(self, data: dict) -> None:
         """Callbacks from Django defining Homography configuration updates."""
@@ -101,7 +162,7 @@ class DeepStreamApp:
 
     def build_pipeline(self) -> None:
         """Creates and links the entire GStreamer DeepStream network pipeline."""
-        logger.info("Creating GStreamer Pipeline...")
+        logger.info("[PIPELINE] Initializing GStreamer elements...")
         self.pipeline = Gst.Pipeline()
 
         logger.info(f"Using V4L2 Camera Source: {self.video_source}")
@@ -197,7 +258,9 @@ class DeepStreamApp:
         check_and_convert_models()
         Gst.init(None)
 
-        logger.info(f"Configuring WebRTC UDP Sink to {self.janus_ip}:{self.janus_port}")
+        self.preflight_check()  # ← Run all diagnostics before touching GStreamer
+
+        logger.info(f"[Pipeline] Configuring WebRTC UDP Sink → {self.janus_ip}:{self.janus_port}")
 
         self.pub_thread = threading.Thread(target=self.background_publisher, daemon=True)
         self.pub_thread.start()
@@ -207,22 +270,26 @@ class DeepStreamApp:
             on_counting_update=self.handle_counting_update
         )
         self.settings_sub.start()
+        logger.info("[Pipeline] WebSocket Settings Subscriber started.")
 
         self.build_pipeline()
 
-        logger.info("Starting pipeline")
+        logger.info("[Pipeline] Setting pipeline to PLAYING state...")
         self.pipeline.set_state(Gst.State.PLAYING)
+        logger.success("[Pipeline] Pipeline is now PLAYING. Processing frames from camera.")
 
         try:
             self.loop = GLib.MainLoop()
             self.loop.run()
         except KeyboardInterrupt:
-            logger.warning("Pipeline interrupted by user.")
+            logger.warning("[Pipeline] Interrupted by user (KeyboardInterrupt). Shutting down...")
         finally:
+            logger.info("[Pipeline] Shutting down pipeline and releasing resources...")
             self.pipeline.set_state(Gst.State.NULL)
             self.settings_sub.stop()
             self.frame_data_queue.put(None)
             self.pub_thread.join()
+            logger.info("[Pipeline] Shutdown complete.")
 
 if __name__ == "__main__":
     import sys

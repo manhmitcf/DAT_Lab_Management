@@ -36,6 +36,7 @@ class ResultPublisher:
 
         logger.info(f"[Publisher] Connecting → {self.endpoint}")
         self.ws = websocket.create_connection(self.endpoint, header=headers)
+        logger.success(f"[Publisher] Connected successfully to {self.endpoint}")
 
     def send_frame(self, frame_data: FrameData) -> None:
         payload = frame_data.model_dump_json()
