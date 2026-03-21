@@ -1,6 +1,7 @@
 /*
  * NvMOT (Nvidia Multi-Object Tracker) Wrapper for OCSort C++
- * This API complies with the DeepStream nvtracker standard.
+ * This API complies with the DeepStream 7.0 nvtracker standard.
+ * Fixed for DS 7.0: namespace, NvMOTRect field names, NvMOTFrame API changes.
  */
 
 #include "nvdstracker.h"
@@ -9,6 +10,8 @@
 #include <memory>
 #include <map>
 #include "OCSort.hpp" // Your original header file
+
+using namespace ocsort;
 
 // A context class managing Trackers for multiple camera streams (Multi-stream)
 class NvMOTContext {
@@ -33,8 +36,6 @@ extern "C" NvMOTStatus NvMOT_Init(NvMOTConfig *pConfigIn, NvMOTContextHandle *pC
         // Todo: Parse yaml config if needed
     }
 
-    // Request NvTracker to provide Batch Buffer (instead of discrete Frame mode)
-    pConfigResponse->summaryType = NvMOT_Compute_Matching;
     *pContextHandle = (NvMOTContextHandle)context;
 
     std::cout << "[OCSort NvMOT] Successfully initialized OCSort C++ Backend!" << std::endl;
@@ -63,16 +64,19 @@ extern "C" NvMOTStatus NvMOT_Process(NvMOTContextHandle contextHandle, NvMOTProc
         OCSort* tracker = context->stream_trackers[stream_id].get();
 
         // Extract BBox from YOLOX (provided by nvinfer)
+        // DS 7.0: objectsIn is NvMOTObjToTrackList with numAllocated + list[], not operator[]
         std::vector<Eigen::Matrix<float, 1, 7>> detections;
-        for (uint32_t i = 0; i < frame->numObjects; i++) {
-            NvMOTObjToTrack* obj = &frame->objectsIn[i];
+        for (uint32_t i = 0; i < frame->objectsIn.numAllocated; i++) {
+            NvMOTObjToTrack* obj = &frame->objectsIn.list[i];
 
             Eigen::Matrix<float, 1, 7> det;
+            // DS 7.0: NvMOTRect uses {x, y, width, height} instead of {left, top, width, height}
+            float x1 = obj->bbox.x;
+            float y1 = obj->bbox.y;
+            float x2 = obj->bbox.x + obj->bbox.width;
+            float y2 = obj->bbox.y + obj->bbox.height;
             // OCSort inputs: [x1, y1, x2, y2, score, class, ?]
-            det << obj->bbox.left,
-                   obj->bbox.top,
-                   obj->bbox.left + obj->bbox.width,
-                   obj->bbox.top + obj->bbox.height,
+            det << x1, y1, x2, y2,
                    obj->confidence,
                    obj->classId,
                    0.0f;
@@ -89,19 +93,18 @@ extern "C" NvMOTStatus NvMOT_Process(NvMOTContextHandle contextHandle, NvMOTProc
         out_list->streamID = stream_id;
         out_list->frameNum = frame->frameNum;
 
-        // Allocate memory for output array if NvTracker hasn't allocated enough
-        // (In NvTracker, we usually fill into pTrackedObjectsBatch->list[i]->list)
         for (size_t t = 0; t < tracked_targets.size(); t++) {
             auto trk = tracked_targets[t];
             NvMOTTrackedObj* out_obj = &out_list->list[t];
 
-            out_obj->classId = (int)trk(0, 5); // Class
-            out_obj->trackingId = (uint64_t)trk(0, 4); // Track ID
-            out_obj->confidence = trk(0, 6); // Score
+            out_obj->classId = (int)trk(0, 5);           // Class
+            out_obj->trackingId = (uint64_t)trk(0, 4);   // Track ID
+            out_obj->confidence = trk(0, 6);              // Score
 
-            out_obj->bbox.left = trk(0, 0);
-            out_obj->bbox.top = trk(0, 1);
-            out_obj->bbox.width = trk(0, 2) - trk(0, 0);
+            // DS 7.0: NvMOTRect uses {x, y, width, height}
+            out_obj->bbox.x = trk(0, 0);
+            out_obj->bbox.y = trk(0, 1);
+            out_obj->bbox.width  = trk(0, 2) - trk(0, 0);
             out_obj->bbox.height = trk(0, 3) - trk(0, 1);
         }
     }
