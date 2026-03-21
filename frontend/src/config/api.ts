@@ -1,8 +1,8 @@
 /** Backend origin — keep in sync with API docs */
-export const API_BASE =
+const _base =
     process.env.NEXT_PUBLIC_API_BASE ??
     'https://labmanagementbackend-hte4hyczd0fef4ah.eastasia-01.azurewebsites.net';
-
+export const API_BASE = _base.replace(/\/+$/, '');
 const wsOrigin = API_BASE.replace(/^http/, 'ws');
 
 export const WS_URLS = {

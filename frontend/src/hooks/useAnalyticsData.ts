@@ -46,35 +46,58 @@ export function useAnalyticsData(period: Period) {
     const refetch = useCallback(async () => {
         setLoading(true);
         setError(null);
-        try {
-            const [summary, trends, heatmapRes, trafficRes, flowRes, peakRes, cumRes] = await Promise.all([
-                fetchSummary(period),
-                fetchOccupancyTrends(period),
-                fetchHeatmap(period === '1h' || period === 'today' ? '7d' : period),
-                fetchTrafficDaily(period === '1h' || period === 'today' ? '7d' : period),
-                fetchFlowRatio(period),
-                fetchPeakDaily(period === '1h' || period === 'today' ? '7d' : period),
-                fetchCumulativeTraffic(period),
-            ]);
+        const defaultData = getDefaultData();
+        const heatmapPeriod = period === '1h' || period === 'today' ? '7d' : period;
+        const trafficPeakPeriod = period === '1h' || period === 'today' ? '7d' : period;
 
-            setData({
-                summary: { ...summary, peak_time: summary.peak_time ?? '' },
-                occupancyTrends: {
-                    current: trends.current.map((t) => ({ ...t, entry: t.ingress, exit: t.egress })),
-                    previous: trends.previous.map((t) => ({ ...t, entry: t.ingress, exit: t.egress })),
-                },
-                heatmap: heatmapRes.data,
-                trafficDaily: trafficRes.data,
-                flowRatio: flowRes,
-                peakDaily: peakRes.data.map((p) => ({ ...p, time: p.time ?? '' })),
-                cumulativeTraffic: cumRes.data,
-            });
-        } catch (e) {
-            setError(e instanceof Error ? e.message : 'Failed to load analytics');
-            setData(getDefaultData());
-        } finally {
-            setLoading(false);
+        const [summaryRes, trendsRes, heatmapRes, trafficRes, flowRes, peakRes, cumRes] = await Promise.allSettled([
+            fetchSummary(period),
+            fetchOccupancyTrends(period),
+            fetchHeatmap(heatmapPeriod),
+            fetchTrafficDaily(trafficPeakPeriod),
+            fetchFlowRatio(period),
+            fetchPeakDaily(trafficPeakPeriod),
+            fetchCumulativeTraffic(period),
+        ]);
+
+        const errors: string[] = [];
+        const summary = summaryRes.status === 'fulfilled' ? summaryRes.value : null;
+        const trends = trendsRes.status === 'fulfilled' ? trendsRes.value : null;
+        const heatmapData = heatmapRes.status === 'fulfilled' ? heatmapRes.value.data : null;
+        const trafficData = trafficRes.status === 'fulfilled' ? trafficRes.value.data : null;
+        const flowData = flowRes.status === 'fulfilled' ? flowRes.value : null;
+        const peakData = peakRes.status === 'fulfilled' ? peakRes.value.data : null;
+        const cumData = cumRes.status === 'fulfilled' ? cumRes.value.data : null;
+
+        if (summaryRes.status === 'rejected') errors.push('summary');
+        if (trendsRes.status === 'rejected') errors.push('trends');
+        if (heatmapRes.status === 'rejected') errors.push('heatmap');
+        if (trafficRes.status === 'rejected') errors.push('traffic');
+        if (flowRes.status === 'rejected') errors.push('flow');
+        if (peakRes.status === 'rejected') errors.push('peak');
+        if (cumRes.status === 'rejected') errors.push('cumulative');
+
+        setData({
+            summary: summary
+                ? { ...summary, peak_time: summary.peak_time ?? '' }
+                : defaultData.summary,
+            occupancyTrends:
+                trends ?
+                    {
+                        current: trends.current.map((t) => ({ ...t, entry: t.ingress, exit: t.egress })),
+                        previous: trends.previous.map((t) => ({ ...t, entry: t.ingress, exit: t.egress })),
+                    }
+                : defaultData.occupancyTrends,
+            heatmap: heatmapData ?? defaultData.heatmap,
+            trafficDaily: trafficData ?? defaultData.trafficDaily,
+            flowRatio: flowData ?? defaultData.flowRatio,
+            peakDaily: peakData ? peakData.map((p) => ({ ...p, time: p.time ?? '' })) : defaultData.peakDaily,
+            cumulativeTraffic: cumData ?? defaultData.cumulativeTraffic,
+        });
+        if (errors.length > 0) {
+            setError(`Partial: ${errors.join(', ')} failed`);
         }
+        setLoading(false);
     }, [period]);
 
     useEffect(() => {
