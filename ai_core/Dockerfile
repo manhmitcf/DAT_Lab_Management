@@ -15,8 +15,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential pkg-config \
     # Python & OpenCV Tools
     python3-opencv python3-pip python3-dev \
-    # Python GStreamer Bindings (Fixes "No module named 'gi'")
+    # Python GStreamer Bindings & C++ Headers for pip compiling PyCairo/PyGObject on ARM64
     python3-gi python3-gst-1.0 gir1.2-gst-plugins-base-1.0 \
+    libcairo2-dev libgirepository1.0-dev \
     # OpenCV Dev Headers (Required for C++ Tracker & Metric Probe)
     libopencv-dev \
     # GStreamer & GLib Dev Headers (Required for C++ Makefile compilation)
