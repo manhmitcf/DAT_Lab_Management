@@ -4,7 +4,9 @@ import glob
 import time
 import queue
 import threading
+import json
 from loguru import logger
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -343,6 +345,9 @@ class DeepStreamApp:
         Gst.init(None)
 
         self.preflight_check()  # ← Run all diagnostics before touching GStreamer
+        
+        # Load saved settings into C++ core BEFORE start
+        self.load_initial_configs()
 
         logger.info(f"[Pipeline] Configuring WebRTC UDP Sink → {self.janus_ip}:{self.janus_port}")
 
