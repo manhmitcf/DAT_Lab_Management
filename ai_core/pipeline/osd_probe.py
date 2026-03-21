@@ -13,16 +13,15 @@ from gi.repository import Gst
 
 from schemas.schemas import FrameData, ObjectDetection
 from services.cpp_probe_service import cpp_probe_service, CustomMappingData
-from services.mapping_service import MappingService
 
 class OSDProbeHandler:
     """
     Handles extracting C++ NvDsUserMeta mapping data and tracking information
     from the GStreamer OSD Pad Probe.
     """
-    def __init__(self, frame_data_queue, mapping_service: MappingService, counting_config):
+    def __init__(self, frame_data_queue, mapping_config, counting_config):
         self.frame_data_queue = frame_data_queue
-        self.mapping_service = mapping_service
+        self.mapping_config = mapping_config
         self.info_threshold = counting_config.info_threshold
         self.warning_threshold = counting_config.warning_threshold
         self.critical_threshold = counting_config.critical_threshold
@@ -92,8 +91,8 @@ class OSDProbeHandler:
             
             in_cnt, out_cnt = cpp_probe_service.get_counts()
             
-            map_w = self.mapping_service.map_size[0] if self.mapping_service.map_size else 723
-            map_h = self.mapping_service.map_size[1] if self.mapping_service.map_size else 1266
+            map_w = self.mapping_config.map_size[0] if self.mapping_config.map_size else 723
+            map_h = self.mapping_config.map_size[1] if self.mapping_config.map_size else 1266
             
             occupancy = max(0, in_cnt - out_cnt)
             alert = 'none'

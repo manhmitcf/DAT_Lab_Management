@@ -19,7 +19,6 @@ from gi.repository import Gst, GLib
 
 from services.backend_gateway import ResultPublisher, SettingsSubscriber
 from services.cpp_probe_service import cpp_probe_service
-from services.mapping_service import MappingService
 from config.data_config import MappingConfig, CountingConfig
 
 # Import extracted pipeline logic
@@ -35,11 +34,11 @@ class DeepStreamApp:
     def __init__(self):
         self.frame_data_queue = queue.Queue(maxsize=100)
         self.result_publisher = ResultPublisher()
-        self.mapping_service = MappingService(MappingConfig("config/mapping_config.json"))
+        self.mapping_config = MappingConfig("config/mapping_config.json")
         self.counting_config = CountingConfig(json_path="config/counting_config.json")
         
         # Initialize the extracted OSD Probe Handler
-        self.osd_probe_handler = OSDProbeHandler(self.frame_data_queue, self.mapping_service, self.counting_config)
+        self.osd_probe_handler = OSDProbeHandler(self.frame_data_queue, self.mapping_config, self.counting_config)
         
         self.pub_thread = None
         self.settings_sub = None
@@ -76,7 +75,7 @@ class DeepStreamApp:
             m_sz = data.get("map_size", {})
             map_sz = (int(m_sz.get("width", 723)), int(m_sz.get("height", 1266)))
             
-            self.mapping_service.update_mapping(cam_pts, map_pts, cam_sz, map_sz)
+            self.mapping_config.map_size = map_sz
             cpp_probe_service.update_mapping(cam_pts, map_pts, map_sz)
         except Exception as e:
             logger.error(f"Error handling mapping update: {e}")
