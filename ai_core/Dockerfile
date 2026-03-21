@@ -28,6 +28,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # =========================================================
+# 1b. Install DeepStream C++ Dev Headers (not included in triton-multiarch runtime)
+# =========================================================
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    deepstream-7.0 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# =========================================================
 # 2. Install PYDS (DeepStream Python Bindings for DS 7.0)
 # =========================================================
 RUN pip3 install --upgrade pip \
