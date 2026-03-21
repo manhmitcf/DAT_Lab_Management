@@ -1,0 +1,13 @@
+[tracker]
+tracker-width=640
+tracker-height=640
+gpu-id=0
+
+# The compiled NvMOT tracking library (.so)
+ll-lib-file=/workspace/ai_core/deploy/OCSort/cpp/build/libnvds_ocsort.so
+
+# Optional tracker configurations
+ll-config-file=
+enable-batch-process=1
+enable-past-frame=0
+display-tracking-id=1

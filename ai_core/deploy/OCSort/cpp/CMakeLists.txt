@@ -1,28 +1,30 @@
 ﻿cmake_minimum_required(VERSION 3.10)
-project(libocsort)
+project(OCSort_NvMOT)
 
-set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /O2")
-set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_RELEASE} /O2") 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS_RELEASE} /O2")
+set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -fPIC")
 
-set(CMAKE_CXX_STANDARD 17)
-
-# Linker external library
-SET(Eigen3_DIR "C:/eigen-3.4.0/build")
+# Find required libraries (Eigen3 and OpenCV)
 find_package(Eigen3 REQUIRED)
-set(OpenCV_DIR "C:/opencv")
 find_package(OpenCV REQUIRED)
 
-# add_subdirectory(src)
-set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
-file(GLOB SRC_LIST src/*.cpp)
+# Path to DeepStream NvTracker headers
+set(DEEPSTREAM_DIR "/opt/nvidia/deepstream/deepstream")
+include_directories(
+    ${EIGEN3_INCLUDE_DIR}
+    ${OpenCV_INCLUDE_DIRS}
+    ${DEEPSTREAM_DIR}/sources/includes
+    include
+)
 
-add_library(${PROJECT_NAME} SHARED ${SRC_LIST})
-target_include_directories(${PROJECT_NAME} PUBLIC include)
-target_link_libraries(${PROJECT_NAME} Eigen3::Eigen)
+# Collect all original OCSort cpp files and the NvMOT_Wrapper file
+file(GLOB SOURCES "src/*.cpp")
 
-# note：test with yolo inference
-add_executable(test mutilthread.cpp ../detector/inference.h ../detector/inference.cpp)
-target_link_libraries(test PUBLIC Eigen3::Eigen ${PROJECT_NAME} ${OpenCV_LIBS})
+# Build as a shared library (.so) instead of an executable (.out)
+add_library(nvds_ocsort SHARED ${SOURCES})
 
+# Link against OpenCV
+target_link_libraries(nvds_ocsort ${OpenCV_LIBS})
 
+# Install target
+install(TARGETS nvds_ocsort DESTINATION lib)

@@ -52,16 +52,18 @@ COPY . .
 RUN mkdir -p pretrained videos YOLOX_outputs weights config
 
 # =========================================================
-# 5. Build C++ Custom Parser for YOLOX
+# 5. Build C++ Extensions (Custom YOLOX Parser + OCSort NvMOT)
 # =========================================================
-# NOTE: The make command here will only succeed on an ARM64 Jetson or via cross-compilation QEMU
-# If it fails during GitHub Actions, consider moving this step to a runtime script inside docker-compose
-RUN cd deploy/DeepStream && make || echo "Warning: Makefile failed. Will try compiling at runtime if needed."
+# Compile the custom YOLOX BBox parser for DeepStream (libnvdsinfer_custom_impl_YoloX.so)
+RUN cd deploy/DeepStream && make || echo "Warning: YoloX Makefile failed."
+
+# Compile the OCSort Tracker wrapped in NvMOT API (libnvds_ocsort.so)
+RUN cd deploy/OCSort/cpp && mkdir -p build && cd build && cmake .. && make || echo "Warning: OCSort CMake failed."
 
 # =========================================================
 # 6. Setup Project in Editable Mode
 # =========================================================
-# Install setup.py to build C++ extensions (e.g., YOLOX/OCSort)
+# Install setup.py to build C++ extensions (e.g., YOLOX/OCSort Python bindings if any)
 RUN pip3 install --no-build-isolation -e .
 
 # =========================================================
