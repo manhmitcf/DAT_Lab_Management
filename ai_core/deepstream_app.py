@@ -193,6 +193,11 @@ class DeepStreamApp:
 
         jpegdec = Gst.ElementFactory.make("nvjpegdec", "jpeg-decoder")
 
+        # Force NV12 conversion before nvstreammux to prevent jpegdec from stalling
+        nvvidconv_src = Gst.ElementFactory.make("nvvideoconvert", "convertor_src")
+        caps_vidconv_src = Gst.ElementFactory.make("capsfilter", "caps_vidconv_src")
+        caps_vidconv_src.set_property("caps", Gst.Caps.from_string("video/x-raw(memory:NVMM),format=NV12"))
+
         streammux = Gst.ElementFactory.make("nvstreammux", "stream-muxer")
         streammux.set_property("width", 1280)
         streammux.set_property("height", 720)
@@ -238,7 +243,7 @@ class DeepStreamApp:
         udpsink.set_property("async", False)
         udpsink.set_property("sync", False)
 
-        elements = [source, caps_v4l2src, cam_queue, jpegdec, streammux, pgie, tracker, nvvidconv, nvosd, nvvidconv2, caps_enc, encoder, h264parse, rtppay, udpsink]
+        elements = [source, caps_v4l2src, cam_queue, jpegdec, nvvidconv_src, caps_vidconv_src, streammux, pgie, tracker, nvvidconv, nvosd, nvvidconv2, caps_enc, encoder, h264parse, rtppay, udpsink]
 
         for elem in elements:
             if not elem:
@@ -261,14 +266,16 @@ class DeepStreamApp:
         _link(source, caps_v4l2src)
         _link(caps_v4l2src, cam_queue)
         _link(cam_queue, jpegdec)
+        _link(jpegdec, nvvidconv_src)
+        _link(nvvidconv_src, caps_vidconv_src)
         
         sinkpad = streammux.get_request_pad("sink_0")
-        srcpad = jpegdec.get_static_pad("src")
+        srcpad = caps_vidconv_src.get_static_pad("src")
         if not srcpad or not sinkpad or srcpad.link(sinkpad) != Gst.PadLinkReturn.OK:
-            logger.error("[PIPELINE] Failed to link jpegdec → streammux sinkpad")
+            logger.error("[PIPELINE] Failed to link caps_vidconv_src → streammux sinkpad")
             sys.exit(1)
         else:
-            logger.debug("[PIPELINE] Linked jpegdec → streammux:sink_0")
+            logger.debug("[PIPELINE] Linked caps_vidconv_src → streammux:sink_0")
 
         _link(streammux, pgie)
         _link(pgie, tracker)
