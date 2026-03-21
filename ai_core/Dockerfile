@@ -1,7 +1,7 @@
 # Base image with PyTorch and torch2trt pre-installed for JetPack 6 (ARM64)
 FROM dustynv/torch2trt:r36.4.0-cu128-24.04
 
-# Set non-interactive to avoid stuck during apt-get
+# Set non-interactive to avoid prompts during apt-get
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 
@@ -17,6 +17,7 @@ RUN apt-get update && apt-get install -y \
     protobuf-compiler libprotoc-dev \
     libgl1 libglx-mesa0 libegl1 libgles2 \
     python3-opencv \
+    # Add necessary GStreamer & DeepStream plugins for hardware pipeline
     gstreamer1.0-tools \
     gstreamer1.0-plugins-good \
     gstreamer1.0-plugins-bad \
@@ -42,6 +43,7 @@ RUN rm -f /etc/pip.conf \
 # =========================================================
 # 3. Copy Application Code
 # =========================================================
+# (Unnecessary folders will be excluded via .dockerignore)
 COPY . .
 
 # =========================================================
@@ -50,12 +52,19 @@ COPY . .
 RUN mkdir -p pretrained videos YOLOX_outputs weights config
 
 # =========================================================
-# 5. Setup Project in Editable Mode
+# 5. Build C++ Custom Parser for YOLOX
 # =========================================================
-# Install setup.py (to build C++ extensions of YOLOX/OCSort if any)
+# NOTE: The make command here will only succeed on an ARM64 Jetson or via cross-compilation QEMU
+# If it fails during GitHub Actions, consider moving this step to a runtime script inside docker-compose
+RUN cd deploy/DeepStream && make || echo "Warning: Makefile failed. Will try compiling at runtime if needed."
+
+# =========================================================
+# 6. Setup Project in Editable Mode
+# =========================================================
+# Install setup.py to build C++ extensions (e.g., YOLOX/OCSort)
 RUN pip3 install --no-build-isolation -e .
 
 # =========================================================
-# 6. Default Command
+# 7. Default Command
 # =========================================================
 CMD ["python3", "main.py"]
