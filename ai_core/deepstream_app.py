@@ -168,11 +168,6 @@ class DeepStreamApp:
         except Exception as e:
             logger.error(f"Error handling counting update: {e}")
 
-    def _debug_buffer_probe(self, pad, info, elem_name):
-        """[DEBUG] Simple probe to trace buffer flow through the pipeline."""
-        logger.debug(f"[PIPELINE][{elem_name}] Buffer reached src pad!")
-        return Gst.PadProbeReturn.OK
-
     def build_pipeline(self) -> None:
         """Creates and links the entire GStreamer DeepStream network pipeline."""
         logger.info("[PIPELINE] Initializing GStreamer elements...")
@@ -256,11 +251,7 @@ class DeepStreamApp:
                 logger.error("[PIPELINE] Failed to create element.")
                 sys.exit(1)
             self.pipeline.add(elem)
-            
-            # Attach diagnostic probe to every element to trace buffer progression
-            src_pad = elem.get_static_pad("src")
-            if src_pad:
-                src_pad.add_probe(Gst.PadProbeType.BUFFER, self._debug_buffer_probe, elem.get_name())
+
 
         def _link(e1, e2):
             if not e1.link(e2):

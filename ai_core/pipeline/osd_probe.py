@@ -1,7 +1,7 @@
 import ctypes
 from datetime import datetime, timezone
 from loguru import logger
-
+import time
 try:
     import pyds
 except ImportError:
@@ -26,14 +26,23 @@ class OSDProbeHandler:
         self.warning_threshold = counting_config.warning_threshold
         self.critical_threshold = counting_config.critical_threshold
         self._probe_call_count = 0  # [DEBUG] probe fire counter
+        self._fps_frame_count = 0
+        self._last_fps_time = time.time()
 
     def osd_sink_pad_buffer_probe(self, pad, info, u_data) -> Gst.PadProbeReturn:
         """Extracts C++ generated tracking metadata to feed the ResultPublisher."""
         self._probe_call_count += 1
+        self._fps_frame_count += 1
+        current_time = time.time()
+        elapsed = current_time - self._last_fps_time
+        if elapsed >= 10.0:  # Log FPS every 10 seconds
+            fps = self._fps_frame_count / elapsed
+            logger.info(f"[PERFORMANCE] 🚀 Processing Speed: {fps:.2f} FPS")
+            self._last_fps_time = current_time
+            self._fps_frame_count = 0
+
         if self._probe_call_count == 1:
             logger.info(f"[OSDProbe] Probe FIRED for first time. pyds available: {pyds is not None}")
-        elif self._probe_call_count % 300 == 0:  # Log every ~10s at 30fps
-            logger.debug(f"[OSDProbe] Probe running: {self._probe_call_count} frames processed.")
 
         if not pyds:
             return Gst.PadProbeReturn.OK
