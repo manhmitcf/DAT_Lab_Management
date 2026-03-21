@@ -1,5 +1,5 @@
-# Base image with PyTorch and torch2trt pre-installed for JetPack 6 (ARM64)
-FROM dustynv/torch2trt:r36.4.0-cu128-24.04
+# Base image with DeepStream & TensorRT natively pre-installed for JetPack 6
+FROM dustynv/deepstream:r36.4.0
 
 # Set non-interactive to avoid prompts during apt-get
 ENV DEBIAN_FRONTEND=noninteractive
@@ -12,12 +12,16 @@ WORKDIR /workspace/ai_core
 # 1. Install System Dependencies (Least frequent change)
 # =========================================================
 RUN apt-get update && apt-get install -y \
-    git cmake curl wget vim nano build-essential \
-    libglib2.0-0 \
+    git cmake curl wget vim nano build-essential pkg-config \
+    libglib2.0-0 libglib2.0-dev \
     protobuf-compiler libprotoc-dev \
     libgl1 libglx-mesa0 libegl1 libgles2 \
     python3-opencv \
-    # Add necessary GStreamer & DeepStream plugins for hardware pipeline
+    # GStreamer Dev Headers (Required for C++ Makefile compilation)
+    libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+    # Eigen3 (Required for OCSort CMake compilation)
+    libeigen3-dev \
+    # DeepStream plugins
     gstreamer1.0-tools \
     gstreamer1.0-plugins-good \
     gstreamer1.0-plugins-bad \
