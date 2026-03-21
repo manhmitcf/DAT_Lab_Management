@@ -65,26 +65,29 @@ extern "C" NvMOTStatus NvMOT_Process(NvMOTContextHandle contextHandle, NvMOTProc
 
         // Extract BBox from YOLOX (provided by nvinfer)
         // DS 7.0: objectsIn is NvMOTObjToTrackList with numAllocated + list[], not operator[]
-        std::vector<Eigen::Matrix<float, 1, 7>> detections;
-        for (uint32_t i = 0; i < frame->objectsIn.numAllocated; i++) {
+        uint32_t num_dets = frame->objectsIn.numAllocated;
+        // OCSort::update() expects Eigen::MatrixXf with shape [N, 7]
+        Eigen::MatrixXf detections(num_dets, 7);
+        for (uint32_t i = 0; i < num_dets; i++) {
             NvMOTObjToTrack* obj = &frame->objectsIn.list[i];
-
-            Eigen::Matrix<float, 1, 7> det;
-            // DS 7.0: NvMOTRect uses {x, y, width, height} instead of {left, top, width, height}
+            // DS 7.0: NvMOTRect uses {x, y, width, height}
             float x1 = obj->bbox.x;
             float y1 = obj->bbox.y;
             float x2 = obj->bbox.x + obj->bbox.width;
             float y2 = obj->bbox.y + obj->bbox.height;
             // OCSort inputs: [x1, y1, x2, y2, score, class, ?]
-            det << x1, y1, x2, y2,
-                   obj->confidence,
-                   obj->classId,
-                   0.0f;
-            detections.push_back(det);
+            detections(i, 0) = x1;
+            detections(i, 1) = y1;
+            detections(i, 2) = x2;
+            detections(i, 3) = y2;
+            detections(i, 4) = obj->confidence;
+            detections(i, 5) = (float)obj->classId;
+            detections(i, 6) = 0.0f;
         }
 
         // Call C++ OCSort logic to assign IDs
-        std::vector<Eigen::Matrix<float, 1, 7>> tracked_targets = tracker->update(detections);
+        // Returns vector<RowVectorXf> where each row = [x1, y1, x2, y2, track_id, class, score]
+        std::vector<Eigen::RowVectorXf> tracked_targets = tracker->update(detections);
 
         // Write results back to DeepStream
         NvMOTTrackedObjList* out_list = &pTrackedObjectsBatch->list[stream_idx];
@@ -94,18 +97,18 @@ extern "C" NvMOTStatus NvMOT_Process(NvMOTContextHandle contextHandle, NvMOTProc
         out_list->frameNum = frame->frameNum;
 
         for (size_t t = 0; t < tracked_targets.size(); t++) {
-            auto trk = tracked_targets[t];
+            const Eigen::RowVectorXf& trk = tracked_targets[t];
             NvMOTTrackedObj* out_obj = &out_list->list[t];
 
-            out_obj->classId = (int)trk(0, 5);           // Class
-            out_obj->trackingId = (uint64_t)trk(0, 4);   // Track ID
-            out_obj->confidence = trk(0, 6);              // Score
+            out_obj->classId    = (int)trk(5);          // Class
+            out_obj->trackingId = (uint64_t)trk(4);     // Track ID
+            out_obj->confidence = trk(6);               // Score
 
             // DS 7.0: NvMOTRect uses {x, y, width, height}
-            out_obj->bbox.x = trk(0, 0);
-            out_obj->bbox.y = trk(0, 1);
-            out_obj->bbox.width  = trk(0, 2) - trk(0, 0);
-            out_obj->bbox.height = trk(0, 3) - trk(0, 1);
+            out_obj->bbox.x      = trk(0);
+            out_obj->bbox.y      = trk(1);
+            out_obj->bbox.width  = trk(2) - trk(0);
+            out_obj->bbox.height = trk(3) - trk(1);
         }
     }
 
