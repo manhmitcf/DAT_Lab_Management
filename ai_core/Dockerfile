@@ -28,14 +28,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # =========================================================
-# 1b. Install DeepStream C++ Dev Headers (not included in triton-multiarch runtime)
-# =========================================================
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    deepstream-7.0 \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
-
-# =========================================================
 # 2. Install PYDS (DeepStream Python Bindings for DS 7.0)
 # =========================================================
 RUN pip3 install --upgrade pip \
@@ -79,7 +71,7 @@ RUN cd deploy/DeepStream && make
 RUN cd deploy/OCSort/cpp && mkdir -p build && cd build && cmake .. && make
 
 # Compile the Custom C++ Counting & Mapping Probe (libcounting_mapping.so)
-RUN echo "=== Locating nvds_meta.h ===" && find /opt/nvidia -name "nvds_meta.h" 2>/dev/null && echo "=== Done ===" && cd deploy/DeepStream/cpp_logic && make
+RUN echo "=== Locating nvds_meta.h ===" && find / -name "nvds_meta.h" 2>/dev/null && echo "=== Done ===" && cd deploy/DeepStream/cpp_logic && make
 
 # =========================================================
 # 7. Setup Project in Editable Mode
