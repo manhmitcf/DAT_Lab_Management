@@ -29,8 +29,8 @@ jobs:
         run: |
           echo "Restarting services with the new image..."
           cd ~/Desktop/DAT_Lab-Management/ai_core
-          docker-compose down
-          docker-compose up -d
+          docker compose down
+          docker compose up -d
 
       - name: Clean up old Docker Images
         run: |
