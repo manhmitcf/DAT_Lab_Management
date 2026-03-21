@@ -1,6 +1,6 @@
 # Analytics API Documentation
 
-API phân tích occupancy, traffic và dwell time cho hệ thống Lab Management. Tất cả endpoint **tính toán trực tiếp từ database** (PostgreSQL) mỗi request — không sử dụng cache hay Redis.
+API phân tích occupancy, traffic và dwell time cho hệ thống Lab Management. Tất cả endpoint **tính toán trực tiếp từ database** (PostgreSQL/SQLite) mỗi request — không sử dụng cache hay Redis.
 
 ---
 
@@ -206,31 +206,7 @@ Tích lũy count_in / count_out theo giờ.
 
 ---
 
-### 8. Dwell By Hour — Line Chart
-
-**`GET /api/lab_management/analytics/dwell-by-hour`**
-
-Thời gian lưu trú trung bình theo giờ.
-
-**Query params:** `period` (default: `today`)
-
-**Response:**
-```json
-{
-  "data": [
-    { "time": "00:00", "avg_dwell": 0 },
-    { "time": "08:00", "avg_dwell": 12.5 },
-    { "time": "09:00", "avg_dwell": 18.2 }
-  ]
-}
-```
-
-- `avg_dwell`: phút, làm tròn 1 chữ số.
-- Chỉ tính các track có ≥2 lần xuất hiện trong giờ đó.
-
----
-
-### 9. Export — CSV Download
+### 8. Export — CSV Download
 
 **`GET /api/lab_management/analytics/export`**
 
@@ -260,14 +236,13 @@ timestamp,count_in,count_out,alert,num_detections,height_frame,width_frame
 | flow-ratio | ✓ | ✓ | ✓ | ✓ |
 | peak-daily | ✓ | ✓ | ✓ (recommended) | ✓ |
 | cumulative-traffic | ✓ | ✓ | ✓ | ✓ |
-| dwell-by-hour | ✓ | ✓ | ✓ | ✓ |
 | export | ✓ | ✓ | ✓ | ✓ |
 
 ---
 
 ## Data Source
 
-- **Models:** `FrameData`, `ObjectDetection` (PostgreSQL)
+- **Models:** `FrameData`, `ObjectDetection` (PostgreSQL/SQLite)
 - **Computation:** Real-time, truy vấn trực tiếp qua Django ORM mỗi request
 - **Caching:** Không sử dụng cache hay Redis cho analytics
 

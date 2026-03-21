@@ -1,6 +1,6 @@
 # EdgeSentinelAI — API Documentation
 
-> **Version:** 3.1.0 · **Updated:** 2026-03-20  
+> **Version:** 3.2.0 · **Updated:** 2026-03-21  
 > **Backend Base URL:** `https://labmanagementbackend-hte4hyczd0fef4ah.eastasia-01.azurewebsites.net`  
 > **REST prefix:** `/api/lab_management` · **Format:** JSON  
 > **Hệ thống:** 1 camera duy nhất — video qua WebRTC/Janus, metadata & config qua WebSocket.
@@ -14,22 +14,21 @@
 | — | WS | `wss://.../ws/persist/metadata/` | ✅ Implemented | Metadata realtime (edge → FE) |
 | — | WS | `wss://.../ws/settings/mapping/` | ✅ Implemented | Calibration mapping (FE → edge) |
 | — | WS | `wss://.../ws/settings/counting/` | ✅ Implemented | Counting line config (FE → edge) |
-| 1 | GET | `/analytics/summary` | 🔄 Mock | KPI cards |
-| 2 | GET | `/analytics/occupancy-trends` | 🔄 Mock | Line chart |
-| 3 | GET | `/analytics/heatmap` | 🔄 Mock | Heatmap 24×7 |
-| 4 | GET | `/analytics/traffic-daily` | 🔄 Mock | Bar chart ngày |
-| 5 | GET | `/analytics/flow-ratio` | 🔄 Mock | Donut entry/exit |
-| 6 | GET | `/analytics/peak-daily` | 🔄 Mock | Bar chart peak |
-| 7 | GET | `/analytics/cumulative-traffic` | 🔄 Mock | Area chart tích lũy |
-| 8 | GET | `/analytics/dwell-by-hour` | 🔄 Mock | Dwell time theo giờ |
-| 9 | GET | `/analytics/export` | 🔄 Planned | Export CSV |
-| 10 | GET | `/alerts` | 🔄 Mock | Danh sách cảnh báo |
-| 11 | GET | `/alerts/{id}/video` | 🔄 Planned | Video clip cảnh báo |
-| 12 | PUT | `/alerts/threshold` | 🔄 Planned | Cấu hình ngưỡng |
-| 13 | GET | `/history/recordings` | 🔄 Mock | Danh sách recordings |
-| 14 | GET | `/history/recordings/{id}/stream` | 🔄 Planned | Video playback |
+| 1 | GET | `/analytics/summary` | ✅ API | KPI cards |
+| 2 | GET | `/analytics/occupancy-trends` | ✅ API | Line chart |
+| 3 | GET | `/analytics/heatmap` | ✅ API | Heatmap 24×7 |
+| 4 | GET | `/analytics/traffic-daily` | ✅ API | Bar chart ngày |
+| 5 | GET | `/analytics/flow-ratio` | ✅ API | Donut entry/exit |
+| 6 | GET | `/analytics/peak-daily` | ✅ API | Bar chart peak |
+| 7 | GET | `/analytics/cumulative-traffic` | ✅ API | Area chart tích lũy |
+| 8 | GET | `/analytics/export` | ✅ API | Export CSV |
+| 9 | GET | `/alerts` | 🔄 Mock | Danh sách cảnh báo |
+| 10 | GET | `/alerts/{id}/video` | 🚧 Planned | Video clip cảnh báo |
+| 11 | PUT | `/alerts/threshold` | 🚧 Planned | Cấu hình ngưỡng |
+| 12 | GET | `/history/recordings` | 🔄 Mock | Danh sách recordings |
+| 13 | GET | `/history/recordings/{id}/stream` | 🚧 Planned | Video playback |
 
-> **Legend:** ✅ FE đã implement · 🔄 FE đang dùng mock data, chờ BE · 🚧 Planned
+> **Legend:** ✅ FE đã implement (real API) · 🔄 FE đang dùng mock data · 🚧 Planned
 
 ---
 
@@ -113,10 +112,10 @@ FE nhận JSON text được BE forward từ Edge Device:
 
 ---
 
-# Tab 2 — Analytics (`/analytics`) 🔄 Mock
+# Tab 2 — Analytics (`/analytics`) ✅ API
 
-> [!WARNING]
-> **FE hiện đang dùng mock data** từ `@/lib/mockData`. Các endpoint dưới đây là **API contract** để BE implement. FE sẽ switch sang real API khi BE sẵn sàng.
+> [!NOTE]
+> **FE gọi real API** từ backend. Fallback mock (toàn 0) khi API lỗi. Chi tiết xem `backend/ANALYTICS_API.md`.
 
 Dashboard phân tích occupancy, traffic patterns, và heatmap.
 
@@ -258,30 +257,16 @@ Area chart: tích lũy entry/exit trong ngày — thể hiện tốc độ lấp
 
 ---
 
-## `GET /api/lab_management/analytics/dwell-by-hour?period={period}`
+## `GET /api/lab_management/analytics/export?period={period}` ✅ API
 
-Line chart: avg dwell time theo giờ trong ngày.
-
-```json
-{
-  "data": [
-    { "time": "06:00", "avg_dwell": 8  },
-    { "time": "10:00", "avg_dwell": 28 },
-    { "time": "14:00", "avg_dwell": 42 }
-  ]
-}
-```
-
----
-
-## `GET /api/lab_management/analytics/export?period={period}` 🚧 Planned
-
-Export toàn bộ analytics data.
+Export raw analytics data dạng CSV.
 
 **Response:** `Content-Type: text/csv`  
-`Content-Disposition: attachment; filename="analytics_{period}_{date}.csv"`
+`Content-Disposition: attachment; filename="analytics_report_{period}_{YYYYMMDD}.csv"`
 
-> FE hiện export PDF client-side (html-to-image + jsPDF). Endpoint này dành cho export server-side CSV khi cần.
+**Headers:** `timestamp,count_in,count_out,alert,num_detections,height_frame,width_frame`
+
+> FE cũng export PDF client-side (html-to-image + jsPDF). Endpoint này dùng cho download CSV từ BE.
 
 ---
 
