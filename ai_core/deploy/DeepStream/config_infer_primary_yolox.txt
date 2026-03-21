@@ -1,5 +1,6 @@
 [property]
 gpu-id=0
+interval=1
 net-scale-factor=1.0
 
 # 1. Define input size and color for TensorRT
