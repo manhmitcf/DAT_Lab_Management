@@ -11,6 +11,7 @@ net-scale-factor=0.0171247538316637
 
 # 2. TensorRT engine file
 model-engine-file=../../pretrained/ocsort_x_mot20_fp16.engine
+onnx-file=../../pretrained/yolox.onnx
 
 # 3. Architecture parameters (1 batch, input RGB 640x640)
 infer-dims=3;640;640

@@ -6,6 +6,9 @@ import threading
 from datetime import datetime, timezone
 from loguru import logger
 import ctypes
+from dotenv import load_dotenv
+
+load_dotenv()
 
 try:
     import pyds
@@ -129,7 +132,57 @@ def osd_sink_pad_buffer_probe(pad, info, u_data):
             
     return Gst.PadProbeReturn.OK
 
+def check_and_convert_models():
+    """Check if Engine and ONNX exist. If not, try to auto-convert from PTH and build Engine."""
+    engine_path = os.getenv("MODEL_ENGINE_PATH", "pretrained/ocsort_x_mot20_fp16.engine")
+    onnx_path = os.getenv("MODEL_ONNX_PATH", "pretrained/ocsort_x_mot20.onnx")
+    pth_path = os.getenv("MODEL_PTH_PATH", "pretrained/ocsort_x_mot20.pth")
+    exp_file = os.getenv("MODEL_EXP_FILE", "exps/example/mot/yolox_x_mix_det.py")
+    
+    # Check if we need to do anything
+    if os.path.exists(engine_path):
+        return
+
+    logger.warning(f"TensorRT Engine not found at {engine_path}.")
+    
+    import subprocess
+    if not os.path.exists(onnx_path):
+        logger.warning(f"ONNX model also not found at {onnx_path}.")
+        if os.path.exists(pth_path) and os.path.exists(exp_file):
+            logger.info("Auto-converting PTH to ONNX...")
+            cmd = ["python3", "deploy/scripts/export_onnx.py", 
+                   "--output-name", onnx_path, 
+                   "-f", exp_file, 
+                   "-c", pth_path]
+            try:
+                subprocess.run(cmd, check=True)
+                logger.success(f"Successfully converted PTH to ONNX at {onnx_path}")
+            except subprocess.CalledProcessError as e:
+                logger.error(f"Failed to convert PTH to ONNX: {e}")
+                return
+        else:
+            logger.error("Missing .pth or exp_file for ONNX conversion.")
+            return
+            
+    # If ONNX now exists, build engine using trtexec
+    if os.path.exists(onnx_path):
+        logger.info(f"Building TensorRT Engine using trtexec from {onnx_path}...")
+        trtexec_cmd = [
+            "/usr/src/tensorrt/bin/trtexec",
+            f"--onnx={onnx_path}",
+            f"--saveEngine={engine_path}",
+            "--fp16",
+            "--memPoolSize=workspace:4096"
+        ]
+        try:
+            # We don't capture output because trtexec logs are useful for the user to see progress
+            subprocess.run(trtexec_cmd, check=True)
+            logger.success(f"Successfully built TensorRT engine at {engine_path}")
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Failed to build TensorRT engine: {e}")
+
 def main():
+    check_and_convert_models()
     Gst.init(None)
     
     # Check Azure config
@@ -183,35 +236,64 @@ def main():
     logger.info("Creating GStreamer Pipeline...")
     pipeline = Gst.Pipeline()
 
-    # Create Elements
-    source = Gst.ElementFactory.make("uridecodebin", "source")
-    video_path = "file://" + os.path.abspath("videos/demo.mp4")
-    source.set_property("uri", video_path)
+    is_camera = False
+    video_source = os.getenv("INPUT_VIDEO_SOURCE", "/dev/video0")
+    
+    if video_source.startswith("/dev/video"):
+        logger.info(f"Using V4L2 Camera Source: {video_source}")
+        is_camera = True
+        source = Gst.ElementFactory.make("v4l2src", "source")
+        source.set_property("device", video_source)
+        source.set_property("io-mode", 2) # mmap
+        
+        # Camera caps: image/jpeg,width=1280,height=720,framerate=30/1
+        caps_v4l2src = Gst.ElementFactory.make("capsfilter", "v4l2src_caps")
+        caps_v4l2src.set_property("caps", Gst.Caps.from_string("image/jpeg,width=1280,height=720,framerate=30/1"))
+        
+        jpegdec = Gst.ElementFactory.make("nvjpegdec", "jpeg-decoder")
+    else:
+        logger.info(f"Using URI Source: {video_source}")
+        source = Gst.ElementFactory.make("uridecodebin", "source")
+        source.set_property("uri", video_source)
 
     streammux = Gst.ElementFactory.make("nvstreammux", "stream-muxer")
-    streammux.set_property("width", 1920)
-    streammux.set_property("height", 1080)
+    streammux.set_property("width", 1280 if is_camera else 1920)
+    streammux.set_property("height", 720 if is_camera else 1080)
     streammux.set_property("batch-size", 1)
     streammux.set_property("batched-push-timeout", 40000)
 
     pgie = Gst.ElementFactory.make("nvinfer", "primary-inference")
-    pgie.set_property("config-file-path", "deploy/DeepStream/config_infer_primary_yolox.txt")
+    pgie_config = os.getenv("PGIE_CONFIG_PATH", "deploy/DeepStream/config_infer_primary_yolox.txt")
+    pgie.set_property("config-file-path", pgie_config)
 
     tracker = Gst.ElementFactory.make("nvtracker", "tracker")
-    tracker.set_property("ll-lib-file", "/workspace/ai_core/deploy/OCSort/cpp/build/libnvds_ocsort.so")
+    tracker_lib = os.getenv("TRACKER_LIB_PATH", "/workspace/ai_core/deploy/OCSort/cpp/build/libnvds_ocsort.so")
+    tracker.set_property("ll-lib-file", tracker_lib)
     tracker.set_property("enable-batch-process", 1)
 
     nvvidconv = Gst.ElementFactory.make("nvvideoconvert", "convertor")
     nvosd = Gst.ElementFactory.make("nvdsosd", "onscreendisplay")
 
+    # Hardcoded exactly from user's conf.txt mapping
     encoder = Gst.ElementFactory.make("nvv4l2h264enc", "h264-encoder")
-    encoder.set_property("bitrate", 2000000)
+    video_bitrate = int(os.getenv("VIDEO_BITRATE", "1200000"))
+    encoder.set_property("bitrate", video_bitrate)
+    encoder.set_property("profile", 0) # Base
+    encoder.set_property("control-rate", 1)
     encoder.set_property("preset-level", 1)
+    encoder.set_property("maxperf-enable", 1)
     encoder.set_property("insert-sps-pps", 1)
+    encoder.set_property("iframeinterval", 30)
+    
+    # H264Parse before RTP
+    h264parse = Gst.ElementFactory.make("h264parse", "h264-parser")
+    h264parse.set_property("config-interval", 1)
 
     rtppay = Gst.ElementFactory.make("rtph264pay", "rtp-payer")
     rtppay.set_property("pt", 96)
-
+    # aggregate-mode 1 = zero-latency? Wait, there is no generic string setting for it in pyds directly without integer values if it's enum, but let's try property setting
+    # In C/gst-launch, aggregate-mode=zero-latency usually works, let's omit unless necessary or set generically
+    
     udpsink = Gst.ElementFactory.make("udpsink", "udp-sink")
     udpsink.set_property("host", janus_ip)
     udpsink.set_property("port", janus_port)
@@ -219,34 +301,44 @@ def main():
     udpsink.set_property("sync", False)
 
     # Add elements to pipeline
-    elements = [streammux, pgie, tracker, nvvidconv, nvosd, encoder, rtppay, udpsink]
+    if is_camera:
+        elements = [source, caps_v4l2src, jpegdec, streammux, pgie, tracker, nvvidconv, nvosd, encoder, h264parse, rtppay, udpsink]
+    else:
+        elements = [source, streammux, pgie, tracker, nvvidconv, nvosd, encoder, h264parse, rtppay, udpsink]
+
     for elem in elements:
         if not elem:
-            logger.error(f"Failed to create some pipeline element.")
+            logger.error("Failed to create some pipeline element.")
             sys.exit(1)
         pipeline.add(elem)
 
-    pipeline.add(source)
-
     # Link elements
+    if is_camera:
+        source.link(caps_v4l2src)
+        caps_v4l2src.link(jpegdec)
+        sinkpad = streammux.get_request_pad("sink_0")
+        srcpad = jpegdec.get_static_pad("src")
+        srcpad.link(sinkpad)
+    else:
+        def cb_newpad(decodebin, decoder_src_pad, data):
+            caps = decoder_src_pad.get_current_caps()
+            if not caps: return
+            gststruct = caps.get_structure(0)
+            gstname = gststruct.get_name()
+            if gstname.find("video") != -1:
+                sinkpad = streammux.get_request_pad("sink_0")
+                decoder_src_pad.link(sinkpad)
+
+        source.connect("pad-added", cb_newpad, streammux)
+
     streammux.link(pgie)
     pgie.link(tracker)
     tracker.link(nvvidconv)
     nvvidconv.link(nvosd)
     nvosd.link(encoder)
-    encoder.link(rtppay)
+    encoder.link(h264parse)
+    h264parse.link(rtppay)
     rtppay.link(udpsink)
-
-    def cb_newpad(decodebin, decoder_src_pad, data):
-        logger.info("In cb_newpad")
-        caps = decoder_src_pad.get_current_caps()
-        gststruct = caps.get_structure(0)
-        gstname = gststruct.get_name()
-        sinkpad = streammux.get_request_pad("sink_0")
-        if gstname.find("video") != -1:
-            decoder_src_pad.link(sinkpad)
-
-    source.connect("pad-added", cb_newpad, streammux)
 
     # Add Python Pad Probe to the sink pad of OSD to extract data
     osd_sink_pad = nvosd.get_static_pad("sink")
