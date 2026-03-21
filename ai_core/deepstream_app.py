@@ -126,7 +126,7 @@ class DeepStreamApp:
         tracker = Gst.ElementFactory.make("nvtracker", "tracker")
         tracker_lib = os.getenv("TRACKER_LIB_PATH", "/workspace/ai_core/deploy/OCSort/cpp/build/libnvds_ocsort.so")
         tracker.set_property("ll-lib-file", tracker_lib)
-        tracker.set_property("enable-batch-process", 1)
+        # Note: 'enable-batch-process' is deprecated in DeepStream 7.0 and removed from nvtracker
 
         nvvidconv = Gst.ElementFactory.make("nvvideoconvert", "convertor")
         nvosd = Gst.ElementFactory.make("nvdsosd", "onscreendisplay")
