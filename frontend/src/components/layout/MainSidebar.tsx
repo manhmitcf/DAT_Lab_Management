@@ -54,8 +54,7 @@ export default function MainSidebar() {
                     fixed inset-y-0 left-0
                     w-[min(288px,85vw)] -translate-x-full
                     md:relative md:translate-x-0 md:shrink-0
-                    md:w-[216px]
-                    ${isCollapsed ? 'md:w-[72px]' : ''}
+                    ${isCollapsed ? 'md:w-[72px]' : 'md:w-[216px]'}
                     ${isMobileOpen ? 'translate-x-0' : ''}
                 `}
                 aria-label="Main navigation"
