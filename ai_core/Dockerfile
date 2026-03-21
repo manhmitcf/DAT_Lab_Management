@@ -71,7 +71,9 @@ RUN cd deploy/DeepStream && make
 RUN cd deploy/OCSort/cpp && mkdir -p build && cd build && cmake .. && make
 
 # Compile the Custom C++ Counting & Mapping Probe (libcounting_mapping.so)
-RUN echo "=== Locating nvds_meta.h ===" && find / -name "nvds_meta.h" 2>/dev/null && echo "=== Done ===" && cd deploy/DeepStream/cpp_logic && make
+# Compile the Custom C++ Counting & Mapping Probe (optional, falls back to Python if unavailable)
+# Note: nvds_meta.h is not shipped in triton-multiarch image - Python fallback handles this gracefully
+RUN cd deploy/DeepStream/cpp_logic && make || echo "Warning: C++ Probe not available, Python logic fallback will be used."
 
 # =========================================================
 # 7. Setup Project in Editable Mode
