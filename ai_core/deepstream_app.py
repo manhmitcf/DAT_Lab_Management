@@ -173,22 +173,36 @@ class DeepStreamApp:
         logger.info("[PIPELINE] Initializing GStreamer elements...")
         self.pipeline = Gst.Pipeline()
 
-        logger.info(f"Using V4L2 Camera Source: {self.video_source}")
-        source = Gst.ElementFactory.make("v4l2src", "source")
-        source.set_property("device", self.video_source)
-        source.set_property("io-mode", 2)
-        source.set_property("do-timestamp", True)
-        
-        caps_v4l2src = Gst.ElementFactory.make("capsfilter", "v4l2src_caps")
-        caps_v4l2src.set_property("caps", Gst.Caps.from_string("image/jpeg,width=1280,height=720,framerate=30/1"))
-        
-        cam_queue = Gst.ElementFactory.make("queue", "camera-queue")
-        cam_queue.set_property("max-size-buffers", 1)
-        cam_queue.set_property("leaky", 2)  # leaky=downstream
+        is_live = False
+        if self.video_source.startswith("/dev/video"):
+            is_live = True
+            logger.info(f"Using V4L2 Camera Source: {self.video_source}")
+            source = Gst.ElementFactory.make("v4l2src", "source")
+            source.set_property("device", self.video_source)
+            source.set_property("io-mode", 2)
+            source.set_property("do-timestamp", True)
+            
+            caps_v4l2src = Gst.ElementFactory.make("capsfilter", "v4l2src_caps")
+            caps_v4l2src.set_property("caps", Gst.Caps.from_string("image/jpeg,width=1280,height=720,framerate=30/1"))
+            
+            cam_queue = Gst.ElementFactory.make("queue", "camera-queue")
+            cam_queue.set_property("max-size-buffers", 1)
+            cam_queue.set_property("leaky", 2)  # leaky=downstream
 
-        jpegparse = Gst.ElementFactory.make("jpegparse", "jpeg-parser")
-        jpegdec = Gst.ElementFactory.make("nvv4l2decoder", "jpeg-decoder")
-        jpegdec.set_property("mjpeg", 1)  # Use hardware MJPEG decoding
+            jpegparse = Gst.ElementFactory.make("jpegparse", "jpeg-parser")
+            jpegdec = Gst.ElementFactory.make("nvv4l2decoder", "jpeg-decoder")
+            jpegdec.set_property("mjpeg", 1)  # Use hardware MJPEG decoding
+        else:
+            uri = self.video_source
+            if not uri.startswith("rtsp://") and not uri.startswith("http://") and not uri.startswith("file://"):
+                uri = f"file://{os.path.abspath(uri)}"
+            logger.info(f"Using URI Source: {uri}")
+            source = Gst.ElementFactory.make("uridecodebin", "source")
+            source.set_property("uri", uri)
+            caps_v4l2src = None
+            cam_queue = None
+            jpegparse = None
+            jpegdec = None
 
         # Force NV12 conversion before nvstreammux to prevent jpegdec from stalling
         nvvidconv_src = Gst.ElementFactory.make("nvvideoconvert", "convertor_src")
@@ -200,7 +214,8 @@ class DeepStreamApp:
         streammux.set_property("height", 720)
         streammux.set_property("batch-size", 1)
         streammux.set_property("batched-push-timeout", 40000)
-        streammux.set_property("live-source", 1)  # CRITICAL for USB Cameras
+        if is_live:
+            streammux.set_property("live-source", 1)  # CRITICAL for USB Cameras
 
         pgie = Gst.ElementFactory.make("nvinfer", "primary-inference")
         pgie_config = os.getenv("PGIE_CONFIG_PATH", "deploy/DeepStream/config_infer_primary_yolox.txt")
@@ -244,14 +259,16 @@ class DeepStreamApp:
         udpsink.set_property("async", False)
         udpsink.set_property("sync", False)
 
-        elements = [source, caps_v4l2src, cam_queue, jpegparse, jpegdec, nvvidconv_src, caps_vidconv_src, streammux, pgie, tracker, nvvidconv, nvosd, nvvidconv2, caps_enc, encoder, h264parse, rtppay, udpsink]
+        if is_live:
+            elements = [source, caps_v4l2src, cam_queue, jpegparse, jpegdec, nvvidconv_src, caps_vidconv_src, streammux, pgie, tracker, nvvidconv, nvosd, nvvidconv2, caps_enc, encoder, h264parse, rtppay, udpsink]
+        else:
+            elements = [source, nvvidconv_src, caps_vidconv_src, streammux, pgie, tracker, nvvidconv, nvosd, nvvidconv2, caps_enc, encoder, h264parse, rtppay, udpsink]
 
         for elem in elements:
             if not elem:
                 logger.error("[PIPELINE] Failed to create element.")
                 sys.exit(1)
             self.pipeline.add(elem)
-
 
         def _link(e1, e2):
             if not e1.link(e2):
@@ -260,11 +277,26 @@ class DeepStreamApp:
             else:
                 logger.debug(f"[PIPELINE] Linked {e1.get_name()} → {e2.get_name()}")
 
-        _link(source, caps_v4l2src)
-        _link(caps_v4l2src, cam_queue)
-        _link(cam_queue, jpegparse)
-        _link(jpegparse, jpegdec)
-        _link(jpegdec, nvvidconv_src)
+        if is_live:
+            _link(source, caps_v4l2src)
+            _link(caps_v4l2src, cam_queue)
+            _link(cam_queue, jpegparse)
+            _link(jpegparse, jpegdec)
+            _link(jpegdec, nvvidconv_src)
+        else:
+            def cb_newpad(decodebin, decoder_src_pad, data):
+                logger.debug(f"[PIPELINE] uridecodebin linked to {data.get_name()}")
+                caps = decoder_src_pad.get_current_caps()
+                if not caps:
+                    caps = decoder_src_pad.query_caps()
+                gststruct = caps.get_structure(0)
+                gstname = gststruct.get_name()
+                if gstname.find("video") != -1:
+                    sink_pad = data.get_static_pad("sink")
+                    if not sink_pad.is_linked():
+                        decoder_src_pad.link(sink_pad)
+            source.connect("pad-added", cb_newpad, nvvidconv_src)
+
         _link(nvvidconv_src, caps_vidconv_src)
         
         sinkpad = streammux.get_request_pad("sink_0")
