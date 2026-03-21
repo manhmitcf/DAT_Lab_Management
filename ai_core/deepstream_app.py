@@ -191,7 +191,9 @@ class DeepStreamApp:
         cam_queue.set_property("max-size-buffers", 1)
         cam_queue.set_property("leaky", 2)  # leaky=downstream
 
-        jpegdec = Gst.ElementFactory.make("nvjpegdec", "jpeg-decoder")
+        jpegparse = Gst.ElementFactory.make("jpegparse", "jpeg-parser")
+        jpegdec = Gst.ElementFactory.make("nvv4l2decoder", "jpeg-decoder")
+        jpegdec.set_property("mjpeg", 1)  # Use hardware MJPEG decoding
 
         # Force NV12 conversion before nvstreammux to prevent jpegdec from stalling
         nvvidconv_src = Gst.ElementFactory.make("nvvideoconvert", "convertor_src")
@@ -203,6 +205,7 @@ class DeepStreamApp:
         streammux.set_property("height", 720)
         streammux.set_property("batch-size", 1)
         streammux.set_property("batched-push-timeout", 40000)
+        streammux.set_property("live-source", 1)  # CRITICAL for USB Cameras
 
         pgie = Gst.ElementFactory.make("nvinfer", "primary-inference")
         pgie_config = os.getenv("PGIE_CONFIG_PATH", "deploy/DeepStream/config_infer_primary_yolox.txt")
@@ -243,7 +246,7 @@ class DeepStreamApp:
         udpsink.set_property("async", False)
         udpsink.set_property("sync", False)
 
-        elements = [source, caps_v4l2src, cam_queue, jpegdec, nvvidconv_src, caps_vidconv_src, streammux, pgie, tracker, nvvidconv, nvosd, nvvidconv2, caps_enc, encoder, h264parse, rtppay, udpsink]
+        elements = [source, caps_v4l2src, cam_queue, jpegparse, jpegdec, nvvidconv_src, caps_vidconv_src, streammux, pgie, tracker, nvvidconv, nvosd, nvvidconv2, caps_enc, encoder, h264parse, rtppay, udpsink]
 
         for elem in elements:
             if not elem:
@@ -265,7 +268,8 @@ class DeepStreamApp:
 
         _link(source, caps_v4l2src)
         _link(caps_v4l2src, cam_queue)
-        _link(cam_queue, jpegdec)
+        _link(cam_queue, jpegparse)
+        _link(jpegparse, jpegdec)
         _link(jpegdec, nvvidconv_src)
         _link(nvvidconv_src, caps_vidconv_src)
         
