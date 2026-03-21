@@ -4,5 +4,8 @@
   "inside_point": [1001.3157894736844, 375.3947368421052],
   "crossing_margin": 10,
   "frame_height": 1080,
-  "frame_width": 1920
+  "frame_width": 1920,
+  "info_threshold": 10,
+  "warning_threshold": 25,
+  "critical_threshold": 25
 }

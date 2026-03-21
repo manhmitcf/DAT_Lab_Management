@@ -56,9 +56,12 @@ class CountingConfig:
     inside_point: Tuple[float, float] = (0.0, 0.0)
     crossing_margin: float = 10.0
 
-    frame_width: Optional[int] = None
     frame_height: Optional[int] = None
     normalized: bool = False  # if True, line points are in 0–1 range
+
+    info_threshold: Optional[int] = None
+    warning_threshold: Optional[int] = None
+    critical_threshold: Optional[int] = None
 
     def __post_init__(self):
         if self.json_path is None:
