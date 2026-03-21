@@ -1,6 +1,7 @@
 #ifndef OC_SORT_CPP_UTILITIES_HPP
 #define OC_SORT_CPP_UTILITIES_HPP
 #include "Eigen/Dense"
+#include <unordered_map>
 namespace ocsort {
     /**
      * Takes a bounding box in the form [x1,y1,x2,y2] and returns z in the form
