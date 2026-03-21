@@ -7,7 +7,8 @@ import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
 import StatusDot from '@/components/ui/StatusDot';
 import SegmentedControl from '@/components/ui/SegmentedControl';
-import { analyticsData } from '@/lib/mockData';
+import { useAnalyticsData } from '@/hooks/useAnalyticsData';
+import { fetchExportCsv } from '@/lib/analyticsApi';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { toPng } from 'html-to-image';
@@ -20,12 +21,12 @@ const timeFrameOptions: { value: TimeFrame; label: string }[] = [
     { value: '7d', label: '7 Days' },
     { value: '30d', label: '30 Days' },
 ];
-
-const { summary, occupancyTrends, heatmap, trafficDaily, flowRatio, peakDaily, cumulativeTraffic, dwellByHour } = analyticsData;
 function dataToPath(data: { occupancy: number }[], maxVal: number) {
+    if (!data.length) return '';
+    const safeMax = Math.max(maxVal, 1);
     return data.map((d, i) => {
-        const x = (i / (data.length - 1)) * 1000;
-        const y = 260 - (d.occupancy / maxVal) * 230;
+        const x = data.length > 1 ? (i / (data.length - 1)) * 1000 : 0;
+        const y = 260 - (d.occupancy / safeMax) * 230;
         return `${i === 0 ? 'M' : 'L'}${x},${y}`;
     }).join(' ');
 }
@@ -33,7 +34,11 @@ function dataToPath(data: { occupancy: number }[], maxVal: number) {
 export default function AnalyticsPage() {
     const [timeFrame, setTimeFrame] = useState<TimeFrame>('today');
     const [isExporting, setIsExporting] = useState(false);
+    const [csvExporting, setCsvExporting] = useState(false);
     const reportRef = useRef<HTMLElement>(null);
+    const { data, loading, error, refetch } = useAnalyticsData(timeFrame);
+    const { summary, occupancyTrends, heatmap, trafficDaily, flowRatio, peakDaily, cumulativeTraffic, dwellByHour } =
+        data;
     const occupancyChartRef = useRef<HTMLDivElement>(null);
     const flowChartRef = useRef<HTMLDivElement>(null);
     const cumulativeChartRef = useRef<HTMLDivElement>(null);
@@ -42,72 +47,22 @@ export default function AnalyticsPage() {
     const dailyTrafficChartRef = useRef<HTMLDivElement>(null);
     const peakDayChartRef = useRef<HTMLDivElement>(null);
 
-    // ── Export CSV ────────────────────────────────────────────────────────
-    const handleExportCSV = useCallback(() => {
-        const lines: string[] = [];
-        const now = new Date().toLocaleString();
-        lines.push(`EdgeSentinelAI Analytics Report`);
-        lines.push(`Generated: ${now}`);
-        lines.push(`Period: ${timeFrame}`);
-        lines.push('');
-
-        // KPI Summary
-        lines.push('=== KPI Summary ===');
-        lines.push(`Current Occupancy,${summary.current_occupancy}`);
-        lines.push(`Peak Occupancy,${summary.peak_occupancy}`);
-        lines.push(`Peak Time,${summary.peak_time}`);
-        lines.push(`Avg Dwell Time (min),${summary.avg_dwell_time_minutes}`);
-        lines.push(`Total In,${summary.total_in}`);
-        lines.push(`Total Out,${summary.total_out}`);
-        lines.push(`Net Flow,${summary.net_flow}`);
-        lines.push('');
-
-        // Occupancy Trends
-        lines.push('=== Occupancy Trends ===');
-        lines.push('Time,Occupancy,Entry,Exit');
-        occupancyTrends.current.forEach(d => {
-            lines.push(`${d.time},${d.occupancy},${d.entry},${d.exit}`);
-        });
-        lines.push('');
-
-        // Daily Traffic
-        lines.push('=== Daily Traffic ===');
-        lines.push('Day,Total In,Total Out');
-        trafficDaily.forEach(d => {
-            lines.push(`${d.day},${d.total_in},${d.total_out}`);
-        });
-        lines.push('');
-
-        // Peak by Day
-        lines.push('=== Peak Occupancy by Day ===');
-        lines.push('Day,Peak,Time');
-        peakDaily.forEach(d => {
-            lines.push(`${d.day},${d.peak},${d.time}`);
-        });
-        lines.push('');
-
-        // Dwell Distribution
-        lines.push('=== Dwell Time Distribution ===');
-        lines.push('Range,Percentage');
-        flowRatio.dwell_distribution.forEach(d => {
-            lines.push(`${d.range},${d.percentage}%`);
-        });
-        lines.push('');
-
-        // Weekly Heatmap
-        lines.push('=== Weekly Heatmap (Intensity 0-100) ===');
-        lines.push('Day,' + Array.from({ length: 24 }, (_, i) => `${i}h`).join(','));
-        heatmap.forEach(row => {
-            lines.push(`${row.day},${row.hours.map(h => Math.round(h * 100)).join(',')}`);
-        });
-
-        const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `analytics_report_${timeFrame}_${new Date().toISOString().slice(0, 10)}.csv`;
-        a.click();
-        URL.revokeObjectURL(url);
+    // ── Export CSV (from backend API) ──────────────────────────────────────
+    const handleExportCSV = useCallback(async () => {
+        setCsvExporting(true);
+        try {
+            const blob = await fetchExportCsv(timeFrame);
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `analytics_report_${timeFrame}_${new Date().toISOString().slice(0, 10)}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+        } catch (e) {
+            console.error('CSV export failed:', e);
+        } finally {
+            setCsvExporting(false);
+        }
     }, [timeFrame]);
 
     // ── Export Pro PDF ────────────────────────────────────────────────────
@@ -305,33 +260,39 @@ export default function AnalyticsPage() {
     };
 
     // ── Chart data ───────────────────────────────────────────────────────
-    const maxOcc = Math.max(...occupancyTrends.current.map(d => d.occupancy), ...occupancyTrends.previous.map(d => d.occupancy));
+    const occVals = [...occupancyTrends.current.map(d => d.occupancy), ...occupancyTrends.previous.map(d => d.occupancy)];
+    const maxOcc = occVals.length ? Math.max(...occVals, 1) : 1;
     const currentPath = dataToPath(occupancyTrends.current, maxOcc);
     const previousPath = dataToPath(occupancyTrends.previous, maxOcc);
-    const areaPath = currentPath + ' L1000,270 L0,270 Z';
+    const areaPath = currentPath ? currentPath + ' L1000,270 L0,270 Z' : '';
 
-    const maxTraffic = Math.max(...trafficDaily.map(d => Math.max(d.total_in, d.total_out)));
-    const maxPeak = Math.max(...peakDaily.map(d => d.peak));
-    const maxCum = Math.max(...cumulativeTraffic.map(d => Math.max(d.cumulative_in, d.cumulative_out)));
-    const maxDwell = Math.max(...dwellByHour.map(d => d.avg_dwell));
+    const trafficVals = trafficDaily.map(d => Math.max(d.total_in, d.total_out));
+    const maxTraffic = trafficVals.length ? Math.max(...trafficVals, 1) : 1;
+    const maxPeak = peakDaily.length ? Math.max(...peakDaily.map(d => d.peak), 1) : 1;
+    const cumVals = cumulativeTraffic.map(d => Math.max(d.cumulative_in, d.cumulative_out));
+    const maxCum = cumVals.length ? Math.max(...cumVals, 1) : 1;
+    const dwellVals = dwellByHour.map(d => d.avg_dwell);
+    const maxDwell = dwellVals.length ? Math.max(...dwellVals, 1) : 1;
 
+    const cumStep = cumulativeTraffic.length > 1 ? cumulativeTraffic.length - 1 : 1;
     const cumInPath = cumulativeTraffic.map((d, i) => {
-        const x = (i / (cumulativeTraffic.length - 1)) * 1000;
+        const x = (i / cumStep) * 1000;
         const y = 260 - (d.cumulative_in / maxCum) * 230;
         return `${i === 0 ? 'M' : 'L'}${x},${y}`;
     }).join(' ');
     const cumOutPath = cumulativeTraffic.map((d, i) => {
-        const x = (i / (cumulativeTraffic.length - 1)) * 1000;
+        const x = (i / cumStep) * 1000;
         const y = 260 - (d.cumulative_out / maxCum) * 230;
         return `${i === 0 ? 'M' : 'L'}${x},${y}`;
     }).join(' ');
 
+    const dwellStep = dwellByHour.length > 1 ? dwellByHour.length - 1 : 1;
     const dwellPath = dwellByHour.map((d, i) => {
-        const x = (i / (dwellByHour.length - 1)) * 1000;
+        const x = (i / dwellStep) * 1000;
         const y = 260 - (d.avg_dwell / maxDwell) * 230;
         return `${i === 0 ? 'M' : 'L'}${x},${y}`;
     }).join(' ');
-    const dwellArea = dwellPath + ' L1000,270 L0,270 Z';
+    const dwellArea = dwellPath ? dwellPath + ' L1000,270 L0,270 Z' : '';
 
     return (
         <div className="flex h-screen w-full bg-surface-0">
@@ -359,10 +320,26 @@ export default function AnalyticsPage() {
                         >
                             {isExporting ? 'Processing...' : 'Export PDF'}
                         </Button>
-                        <Button icon="download" variant="ghost" size="sm" onClick={handleExportCSV}>CSV</Button>
-                        <StatusDot status="online" label="Real-time sync" />
+                        <Button
+                            icon={csvExporting ? 'sync' : 'download'}
+                            variant="ghost"
+                            size="sm"
+                            onClick={handleExportCSV}
+                            disabled={csvExporting}
+                        >
+                            {csvExporting ? 'Exporting...' : 'CSV'}
+                        </Button>
+                        <StatusDot status={loading ? 'warning' : error ? 'offline' : 'online'} label={loading ? 'Loading...' : error ? 'Using fallback' : 'Live'} />
                     </div>
                 </div>
+
+                {/* Error banner */}
+                {error && (
+                    <div className="mx-4 md:mx-6 mt-3 px-4 py-2 rounded-lg bg-warning/10 border border-warning/30 flex items-center justify-between gap-3">
+                        <span className="text-sm text-warning">{error}</span>
+                        <Button variant="ghost" size="sm" onClick={() => refetch()}>Retry</Button>
+                    </div>
+                )}
 
                 {/* Scrollable Content */}
                 <main ref={reportRef} className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 md:space-y-6 custom-scrollbar">
