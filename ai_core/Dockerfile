@@ -1,49 +1,61 @@
-FROM nvcr.io/nvidia/tensorrt:21.09-py3
+# Base image with PyTorch and torch2trt pre-installed for JetPack 6 (ARM64)
+FROM dustynv/torch2trt:r36.4.0-cu128-24.04
 
+# Set non-interactive to avoid stuck during apt-get
 ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+
+# Set primary working directory
 WORKDIR /workspace/ai_core
 
-# Install system dependencies
+# =========================================================
+# 1. Install System Dependencies (Least frequent change)
+# =========================================================
 RUN apt-get update && apt-get install -y \
-        automake autoconf libpng-dev nano python3-pip \
-        curl zip unzip libtool swig zlib1g-dev pkg-config \
-        python3-mock libpython3-dev libpython3-all-dev \
-        g++ gcc cmake make pciutils cpio gosu wget \
-        libgtk-3-dev libxtst-dev sudo apt-transport-https \
-        build-essential gnupg git xz-utils vim \
-        libva-drm2 libva-x11-2 vainfo libva-wayland2 libva-glx2 \
-        libva-dev libdrm-dev xorg xorg-dev protobuf-compiler \
-        openbox libx11-dev libgl1-mesa-glx libgl1-mesa-dev \
-        libtbb2 libtbb-dev libopenblas-dev libopenmpi-dev \
-    && sed -i 's/# set linenumbers/set linenumbers/g' /etc/nanorc \
-    && apt clean \
+    git cmake curl wget vim nano build-essential \
+    libglib2.0-0 \
+    protobuf-compiler libprotoc-dev \
+    libgl1 libglx-mesa0 libegl1 libgles2 \
+    python3-opencv \
+    gstreamer1.0-tools \
+    gstreamer1.0-plugins-good \
+    gstreamer1.0-plugins-bad \
+    gstreamer1.0-plugins-ugly \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy current directory contents into the container at /workspace/ai_core
-# Note: large folders like pretrained/ and videos/ are excluded via .dockerignore
+# =========================================================
+# 2. Configure PIP and Install Core Python Dependencies
+# =========================================================
+COPY requirements.txt .
+ENV PIP_INDEX_URL=https://pypi.org/simple
+ENV PIP_EXTRA_INDEX_URL=""
+
+RUN rm -f /etc/pip.conf \
+    && pip3 install --upgrade pip setuptools wheel \
+    && pip3 install cython \
+    && pip3 install pycocotools \
+    && pip3 install cython_bbox \
+    && pip3 install ninja \
+    && pip3 install --no-cache-dir -r requirements.txt
+
+# =========================================================
+# 3. Copy Application Code
+# =========================================================
 COPY . .
 
-# Create mount points for external volumes
-RUN mkdir -p pretrained videos YOLOX_outputs/yolox_x_mix_det/track_vis
+# =========================================================
+# 4. Create Necessary Directories
+# =========================================================
+RUN mkdir -p pretrained videos YOLOX_outputs weights config
 
-# Install Python dependencies and setup project
-RUN sed -i 's/torch>=1.7/torch==1.9.1+cu111/g' requirements.txt \
-    && sed -i 's/torchvision==0.10.0/torchvision==0.10.1+cu111/g' requirements.txt \
-    && pip3 install pip --upgrade \
-    && pip3 install -r requirements.txt -f https://download.pytorch.org/whl/torch_stable.html \
-    && python3 setup.py develop \
-    && pip3 install cython \
-    && pip3 install 'git+https://github.com/cocodataset/cocoapi.git#subdirectory=PythonAPI' \
-    && pip3 install cython_bbox gdown \
-    && ldconfig \
-    && pip cache purge
+# =========================================================
+# 5. Setup Project in Editable Mode
+# =========================================================
+# Install setup.py (to build C++ extensions of YOLOX/OCSort if any)
+RUN pip3 install --no-build-isolation -e .
 
-# Install torch2trt (Optional, kept for compatibility)
-RUN git clone https://github.com/NVIDIA-AI-IOT/torch2trt \
-    && cd torch2trt \
-    && git checkout 0400b38123d01cc845364870bdf0a0044ea2b3b2 \
-    # https://github.com/NVIDIA-AI-IOT/torch2trt/issues/619
-    && wget https://github.com/NVIDIA-AI-IOT/torch2trt/commit/8b9fb46ddbe99c2ddf3f1ed148c97435cbeb8fd3.patch \
-    && git apply 8b9fb46ddbe99c2ddf3f1ed148c97435cbeb8fd3.patch \
-    && python3 setup.py install \
-    && cd .. && rm -rf torch2trt
+# =========================================================
+# 6. Default Command
+# =========================================================
+CMD ["python3", "main.py"]

@@ -1,0 +1,44 @@
+name: Deploy to Edge Jetson
+
+on:
+  push:
+    branches:
+      - aicore/deploy_jetson
+
+jobs:
+  build-and-deploy:
+    # Use Self-hosted runner to run directly on the Jetson hardware
+    runs-on: [self-hosted, deploy]
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v3
+
+      - name: Build Docker Image on Jetson (ARM64 Native)
+        run: |
+          echo "Building Docker Image directly on Jetson hardware..."
+          cd ai_core
+          docker build -t manhmitcf/dat_lab_management_aicore:deploy .
+
+      - name: Sync Persistent Data Folders and Environment Variables
+        run: |
+          echo "Symlinking persistent folders from Desktop to Runner working directory..."
+          cd ai_core
+          # Only mount the pretrained folder
+          ln -sfn ~/Desktop/DAT_Lab-Management/ai_core/pretrained ./pretrained
+          
+          # Link the environment variables file from Desktop to the correct path inside config/
+          mkdir -p ./config
+          ln -sfn ~/Desktop/DAT_Lab-Management/ai_core/config/.env ./config/.env
+
+      - name: Deploy with Docker Compose
+        run: |
+          echo "Restarting services with the new image..."
+          cd ai_core
+          docker-compose down
+          docker-compose up -d
+
+      - name: Clean up old Docker Images
+        run: |
+          echo "Cleaning up dangling images to free up disk space..."
+          docker image prune -f
