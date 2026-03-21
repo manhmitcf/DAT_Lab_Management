@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import { useTrackingStore } from '@/stores/trackingStore';
 
-const W = 160;
+const W = 400;
 const H = 20;
 const PAD = 4;
 

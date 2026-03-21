@@ -55,6 +55,7 @@ export default function LiveViewPage() {
             <span className="text-xs text-gray-500">Alert</span>
             <span className="text-sm font-semibold tabular-nums text-amber-300 font-mono">{alertLevel}</span>
           </Link>
+          <div className="flex-1 min-w-0 hidden md:block" aria-hidden />
           <div className="hidden md:block h-6 w-px shrink-0 bg-[#2a3441] mx-2" />
           <div className="hidden md:block shrink-0">
             <MiniOccupancyChart />
