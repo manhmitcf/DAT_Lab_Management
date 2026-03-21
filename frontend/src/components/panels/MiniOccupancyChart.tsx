@@ -3,8 +3,8 @@
 import { useMemo } from 'react';
 import { useTrackingStore } from '@/stores/trackingStore';
 
-const W = 160;
-const H = 40;
+const W = 400;
+const H = 80;
 const PAD = 4;
 
 /** Mini line chart (same idea as Analytics occupancy trend — compact for Live header). */
