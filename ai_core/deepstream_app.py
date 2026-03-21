@@ -1,6 +1,7 @@
 import os
 import sys
 import glob
+import time
 import queue
 import threading
 from loguru import logger
@@ -107,18 +108,25 @@ class DeepStreamApp:
         """Background thread to publish frame data synchronously to network limits."""
         logger.info("[Publisher] Background publisher thread started. Waiting for frames...")
         frames_sent = 0
+        last_log_time = time.time()
         while True:
             try:
-                frame_data = self.frame_data_queue.get()
+                # Use timeout to detect if pipeline is stalled
+                frame_data = self.frame_data_queue.get(timeout=10.0)
                 if frame_data is None:
                     logger.info("[Publisher] Received shutdown signal. Stopping.")
                     break
+                
                 self.result_publisher.send_frame(frame_data)
                 frames_sent += 1
                 if frames_sent == 1:
                     logger.success(f"[Publisher] First frame published successfully to {os.getenv('RESULTS_WS_URL')}")
                 elif frames_sent % 300 == 0:
                     logger.debug(f"[Publisher] {frames_sent} frames published so far.")
+            except queue.Empty:
+                if time.time() - last_log_time > 30:
+                    logger.warning("[Publisher] No data received from pipeline for 30 seconds. Is camera streaming?")
+                    last_log_time = time.time()
             except Exception as e:
                 logger.error(f"[Publisher] Error publishing frame data: {e}")
 
@@ -160,6 +168,11 @@ class DeepStreamApp:
         except Exception as e:
             logger.error(f"Error handling counting update: {e}")
 
+    def _src_pad_buffer_probe(self, pad, info, u_data):
+        """[DEBUG] Simple probe to verify the camera is actually producing buffers."""
+        logger.debug("[PIPELINE][v4l2src] Buffer received from camera!")
+        return Gst.PadProbeReturn.OK
+
     def build_pipeline(self) -> None:
         """Creates and links the entire GStreamer DeepStream network pipeline."""
         logger.info("[PIPELINE] Initializing GStreamer elements...")
@@ -169,6 +182,11 @@ class DeepStreamApp:
         source = Gst.ElementFactory.make("v4l2src", "source")
         source.set_property("device", self.video_source)
         source.set_property("io-mode", 2)
+        
+        # Attach debug probe to camera source
+        _src_pad = source.get_static_pad("src")
+        if _src_pad:
+            _src_pad.add_probe(Gst.PadProbeType.BUFFER, self._src_pad_buffer_probe, 0)
         
         caps_v4l2src = Gst.ElementFactory.make("capsfilter", "v4l2src_caps")
         caps_v4l2src.set_property("caps", Gst.Caps.from_string("image/jpeg,width=1920,height=1080,framerate=30/1"))
@@ -217,24 +235,38 @@ class DeepStreamApp:
 
         for elem in elements:
             if not elem:
-                logger.error("Failed to create pipeline elements.")
+                logger.error("[PIPELINE] Failed to create element.")
                 sys.exit(1)
             self.pipeline.add(elem)
 
-        source.link(caps_v4l2src)
-        caps_v4l2src.link(jpegdec)
+        def _link(e1, e2):
+            if not e1.link(e2):
+                logger.error(f"[PIPELINE] Failed to link {e1.get_name()} → {e2.get_name()}")
+                sys.exit(1)
+            else:
+                logger.debug(f"[PIPELINE] Linked {e1.get_name()} → {e2.get_name()}")
+
+        _link(source, caps_v4l2src)
+        _link(caps_v4l2src, jpegdec)
+        
         sinkpad = streammux.get_request_pad("sink_0")
         srcpad = jpegdec.get_static_pad("src")
-        srcpad.link(sinkpad)
+        if not srcpad or not sinkpad or srcpad.link(sinkpad) != Gst.PadLinkReturn.OK:
+            logger.error("[PIPELINE] Failed to link jpegdec → streammux sinkpad")
+            sys.exit(1)
+        else:
+            logger.debug("[PIPELINE] Linked jpegdec → streammux:sink_0")
 
-        streammux.link(pgie)
-        pgie.link(tracker)
-        tracker.link(nvvidconv)
-        nvvidconv.link(nvosd)
-        nvosd.link(encoder)
-        encoder.link(h264parse)
-        h264parse.link(rtppay)
-        rtppay.link(udpsink)
+        _link(streammux, pgie)
+        _link(pgie, tracker)
+        _link(tracker, nvvidconv)
+        _link(nvvidconv, nvosd)
+        _link(nvosd, encoder)
+        _link(encoder, h264parse)
+        _link(h264parse, rtppay)
+        _link(rtppay, udpsink)
+
+        logger.success("[PIPELINE] All elements created and linked successfully.")
 
         # Connect Python Pad Probe from the extracted class
         osd_sink_pad = nvosd.get_static_pad("sink")
