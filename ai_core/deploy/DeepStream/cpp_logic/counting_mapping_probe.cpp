@@ -22,6 +22,27 @@
 // ----------------------------------------------------------------------------
 std::mutex settings_mutex;
 
+// Custom Meta struct for User Meta
+extern "C" {
+    struct CustomMappingData {
+        float map_x;
+        float map_y;
+    };
+    
+    gpointer copy_custom_mapping_meta(gpointer data, gpointer user_data) {
+        CustomMappingData *src = (CustomMappingData *)data;
+        CustomMappingData *dst = new CustomMappingData;
+        *dst = *src;
+        return dst;
+    }
+
+    void release_custom_mapping_meta(gpointer data, gpointer user_data) {
+        CustomMappingData *meta = (CustomMappingData *)data;
+        delete meta;
+    }
+}
+#define NVDS_CUSTOM_MAPPING_META (NvDsMetaType)(nvds_get_user_meta_type("NVDS.CUSTOM.MAPPING.META"))
+
 struct Point2f {
     float x, y;
 };
@@ -164,8 +185,30 @@ extern "C" GstPadProbeReturn cpp_logic_pad_buffer_probe(GstPad *pad, GstPadProbe
                     g_free(obj_meta->text_params.display_text);
                     obj_meta->text_params.display_text = g_strdup(new_text.c_str());
                 }
+
+                // --- INJECT NvDsUserMeta ---
+                NvDsUserMeta *user_meta = nvds_acquire_user_meta_from_pool(batch_meta);
+                if (user_meta) {
+                    CustomMappingData *meta_data = new CustomMappingData;
+                    meta_data->map_x = dst_pts[0].x;
+                    meta_data->map_y = dst_pts[0].y;
+                    
+                    user_meta->user_meta_data = (void *)meta_data;
+                    user_meta->base_meta.meta_type = NVDS_CUSTOM_MAPPING_META;
+                    user_meta->base_meta.copy_func = (NvDsMetaCopyFunc)copy_custom_mapping_meta;
+                    user_meta->base_meta.release_func = (NvDsMetaReleaseFunc)release_custom_mapping_meta;
+                    
+                    nvds_add_user_meta_to_obj(obj_meta, user_meta);
+                }
             }
         }
     }
     return GST_PAD_PROBE_OK;
+}
+
+// Helper to attach the probe from Python via ctypes
+extern "C" void attach_cpp_probe_to_pad(gpointer pad_ptr) {
+    if (!pad_ptr) return;
+    GstPad* pad = (GstPad*)pad_ptr;
+    gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_BUFFER, cpp_logic_pad_buffer_probe, NULL, NULL);
 }

@@ -4,6 +4,12 @@ import numpy as np
 from loguru import logger
 from typing import List, Tuple
 
+class CustomMappingData(ctypes.Structure):
+    _fields_ = [
+        ("map_x", ctypes.c_float),
+        ("map_y", ctypes.c_float)
+    ]
+
 class CPPProbeService:
     def __init__(self, lib_path: str = "./deploy/DeepStream/cpp_logic/libcounting_mapping_probe.so"):
         self.lib = None
@@ -32,6 +38,9 @@ class CPPProbeService:
                     ctypes.POINTER(ctypes.c_int), # in_cnt
                     ctypes.POINTER(ctypes.c_int)  # out_cnt
                 ]
+                
+                # Attach probe to pad
+                self.lib.attach_cpp_probe_to_pad.argtypes = [ctypes.c_void_p]
             except Exception as e:
                 logger.error(f"Failed to load C++ probe library: {e}")
         else:
@@ -95,5 +104,14 @@ class CPPProbeService:
         except Exception as e:
             logger.error(f"Error calling C++ get_current_counts: {e}")
             return 0, 0
+
+    def attach_probe(self, pad_ptr: int):
+        if self.lib is None:
+            return
+        try:
+            self.lib.attach_cpp_probe_to_pad(ctypes.c_void_p(pad_ptr))
+            logger.info("Successfully attached C++ probe to GstPad.")
+        except Exception as e:
+            logger.error(f"Error attaching C++ probe: {e}")
 
 cpp_probe_service = CPPProbeService()
