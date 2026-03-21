@@ -122,11 +122,11 @@ class DeepStreamApp:
         pgie = Gst.ElementFactory.make("nvinfer", "primary-inference")
         pgie_config = os.getenv("PGIE_CONFIG_PATH", "deploy/DeepStream/config_infer_primary_yolox.txt")
         pgie.set_property("config-file-path", pgie_config)
+        pgie.set_property("unique-id", 1)
 
         tracker = Gst.ElementFactory.make("nvtracker", "tracker")
         tracker_lib = os.getenv("TRACKER_LIB_PATH", "/workspace/ai_core/deploy/OCSort/cpp/build/libnvds_ocsort.so")
         tracker.set_property("ll-lib-file", tracker_lib)
-        # Note: 'enable-batch-process' is deprecated in DeepStream 7.0 and removed from nvtracker
 
         nvvidconv = Gst.ElementFactory.make("nvvideoconvert", "convertor")
         nvosd = Gst.ElementFactory.make("nvdsosd", "onscreendisplay")
