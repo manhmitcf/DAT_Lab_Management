@@ -1,5 +1,6 @@
 [property]
 gpu-id=0
+unique-id=1
 net-scale-factor=1.0
 
 # 1. Define input size and color for TensorRT
@@ -15,13 +16,13 @@ onnx-file=../../pretrained/yolox.onnx
 
 # 3. Architecture parameters (1 batch, input RGB 640x640)
 infer-dims=3;640;640
-network-type=0 # 0=Detector
+network-type=0
 num-detected-classes=1
 workspace-size=4096
 
 # 4. Point to the recently compiled C++ Custom Parser library
 parse-bbox-func-name=NvDsInferParseYoloX
-custom-lib-path=libnvdsinfer_custom_impl_YoloX.so
+custom-lib-path=/workspace/ai_core/deploy/DeepStream/libnvdsinfer_custom_impl_YoloX.so
 
 # 5. Settings related to BBox filtering (Threshold / NMS)
 [class-attrs-all]
