@@ -12,9 +12,11 @@ CFLAGS:= -Wall -std=c++11 -shared -fPIC -Wno-error=deprecated-declarations
 GST_INCLUDES:= $(shell pkg-config --cflags gstreamer-1.0 gstreamer-base-1.0 glib-2.0)
 OPENCV_INCLUDES:= -I/usr/include/opencv4
 
-CFLAGS+= $(GST_INCLUDES) \
+CFLAGS+= -pthread \
+         $(GST_INCLUDES) \
          $(OPENCV_INCLUDES) \
          -I$(DEEPSTREAM_DIR)/sources/includes \
+         -I$(DEEPSTREAM_DIR)/sources/includes/nvdsinfer \
          -I/usr/local/cuda-$(CUDA_VER)/include
 
 # Library dependencies
