@@ -235,7 +235,7 @@ if __name__ == "__main__":
     )
     
     os.makedirs("logs", exist_ok=True)
-    logger.add("logs/app.log", rotation="50 MB", retention="5", level="INFO")
+    logger.add("logs/app.log", rotation="50 MB", retention=5, level="INFO")
     
     logger.info("DeepStream AI Application Initializing...")
     app = DeepStreamApp()
