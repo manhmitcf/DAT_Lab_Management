@@ -1,5 +1,29 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Local Development with Backend (Analytics)
+
+To run the frontend with a local backend and see analytics data:
+
+1. **Start the backend** (from `frontend/analytics` branch):
+   ```bash
+   cd backend
+   DB_HOST= USE_REDIS=False python manage.py seed_analytics_data --clear --days 7
+   DB_HOST= USE_REDIS=False python manage.py runserver 8000
+   ```
+
+2. **Start the frontend** (proxies `/api` to `localhost:8000` by default):
+   ```bash
+   cd frontend
+   npm run dev
+   ```
+
+3. Open [http://localhost:3000/analytics](http://localhost:3000/analytics) — data comes from the local backend.
+
+To use a different backend port, create `frontend/.env.local`:
+```env
+NEXT_PUBLIC_API_PORT=8003
+```
+
 ## Getting Started
 
 First, run the development server:
