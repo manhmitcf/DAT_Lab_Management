@@ -14,6 +14,7 @@ except ImportError:
 from config.data_config import OCSortConfig, CountingConfig, MappingConfig
 from services.pipeline_service import PipelineService
 from services.backend_gateway import ResultPublisher, SettingsSubscriber
+from services.cpp_probe_service import cpp_probe_service
 from loguru import logger
 
 def setup_pipeline(video_size, map_size):
@@ -60,6 +61,9 @@ def create_settings_subscriber(pipeline, video_size):
                 camera_size=camera_size_config,
                 map_size=map_size_config
             )
+            # Send mapping update to C++ probe shared memory
+            cpp_probe_service.update_mapping(camera_points, map_points, map_size_config)
+            
             logger.success("Mapping service updated successfully")
         except Exception as e:
             logger.error(f"Error updating Mapping service: {e}")
@@ -75,6 +79,14 @@ def create_settings_subscriber(pipeline, video_size):
                 source_frame_size=(data.get("frame_width", 1920), data.get("frame_height", 1080)),
                 current_frame_size=video_size
             )
+            
+            # Send counting update to C++ probe shared memory
+            line_start = tuple(data.get("line_start"))
+            line_end = tuple(data.get("line_end"))
+            inside_point = tuple(data.get("inside_point"))
+            margin = data.get("crossing_margin", 10)
+            cpp_probe_service.update_counting(line_start, line_end, inside_point, margin)
+            
             logger.success("Counting service updated successfully")
         except Exception as e:
             logger.error(f"Error updating Counting service: {e}")

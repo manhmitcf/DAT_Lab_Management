@@ -31,13 +31,13 @@
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
-// Kích thước đầu vào chuẩn của YOLOX (ví dụ 640x640)
+// Standard input size for YOLOX (e.g. 640x640)
 static const int INPUT_W = 640;
 static const int INPUT_H = 640;
 
 // YOLOX Grid / Strides
 static const int STRIDES[] = {8, 16, 32};
-static const int NUM_CLASSES = 1; // Số class của bạn (ở đây coi như chỉ phát hiện người = 1 class)
+static const int NUM_CLASSES = 1; // Number of classes (here considered only detecting person = 1 class)
 
 extern "C" bool NvDsInferParseYoloX(
     std::vector<NvDsInferLayerInfo> const& outputLayersInfo,
@@ -65,7 +65,7 @@ static std::vector<int> generate_grids_and_stride(int target_w, int target_h, st
     return grid_strides;
 }
 
-// Custom parser cho YOLOX tensor
+// Custom parser for YOLOX tensor
 extern "C" bool NvDsInferParseYoloX(
     std::vector<NvDsInferLayerInfo> const& outputLayersInfo,
     NvDsInferNetworkInfo const& networkInfo,
@@ -77,24 +77,24 @@ extern "C" bool NvDsInferParseYoloX(
         return false;
     }
 
-    // Lớp đầu ra mặc định thường là "output"
+    // Default output layer is usually "output"
     const NvDsInferLayerInfo& output = outputLayersInfo[0];
     float* output_data = (float*)output.buffer;
 
-    // Tính toán số lượng anchor dựa trên kích thước lưới
+    // Calculate number of anchors based on grid sizes
     std::vector<int> strides = {8, 16, 32};
     std::vector<int> grid_strides = generate_grids_and_stride(INPUT_W, INPUT_H, strides);
     int num_anchors = grid_strides.size() / 3;
 
-    // YOLOX xuất ra tensor có shape: (1, num_anchors, 5 + num_classes)
-    // Cấu trúc mỗi phần tử: [cx, cy, w, h, obj_conf, class_conf1, ...]
+    // YOLOX outputs tensor with shape: (1, num_anchors, 5 + num_classes)
+    // Structure of each element: [cx, cy, w, h, obj_conf, class_conf1, ...]
 
     for (int i = 0; i < num_anchors; ++i)
     {
         float obj_conf = output_data[i * (5 + NUM_CLASSES) + 4];
         if (obj_conf < detectionParams.perClassPreclusterThreshold[0]) continue;
 
-        // Tìm class có xác suất lớn nhất
+        // Find the class with the highest probability
         int max_class_idx = -1;
         float max_class_prob = -1.0;
         for (int c = 0; c < NUM_CLASSES; ++c)
@@ -109,7 +109,7 @@ extern "C" bool NvDsInferParseYoloX(
 
         float score = obj_conf * max_class_prob;
 
-        // Threshold kiểm tra
+        // Threshold check
         if (score > detectionParams.perClassPreclusterThreshold[0])
         {
             float cx = output_data[i * (5 + NUM_CLASSES) + 0];
@@ -117,7 +117,7 @@ extern "C" bool NvDsInferParseYoloX(
             float w  = output_data[i * (5 + NUM_CLASSES) + 2];
             float h  = output_data[i * (5 + NUM_CLASSES) + 3];
 
-            // Tọa độ đã ở dạng nguyên bản vì decode_in_inference=False khi xuất ONNX
+            // Coordinates are in original form because decode_in_inference=False when exporting ONNX
             int grid0 = grid_strides[i * 3 + 0];
             int grid1 = grid_strides[i * 3 + 1];
             int stride = grid_strides[i * 3 + 2];
@@ -130,7 +130,7 @@ extern "C" bool NvDsInferParseYoloX(
             float x1 = cx - w / 2.0f;
             float y1 = cy - h / 2.0f;
 
-            // Clip tọa độ
+            // Clip coordinates
             x1 = std::max(0.0f, std::min(x1, (float)networkInfo.width - 1));
             y1 = std::max(0.0f, std::min(y1, (float)networkInfo.height - 1));
             float x2 = std::max(0.0f, std::min(x1 + w, (float)networkInfo.width - 1));
@@ -151,5 +151,5 @@ extern "C" bool NvDsInferParseYoloX(
     return true;
 }
 
-// Macro bắt buộc để NvInfer nạp hàm từ thư viện chia sẻ
+// Mandatory macro for NvInfer to load function from shared library
 CHECK_CUSTOM_PARSE_FUNC_PROTOTYPE(NvDsInferParseYoloX);

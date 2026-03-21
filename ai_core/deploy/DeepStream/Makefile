@@ -3,7 +3,7 @@ ifeq ($(CUDA_VER),)
   $(error "CUDA_VER is not set")
 endif
 
-# Đường dẫn tới thư viện DeepStream (thay đổi tùy theo version, ví dụ 6.2, 7.0)
+# Path to DeepStream library (change depending on version, e.g. 6.2, 7.0)
 DEEPSTREAM_DIR:=/opt/nvidia/deepstream/deepstream
 
 CC:= g++
