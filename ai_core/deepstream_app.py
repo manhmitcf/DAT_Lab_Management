@@ -168,9 +168,9 @@ class DeepStreamApp:
         except Exception as e:
             logger.error(f"Error handling counting update: {e}")
 
-    def _src_pad_buffer_probe(self, pad, info, u_data):
-        """[DEBUG] Simple probe to verify the camera is actually producing buffers."""
-        logger.debug("[PIPELINE][v4l2src] Buffer received from camera!")
+    def _debug_buffer_probe(self, pad, info, elem_name):
+        """[DEBUG] Simple probe to trace buffer flow through the pipeline."""
+        logger.debug(f"[PIPELINE][{elem_name}] Buffer reached src pad!")
         return Gst.PadProbeReturn.OK
 
     def build_pipeline(self) -> None:
@@ -182,11 +182,6 @@ class DeepStreamApp:
         source = Gst.ElementFactory.make("v4l2src", "source")
         source.set_property("device", self.video_source)
         source.set_property("io-mode", 2)
-        
-        # Attach debug probe to camera source
-        _src_pad = source.get_static_pad("src")
-        if _src_pad:
-            _src_pad.add_probe(Gst.PadProbeType.BUFFER, self._src_pad_buffer_probe, 0)
         
         caps_v4l2src = Gst.ElementFactory.make("capsfilter", "v4l2src_caps")
         caps_v4l2src.set_property("caps", Gst.Caps.from_string("image/jpeg,width=1920,height=1080,framerate=30/1"))
@@ -210,6 +205,11 @@ class DeepStreamApp:
         nvvidconv = Gst.ElementFactory.make("nvvideoconvert", "convertor")
         nvosd = Gst.ElementFactory.make("nvdsosd", "onscreendisplay")
 
+        # Must convert RGBA out of nvosd to I420 for nvv4l2h264enc
+        nvvidconv2 = Gst.ElementFactory.make("nvvideoconvert", "convertor2")
+        caps_enc = Gst.ElementFactory.make("capsfilter", "caps_enc")
+        caps_enc.set_property("caps", Gst.Caps.from_string("video/x-raw(memory:NVMM),format=I420"))
+
         encoder = Gst.ElementFactory.make("nvv4l2h264enc", "h264-encoder")
         encoder.set_property("bitrate", int(os.getenv("VIDEO_BITRATE", "1200000")))
         encoder.set_property("profile", 0)
@@ -231,13 +231,18 @@ class DeepStreamApp:
         udpsink.set_property("async", False)
         udpsink.set_property("sync", False)
 
-        elements = [source, caps_v4l2src, jpegdec, streammux, pgie, tracker, nvvidconv, nvosd, encoder, h264parse, rtppay, udpsink]
+        elements = [source, caps_v4l2src, jpegdec, streammux, pgie, tracker, nvvidconv, nvosd, nvvidconv2, caps_enc, encoder, h264parse, rtppay, udpsink]
 
         for elem in elements:
             if not elem:
                 logger.error("[PIPELINE] Failed to create element.")
                 sys.exit(1)
             self.pipeline.add(elem)
+            
+            # Attach diagnostic probe to every element to trace buffer progression
+            src_pad = elem.get_static_pad("src")
+            if src_pad:
+                src_pad.add_probe(Gst.PadProbeType.BUFFER, self._debug_buffer_probe, elem.get_name())
 
         def _link(e1, e2):
             if not e1.link(e2):
@@ -261,7 +266,9 @@ class DeepStreamApp:
         _link(pgie, tracker)
         _link(tracker, nvvidconv)
         _link(nvvidconv, nvosd)
-        _link(nvosd, encoder)
+        _link(nvosd, nvvidconv2)
+        _link(nvvidconv2, caps_enc)
+        _link(caps_enc, encoder)
         _link(encoder, h264parse)
         _link(h264parse, rtppay)
         _link(rtppay, udpsink)
