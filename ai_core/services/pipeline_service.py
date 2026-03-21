@@ -1,6 +1,7 @@
 from typing import Optional, Tuple, List
 from datetime import datetime, timezone
 import numpy as np
+from loguru import logger
 from services.tracking_service import TrackingService
 from services.counting_service import CountingService
 from services.mapping_service import MappingService
@@ -38,24 +39,22 @@ class PipelineService:
         self.counting_service = CountingService(counting_config=counting_config, current_frame_size=video_size)
         self.mapping_service = MappingService(mapping_config=mapping_config)
 
+        logger.info(
+            "Pipeline initialized video_size=%s map_size=%s thresholds(info=%s warning=%s critical=%s)",
+            self.video_size,
+            self.map_size,
+            self.info_threshold,
+            self.warning_threshold,
+            self.critical_threshold,
+        )
+
     def update_video_size(self, video_size: Tuple[int, int]) -> None:
         """Update current video size and rescale counting geometry accordingly."""
         self.video_size = video_size
         if self.counting_config is not None:
             self.counting_service = CountingService(counting_config=self.counting_config, current_frame_size=self.video_size)
+        logger.info("Updated video_size to %s", self.video_size)
 
-    def update_counting_config(self, counting_config: CountingConfig) -> None:
-        """Reinitialize counting with a new config and current video size."""
-        self.counting_config = counting_config
-        self.counting_service = CountingService(counting_config=counting_config, current_frame_size=self.video_size)
-
-    def update_mapping_config(self, mapping_config: MappingConfig, map_size: Optional[Tuple[int, int]] = None) -> None:
-        """Reinitialize mapping with a new config and optional map size."""
-        self.mapping_config = mapping_config
-        self.map_size = map_size or mapping_config.map_size or self.map_size
-        if self.map_size is None:
-            raise ValueError("map_size is required when updating mapping config")
-        self.mapping_service = MappingService(mapping_config=mapping_config)
 
     def update_alert_thresholds(
         self,
@@ -70,12 +69,18 @@ class PipelineService:
             self.warning_threshold = warning_threshold
         if critical_threshold is not None:
             self.critical_threshold = critical_threshold
+        logger.info(
+            "Updated thresholds info=%s warning=%s critical=%s",
+            self.info_threshold,
+            self.warning_threshold,
+            self.critical_threshold,
+        )
 
     def process_frame(self, frame: np.ndarray, frame_id: int, timestamp: datetime = None) -> FrameData:
         """Run tracking, counting, and mapping on a single frame and return FrameData."""
         ts = timestamp or datetime.now(timezone.utc)
 
-        bboxes_tlwh, track_ids, _ = self.tracking_service.predict(frame_id=frame_id, frame=frame, box_type="tlwh")
+        bboxes_tlwh, track_ids, fps = self.tracking_service.predict(frame_id=frame_id, frame=frame, box_type="tlwh")
         self.counting_service.update(bboxes_tlwh, track_ids)
 
         bboxes_xyxy: List[List[float]] = []
@@ -113,6 +118,8 @@ class PipelineService:
             timestamp=ts,
             count_in=self.counting_service.count_in,
             count_out=self.counting_service.count_out,
+            occupancy=current_people,
+            fps=float(fps) if fps is not None else None,
             height_frame=self.video_size[1],
             width_frame=self.video_size[0],
             height_2D=self.map_size[1],
