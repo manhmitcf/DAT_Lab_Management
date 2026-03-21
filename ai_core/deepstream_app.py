@@ -209,7 +209,7 @@ class DeepStreamApp:
             source.set_property("do-timestamp", True)
             
             caps_v4l2src = Gst.ElementFactory.make("capsfilter", "v4l2src_caps")
-            caps_v4l2src.set_property("caps", Gst.Caps.from_string("image/jpeg,width=1280,height=720,framerate=30/1"))
+            caps_v4l2src.set_property("caps", Gst.Caps.from_string("image/jpeg,width=1920,height=1080,framerate=30/1"))
             
             cam_queue = Gst.ElementFactory.make("queue", "camera-queue")
             cam_queue.set_property("max-size-buffers", 1)
@@ -236,8 +236,8 @@ class DeepStreamApp:
         caps_vidconv_src.set_property("caps", Gst.Caps.from_string("video/x-raw(memory:NVMM),format=NV12"))
 
         streammux = Gst.ElementFactory.make("nvstreammux", "stream-muxer")
-        streammux.set_property("width", 1280)
-        streammux.set_property("height", 720)
+        streammux.set_property("width", 1920)
+        streammux.set_property("height", 1080)
         streammux.set_property("batch-size", 1)
         streammux.set_property("batched-push-timeout", 33000)
         if is_live:
