@@ -215,6 +215,7 @@ class DeepStreamApp:
         tracker = Gst.ElementFactory.make("nvtracker", "tracker")
         tracker_lib = os.getenv("TRACKER_LIB_PATH", "/workspace/ai_core/deploy/OCSort/cpp/build/libnvds_ocsort.so")
         tracker.set_property("ll-lib-file", tracker_lib)
+        tracker.set_property("ll-config-file", os.getenv("TRACKER_CONFIG_PATH", "deploy/DeepStream/config_tracker_ocsort.txt"))
         tracker.set_property("tracker-width", 640)
         tracker.set_property("tracker-height", 640)
 
