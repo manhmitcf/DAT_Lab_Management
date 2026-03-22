@@ -1,6 +1,6 @@
 
 # Jetson Requirements (L4T r36.4.0)
-# Note: torch, torchvision, opencv-python are pre-installed in L4T base image or handled via apt
+# Note: torch, torchvision are pre-installed in L4T base image or handled via apt
 # numpy version is not pinned to support Python 3.12
 numpy
 loguru
@@ -16,6 +16,9 @@ lap
 filterpy
 h5py
 protobuf==3.20.3
+
+# Added for Python-based counting/mapping services
+opencv-python-headless
 
 # Release version constraints for ARM64 compatibility
 onnx

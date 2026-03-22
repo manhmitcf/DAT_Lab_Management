@@ -6,8 +6,6 @@ import gi
 gi.require_version('Gst', '1.0')
 from gi.repository import Gst, GLib
 
-from services.cpp_probe_service import cpp_probe_service
-
 class PipelineManager:
     """
     Builds, manages, and runs the GStreamer DeepStream pipeline.
@@ -16,6 +14,7 @@ class PipelineManager:
         self.app = app_instance
         self.pipeline = None
         self.loop = None
+        self.streammux = None # Expose streammux to get pipeline dimensions
 
     def build_pipeline(self) -> None:
         """Creates and links the entire GStreamer DeepStream network pipeline."""
@@ -33,21 +32,21 @@ class PipelineManager:
             caps_v4l2src, cam_queue, jpegparse, jpegdec = None, None, None, None
 
         nvvidconv_src, caps_vidconv_src = self._create_input_conversion_bin()
-        streammux = self._create_streammux(is_live)
+        self.streammux = self._create_streammux(is_live) # Assign to attribute
         pgie = self._create_pgie()
         tracker = self._create_tracker()
         nvvidconv, nvosd = Gst.ElementFactory.make("nvvideoconvert", "convertor"), Gst.ElementFactory.make("nvdsosd", "onscreendisplay")
         nvvidconv2, caps_enc, encoder, h264parse, rtppay, udpsink = self._create_webrtc_sink_bin()
 
         # Add elements to pipeline
-        elements = [e for e in [source, caps_v4l2src, cam_queue, jpegparse, jpegdec, nvvidconv_src, caps_vidconv_src, streammux, pgie, tracker, nvvidconv, nvosd, nvvidconv2, caps_enc, encoder, h264parse, rtppay, udpsink] if e]
+        elements = [e for e in [source, caps_v4l2src, cam_queue, jpegparse, jpegdec, nvvidconv_src, caps_vidconv_src, self.streammux, pgie, tracker, nvvidconv, nvosd, nvvidconv2, caps_enc, encoder, h264parse, rtppay, udpsink] if e]
         for elem in elements:
             self.pipeline.add(elem)
 
         # Link elements
-        self._link_elements(is_live, source, caps_v4l2src, cam_queue, jpegparse, jpegdec, nvvidconv_src, caps_vidconv_src, streammux, pgie, tracker, nvvidconv, nvosd, nvvidconv2, caps_enc, encoder, h264parse, rtppay, udpsink)
+        self._link_elements(is_live, source, caps_v4l2src, cam_queue, jpegparse, jpegdec, nvvidconv_src, caps_vidconv_src, self.streammux, pgie, tracker, nvvidconv, nvosd, nvvidconv2, caps_enc, encoder, h264parse, rtppay, udpsink)
         
-        self._attach_probes(nvosd, tracker)
+        self._attach_probes(nvosd)
         logger.success("[PIPELINE] All elements created and linked successfully.")
 
     def run(self):
@@ -197,23 +196,15 @@ class PipelineManager:
         _link(h264parse, rtppay)
         _link(rtppay, udpsink)
 
-    def _attach_probes(self, nvosd, tracker):
-        """Attaches Python and C++ probes to the pipeline."""
+    def _attach_probes(self, nvosd):
+        """Attaches the Python probe to the OSD sink pad."""
         osd_sink_pad = nvosd.get_static_pad("sink")
         if osd_sink_pad:
+            # This is the only probe we need
             osd_sink_pad.add_probe(Gst.PadProbeType.BUFFER, self.app.osd_probe_handler.osd_sink_pad_buffer_probe, 0)
+            logger.success("Python OSD Probe attached successfully.")
         else:
             logger.error("Unable to get sink pad of nvosd")
-
-        try:
-            if cpp_probe_service.is_available:
-                tracker_src_pad = tracker.get_static_pad("src")
-                if tracker_src_pad:
-                    pad_ptr = hash(tracker_src_pad)
-                    cpp_probe_service.attach_probe(pad_ptr)
-                    logger.success("C++ Probe successfully attached to Tracker src pad.")
-        except Exception as e:
-            logger.error(f"Could not link C++ probe natively: {e}")
 
     def _cb_newpad(self, decodebin, decoder_src_pad, data):
         """Callback to link uridecodebin dynamically."""

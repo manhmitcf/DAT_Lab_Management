@@ -2,6 +2,8 @@ import ctypes
 from datetime import datetime, timezone
 from loguru import logger
 import time
+import numpy as np
+
 try:
     import pyds
 except ImportError:
@@ -12,37 +14,46 @@ gi.require_version('Gst', '1.0')
 from gi.repository import Gst
 
 from schemas.schemas import FrameData, ObjectDetection
-from services.cpp_probe_service import cpp_probe_service, CustomMappingData
+from services.counting_service import CountingService
+from services.mapping_service import MappingService
 
 class OSDProbeHandler:
     """
-    Handles extracting C++ NvDsUserMeta mapping data and tracking information
-    from the GStreamer OSD Pad Probe.
+    Handles extracting tracking information from the GStreamer OSD Pad Probe,
+    and then processes it using Python-based Counting and Mapping services.
     """
-    def __init__(self, frame_data_queue, mapping_config, counting_config):
+    def __init__(self, frame_data_queue, counting_service: CountingService, mapping_service: MappingService):
         self.frame_data_queue = frame_data_queue
-        self.mapping_config = mapping_config
-        self.info_threshold = counting_config.info_threshold
-        self.warning_threshold = counting_config.warning_threshold
-        self.critical_threshold = counting_config.critical_threshold
-        self._probe_call_count = 0  # [DEBUG] probe fire counter
+        
+        # Keep instances of the Python services
+        self.counting_service = counting_service
+        self.mapping_service = mapping_service
+
+        # Alert thresholds will be managed by the main_app
+        self.info_threshold = 10
+        self.warning_threshold = 25
+        self.critical_threshold = 25
+        
+        self._probe_call_count = 0
         self._fps_frame_count = 0
         self._last_fps_time = time.time()
 
     def osd_sink_pad_buffer_probe(self, pad, info, u_data) -> Gst.PadProbeReturn:
-        """Extracts C++ generated tracking metadata to feed the ResultPublisher."""
+        """
+        Extracts NvDsObjectMeta, then runs Python counting and mapping logic.
+        """
         self._probe_call_count += 1
         self._fps_frame_count += 1
         current_time = time.time()
         elapsed = current_time - self._last_fps_time
-        if elapsed >= 10.0:  # Log FPS every 10 seconds
+        if elapsed >= 10.0:
             fps = self._fps_frame_count / elapsed
             logger.info(f"[PERFORMANCE] 🚀 Processing Speed: {fps:.2f} FPS")
             self._last_fps_time = current_time
             self._fps_frame_count = 0
 
         if self._probe_call_count == 1:
-            logger.info(f"[OSDProbe] Probe FIRED for first time. pyds available: {pyds is not None}")
+            logger.info(f"[OSDProbe] Python Probe FIRED for first time. pyds available: {pyds is not None}")
 
         if not pyds:
             return Gst.PadProbeReturn.OK
@@ -61,52 +72,68 @@ class OSDProbeHandler:
             except StopIteration:
                 break
             
-            objects = []
+            # === START NEW PYTHON LOGIC ===
+
+            # 1. Collect all objects from DeepStream
+            bboxes_tlwh = []
+            track_ids = []
             l_obj = frame_meta.obj_meta_list
             while l_obj is not None:
                 try:
                     obj_meta = pyds.NvDsObjectMeta.cast(l_obj.data)
-                except StopIteration:
-                    break
-                
-                mapped_coords = None
-                if obj_meta.object_id > 0:
-                    # Direct query from C++ cache (No Metadata iteration = NO DOUBLE FREE)
-                    mapped_coords = cpp_probe_service.get_object_mapping(obj_meta.object_id)
-
-                if obj_meta.object_id > 0:
                     rect = obj_meta.rect_params
-                    bbox = [rect.left, rect.top, rect.left + rect.width, rect.top + rect.height]
                     
-                    obj_det = ObjectDetection(
-                        track_id=obj_meta.object_id,
-                        bbox=bbox,
-                        coordinates_2D=mapped_coords
-                    )
-                    objects.append(obj_det)
+                    # Convert bbox to tlwh format (top-left-x, top-left-y, width, height)
+                    bboxes_tlwh.append([rect.left, rect.top, rect.width, rect.height])
+                    track_ids.append(obj_meta.object_id)
                     
-                try:
                     l_obj = l_obj.next
                 except StopIteration:
                     break
+
+            # 2. Call CountingService with the collected data
+            # The counting logic (using bottom-center, state machine, margin) will be executed here
+            self.counting_service.update(bboxes_tlwh, track_ids)
             
-            in_cnt, out_cnt = cpp_probe_service.get_counts()
+            # 3. Call MappingService
+            # Convert bboxes to xyxy format for the mapping service
+            bboxes_xyxy = [[x, y, x + w, y + h] for x, y, w, h in bboxes_tlwh]
             
-            map_w = self.mapping_config.map_size[0] if self.mapping_config.map_size else 723
-            map_h = self.mapping_config.map_size[1] if self.mapping_config.map_size else 1266
-            
-            occupancy = max(0, in_cnt - out_cnt)
+            current_frame_size = (frame_meta.source_frame_width, frame_meta.source_frame_height)
+            current_map_size = self.mapping_service.map_size
+
+            # The projection logic (using bottom-center, coordinate scaling) will be executed here
+            mapped_points = self.mapping_service.project_bboxes(
+                bboxes=[tuple(b) for b in bboxes_xyxy],
+                current_frame_size=current_frame_size,
+                current_map_size=current_map_size,
+            )
+
+            # 4. Create the list of objects with data processed by Python
+            objects = []
+            for bbox_xyxy, coords, tid in zip(bboxes_xyxy, mapped_points, track_ids):
+                objects.append(
+                    ObjectDetection(
+                        track_id=int(tid),
+                        bbox=bbox_xyxy,
+                        coordinates_2D=[float(coords[0]), float(coords[1])],
+                    )
+                )
+
+            # 5. Get counting results from the Python service
+            in_cnt = self.counting_service.count_in
+            out_cnt = self.counting_service.count_out
+            occupancy = self.counting_service.current_people
+
+            # === END NEW PYTHON LOGIC ===
+
+            # Alert logic remains the same
             alert = 'none'
-            
-            crit = self.critical_threshold if self.critical_threshold is not None else 25
-            warn = self.warning_threshold if self.warning_threshold is not None else 25
-            inf = self.info_threshold if self.info_threshold is not None else 10
-            
-            if occupancy > crit:
+            if occupancy > self.critical_threshold:
                 alert = 'critical'
-            elif occupancy <= warn and occupancy > inf:
+            elif self.critical_threshold >= occupancy > self.warning_threshold:
                 alert = 'warning'
-            elif occupancy <= inf:
+            elif self.warning_threshold >= occupancy > self.info_threshold:
                 alert = 'info'
             
             frame_data = FrameData(
@@ -116,10 +143,10 @@ class OSDProbeHandler:
                 occupancy=occupancy,
                 alert=alert,
                 save_to_db=True,
-                height_frame=frame_meta.source_frame_height,
-                width_frame=frame_meta.source_frame_width,
-                height_2D=map_h,
-                width_2D=map_w,
+                height_frame=current_frame_size[1],
+                width_frame=current_frame_size[0],
+                height_2D=current_map_size[1],
+                width_2D=current_map_size[0],
                 objects=objects
             )
             

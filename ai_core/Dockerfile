@@ -18,10 +18,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Python GStreamer Bindings & C++ Headers for pip compiling PyCairo/PyGObject on ARM64
     python3-gi python3-gst-1.0 gir1.2-gst-plugins-base-1.0 \
     libcairo2-dev libgirepository1.0-dev \
-    # OpenCV Dev Headers (Required for C++ Tracker & Metric Probe)
+    # OpenCV Dev Headers (Required for C++ OCSort Tracker)
     libopencv-dev \
-    # GStreamer & GLib Dev Headers (Required for C++ Makefile compilation)
-    libglib2.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
     # Eigen3 (Required for OCSort CMake compilation)
     libeigen3-dev \
     && apt-get clean \
@@ -62,7 +60,7 @@ COPY . .
 RUN mkdir -p pretrained videos YOLOX_outputs weights config
 
 # =========================================================
-# 6. Build C++ Extensions (Custom YOLOX Parser + OCSort NvMOT + Probe)
+# 6. Build C++ Extensions (Custom YOLOX Parser + OCSort NvMOT)
 # =========================================================
 # Compile the custom YOLOX BBox parser for DeepStream (libnvdsinfer_custom_impl_YoloX.so)
 RUN cd deploy/DeepStream && make
@@ -70,10 +68,8 @@ RUN cd deploy/DeepStream && make
 # Compile the OCSort Tracker wrapped in NvMOT API (libnvds_ocsort.so)
 RUN cd deploy/OCSort/cpp && mkdir -p build && cd build && cmake .. && make
 
-# Compile the Custom C++ Counting & Mapping Probe (libcounting_mapping.so)
-# Compile the Custom C++ Counting & Mapping Probe (optional, falls back to Python if unavailable)
-# Note: nvds_meta.h is not shipped in triton-multiarch image - Python fallback handles this gracefully
-RUN cd deploy/DeepStream/cpp_logic && make || echo "Warning: C++ Probe not available, Python logic fallback will be used."
+# [REMOVED] The C++ Counting & Mapping Probe is no longer used.
+# The logic is now handled by Python services.
 
 # =========================================================
 # 7. Setup Project in Editable Mode
