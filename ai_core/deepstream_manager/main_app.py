@@ -100,14 +100,15 @@ class DeepStreamApp:
             # We must now re-apply the original configuration with the correct scaling information.
             logger.info("Pipeline built. Applying correct scaling to services...")
             
-            # Use the original config data as the source of truth
+            # Use the original config data as the source of truth.
+            # Assume the config coordinates were defined on a 1920x1080 reference frame.
             self.handle_counting_update({
                 "line_start": self.counting_config.line_start,
                 "line_end": self.counting_config.line_end,
                 "inside_point": self.counting_config.inside_point,
                 "crossing_margin": self.counting_config.crossing_margin,
-                "frame_width": self.counting_config.frame_width,
-                "frame_height": self.counting_config.frame_height
+                "frame_width": 1920,  # Hardcode the reference width
+                "frame_height": 1080 # Hardcode the reference height
             }, is_initial_setup=True)
             # === END OF LOGIC FIX ===
 

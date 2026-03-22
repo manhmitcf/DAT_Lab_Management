@@ -21,23 +21,23 @@ class Diagnostics:
         logger.info("[DIAGNOSTIC] Checking system readiness...")
         logger.info("━" * 60)
 
-        # 1. Check Camera
+        # 1. Check Video Source
         if os.path.exists(self.video_source):
-            logger.success(f"[CAMERA] Found source device: {self.video_source}")
+            logger.success(f"[SOURCE] Found source: {self.video_source}")
         else:
-            logger.error(f"[CAMERA] Device NOT FOUND: {self.video_source}. Pipeline will fail.")
+            logger.error(f"[SOURCE] Source NOT FOUND: {self.video_source}. Pipeline will fail.")
             success = False
 
-        # 2. Check Critical Files
+        # 2. Check Critical Files and Directories
         files_to_check = {
             "YOLOX Engine": "pretrained/ocsort_x_mot20_fp16.engine",
             "PGIE Config": self.pgie_config_path,
-            "OCSort Lib": "/workspace/ai_core/deploy/OCSort/cpp/build/libnvds_ocsort.so",
+            "OCSort Lib": "deploy/OCSort/cpp/build/libnvds_ocsort.so",
             "Parser Lib": "deploy/DeepStream/libnvdsinfer_custom_impl_YoloX.so",
             "Mapping Config": "config/mapping_config.json",
             "Counting Config": "config/counting_config.json",
             "Threshold Config": "config/threshold_config.json",
-            ".env File": ".env" # Adjusted to check for .env in root
+            ".env File": "config/.env" # Corrected path
         }
         for name, path in files_to_check.items():
             if os.path.exists(path):
