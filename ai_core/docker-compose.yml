@@ -10,7 +10,14 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=all
     volumes:
+      # === START MODIFICATION ===
+      # Mount the entire current directory into the container's working directory
+      # This allows for live code changes without rebuilding the image.
+      - .:/workspace/ai_core
+      # === END MODIFICATION ===
+
       # Mount model weights (YOLOX engine/pth, OCSort parameters) to avoid rebuilding/redownloading
+      # This line is now redundant because the parent directory is already mounted, but we keep it for clarity.
       - ./pretrained:/workspace/ai_core/pretrained
     devices:
       # Mount USB Camera (Adjust if using CSI Camera or different USB port)
