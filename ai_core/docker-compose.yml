@@ -10,7 +10,7 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=all
     volumes:
-      - .:/workspace/ai_corey.
+      - .:/workspace/ai_core
       - ./pretrained:/workspace/ai_core/pretrained
     devices:
       # Mount USB Camera (Adjust if using CSI Camera or different USB port)
