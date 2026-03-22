@@ -17,6 +17,10 @@ from schemas.schemas import FrameData, ObjectDetection
 from services.counting_service import CountingService
 from services.mapping_service import MappingService
 
+# Define a safe, hardcoded limit for display metadata elements.
+# The underlying C structure NVDS_DISPLAY_META_MAX_ELEMENTS is typically 16.
+MAX_DISPLAY_META_ELEMENTS = 16
+
 class OSDProbeHandler:
     """
     Handles extracting tracking information from the GStreamer OSD Pad Probe,
@@ -92,8 +96,8 @@ class OSDProbeHandler:
             # 3. Draw Track ID on each object (with safety check)
             for i, obj_meta in enumerate(obj_metas):
                 # ROBUSTNESS CHECK: Ensure we do not exceed the allocated memory for text params.
-                if i >= pyds.MAX_ELEMENTS_IN_DISPLAY_META:
-                    logger.warning(f"Max number of labels ({pyds.MAX_ELEMENTS_IN_DISPLAY_META}) reached. Skipping drawing for some objects.")
+                if i >= MAX_DISPLAY_META_ELEMENTS:
+                    logger.warning(f"Max number of labels ({MAX_DISPLAY_META_ELEMENTS}) reached. Skipping drawing for some objects.")
                     break
                 
                 # Safely acquire the text parameters
@@ -113,7 +117,7 @@ class OSDProbeHandler:
 
             # 4. Draw the Counting Line (with safety check)
             # ROBUSTNESS CHECK: Ensure we have space to draw at least one line.
-            if display_meta.num_lines < pyds.MAX_ELEMENTS_IN_DISPLAY_META:
+            if display_meta.num_lines < MAX_DISPLAY_META_ELEMENTS:
                 line_params = display_meta.line_params[display_meta.num_lines]
                 line_params.x1 = int(self.counting_service.line_counter.start_point[0])
                 line_params.y1 = int(self.counting_service.line_counter.start_point[1])
