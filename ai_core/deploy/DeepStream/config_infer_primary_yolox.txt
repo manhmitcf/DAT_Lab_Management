@@ -18,7 +18,7 @@ onnx-file=../../pretrained/yolox.onnx
 infer-dims=3;640;640
 network-type=0
 num-detected-classes=1
-workspace-size=4096
+workspace-size=6144
 
 # 4. Point to the recently compiled C++ Custom Parser library
 parse-bbox-func-name=NvDsInferParseYoloX
