@@ -17,9 +17,7 @@ from schemas.schemas import FrameData, ObjectDetection
 from services.counting_service import CountingService
 from services.mapping_service import MappingService
 
-# Define a safe, hardcoded limit for display metadata elements.
-# The underlying C structure NVDS_DISPLAY_META_MAX_ELEMENTS is typically 16.
-MAX_DISPLAY_META_ELEMENTS = 16
+MAX_DISPLAY_META_ELEMENTS = 64
 
 class OSDProbeHandler:
     """

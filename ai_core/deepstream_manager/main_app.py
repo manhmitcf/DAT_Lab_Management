@@ -34,33 +34,29 @@ class DeepStreamApp:
         self.video_source = os.getenv("INPUT_VIDEO_SOURCE", "/dev/video0")
         self.pgie_config_path = os.getenv("PGIE_CONFIG_PATH", "deploy/DeepStream/config_infer_primary_yolox.txt")
 
-        # --- CORE CHANGE: INITIALIZE PYTHON SERVICES ---
+        # --- INITIALIZE PYTHON SERVICES ---
         
-        # 1. Load the initial configuration files
-        mapping_cfg_data = MappingConfig("config/mapping_config.json")
-        counting_cfg_data = CountingConfig(json_path="config/counting_config.json")
+        # 1. Load the initial configuration files into config objects
+        self.mapping_config = MappingConfig("config/mapping_config.json")
+        self.counting_config = CountingConfig(json_path="config/counting_config.json")
 
-        # 2. Define a placeholder for video size. It will be updated later.
-        initial_video_size = (1920, 1080) # Assume a common size
+        # 2. Initialize services with a placeholder size. This will be corrected after the pipeline starts.
+        initial_video_size = (1920, 1080)
 
-        # 3. Initialize the services with the loaded configs
-        self.mapping_service = MappingService(mapping_config=mapping_cfg_data)
+        self.mapping_service = MappingService(mapping_config=self.mapping_config)
         self.counting_service = CountingService(
-            counting_config=counting_cfg_data,
+            counting_config=self.counting_config,
             current_frame_size=initial_video_size 
         )
         
-        # 4. Initialize the OSDProbeHandler and pass the Python services to it
+        # 3. Initialize the OSDProbeHandler and pass the Python services to it
         self.osd_probe_handler = OSDProbeHandler(
             frame_data_queue=self.frame_data_queue,
             counting_service=self.counting_service,
             mapping_service=self.mapping_service
         )
         
-        # Load initial alert thresholds
         self.load_initial_thresholds()
-
-        # --- END OF CORE CHANGE ---
 
         # Manager instances
         self.diagnostics = Diagnostics(self.video_source, self.pgie_config_path)
@@ -99,18 +95,21 @@ class DeepStreamApp:
         try:
             self.pipeline_manager.build_pipeline()
             
-            # After the pipeline is built, update the services with the correct video size
-            correct_video_size = (self.pipeline_manager.streammux.get_property("width"), self.pipeline_manager.streammux.get_property("height"))
+            # === START OF LOGIC FIX ===
+            # After the pipeline is built, we know the true video size.
+            # We must now re-apply the original configuration with the correct scaling information.
+            logger.info("Pipeline built. Applying correct scaling to services...")
             
-            # Re-apply the counting config with the correct runtime video size
+            # Use the original config data as the source of truth
             self.handle_counting_update({
-                "line_start": self.counting_service.line_counter.start_point,
-                "line_end": self.counting_service.line_counter.end_point,
-                "inside_point": self.counting_service.line_counter.start_point + self.counting_service.line_counter.normal_vector * self.counting_service.line_counter.in_sign,
-                "crossing_margin": self.counting_service.line_counter.crossing_margin,
-                "frame_width": correct_video_size[0],
-                "frame_height": correct_video_size[1]
+                "line_start": self.counting_config.line_start,
+                "line_end": self.counting_config.line_end,
+                "inside_point": self.counting_config.inside_point,
+                "crossing_margin": self.counting_config.crossing_margin,
+                "frame_width": self.counting_config.frame_width,
+                "frame_height": self.counting_config.frame_height
             }, is_initial_setup=True)
+            # === END OF LOGIC FIX ===
 
             self.pipeline_manager.run() # This blocks
         except Exception as e:
@@ -120,12 +119,11 @@ class DeepStreamApp:
             self.service_manager.stop_services()
             logger.info("Shutdown complete.")
 
-    # --- Callback Handlers (Modified to use Python services) ---
-
     def handle_mapping_update(self, data: dict) -> None:
         """Callback to handle homography configuration updates."""
         logger.info("[WebSocket] Received MAPPING update. Updating Python MappingService.")
         try:
+            # This logic is correct as it re-calculates homography from scratch
             correspondences = data.get("correspondences", [])
             cam_pts = [(float(i["camera"][0]), float(i["camera"][1])) for i in correspondences]
             map_pts = [(float(i["map"][0]), float(i["map"][1])) for i in correspondences]
@@ -136,7 +134,6 @@ class DeepStreamApp:
             m_sz = data.get("map_size", {})
             map_size = (int(m_sz.get("width", 723)), int(m_sz.get("height", 1266)))
             
-            # Call the update method of the Python service
             self.mapping_service.update_mapping(
                 camera_points=cam_pts,
                 map_points=map_pts,
@@ -155,7 +152,7 @@ class DeepStreamApp:
         try:
             if "line_start" in data and "line_end" in data and "inside_point" in data:
                 
-                # The source frame size is the one the coordinates were defined on (from backend)
+                # The source frame size is the one the coordinates were defined on (from backend or config file)
                 source_frame_size = (data.get("frame_width", 1920), data.get("frame_height", 1080))
                 # The current frame size is the actual runtime size of the pipeline
                 current_frame_size = (self.pipeline_manager.streammux.get_property("width"), self.pipeline_manager.streammux.get_property("height"))

@@ -109,8 +109,13 @@ class PipelineManager:
 
     def _create_streammux(self, is_live):
         streammux = Gst.ElementFactory.make("nvstreammux", "stream-muxer")
-        streammux.set_property("width", 1920)
-        streammux.set_property("height", 1080)
+        
+        # === START OF MODIFICATION: Change processing resolution for performance ===
+        logger.info("Setting pipeline processing resolution to 1280x720 for performance.")
+        streammux.set_property("width", 1280)
+        streammux.set_property("height", 720)
+        # === END OF MODIFICATION ===
+
         streammux.set_property("batch-size", 1)
         streammux.set_property("batched-push-timeout", 33000)
         if is_live:
