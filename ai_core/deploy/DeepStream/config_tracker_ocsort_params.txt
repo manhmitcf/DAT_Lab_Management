@@ -1,4 +1,4 @@
-det_thresh=0.6
+det_thresh=0.5
 max_age=30
 min_hits=3
 iou_threshold=0.3
