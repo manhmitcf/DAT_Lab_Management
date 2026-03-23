@@ -92,18 +92,13 @@ class PipelineManager:
         source.set_property("io-mode", 2)
         source.set_property("do-timestamp", True)
         
+        # EXACT MATCH for the user's gst-launch string
         caps_v4l2src = Gst.ElementFactory.make("capsfilter", "v4l2src_caps")
-        caps_v4l2src.set_property("caps", Gst.Caps.from_string("image/jpeg,width=1920,height=1080,framerate=30/1"))
+        caps_v4l2src.set_property("caps", Gst.Caps.from_string("image/jpeg,format=MJPG,width=1920,height=1080,framerate=30/1"))
         
         cam_queue = Gst.ElementFactory.make("queue", "camera-queue")
-        # === CRITICAL FIX FOR LIVE CAMERA GHOST BOXES ===
-        # DO NOT drop frames here! If you set leaky=2 (drop), frames get skipped when the pipeline is slightly busy.
-        # Skipping a frame causes the timestamp delta to jump from 33ms to 66ms.
-        # The Kalman Filter in OCSort relies on smooth, continuous time steps.
-        # A sudden jump makes the filter predict the object moved twice as far, causing the "Ghost Box" to shoot ahead.
-        cam_queue.set_property("max-size-buffers", 30) 
-        cam_queue.set_property("leaky", 0) # 0 = no drop. We buffer instead of dropping.
-        # ================================================
+        cam_queue.set_property("max-size-buffers", 1)
+        cam_queue.set_property("leaky", 2) # leaky=downstream
         
         jpegparse = Gst.ElementFactory.make("jpegparse", "jpeg-parser")
         
@@ -123,10 +118,16 @@ class PipelineManager:
 
     def _create_input_conversion_bin(self):
         nvvidconv_src = Gst.ElementFactory.make("nvvideoconvert", "convertor_src")
-        # Ensure hardware compute is used for consistent memory alignment on Jetson
+        # Ensure hardware compute is used to prevent transform failures
         nvvidconv_src.set_property("compute-hw", 1)
+        
+        # === FIX FOR nvvideoconvert CRASH ===
+        # Explicitly set width/height here to prevent the converter from choking 
+        # if the camera temporarily sends a corrupted frame.
         caps_vidconv_src = Gst.ElementFactory.make("capsfilter", "caps_vidconv_src")
-        caps_vidconv_src.set_property("caps", Gst.Caps.from_string("video/x-raw(memory:NVMM),format=NV12"))
+        caps_vidconv_src.set_property("caps", Gst.Caps.from_string("video/x-raw(memory:NVMM),format=NV12,width=1920,height=1080"))
+        # ====================================
+        
         return nvvidconv_src, caps_vidconv_src
 
     def _create_streammux(self, is_live):
@@ -138,12 +139,14 @@ class PipelineManager:
         
         if is_live:
             streammux.set_property("live-source", 1)
-            # For 30fps live stream, a timeout of 40000us (40ms) is safe
-            streammux.set_property("batched-push-timeout", 40000) 
+            streammux.set_property("batched-push-timeout", 33000)
+            
             # === CRITICAL FIX FOR LIVE CAMERA GHOST BOXES ===
-            # Overwrite the jittery USB camera timestamps with smooth system timestamps.
-            # This ensures OCSort receives a perfectly smooth timeline.
-            streammux.set_property("attach-sys-ts", 1)
+            # attach-sys-ts=0 tells the muxer to USE THE CAMERA'S HARDWARE TIMESTAMP (PTS),
+            # instead of overwriting it with the jittery system clock time.
+            # This provides the Kalman filter in OCSort with perfectly accurate time deltas,
+            # completely eliminating "ghosting" or "trailing" boxes.
+            streammux.set_property("attach-sys-ts", 0)
             # ================================================
         else:
             streammux.set_property("batched-push-timeout", 33000)
