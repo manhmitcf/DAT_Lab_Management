@@ -64,7 +64,6 @@ class OSDProbeHandler:
                     obj_meta = pyds.NvDsObjectMeta.cast(l_obj.data)
                     rect = obj_meta.rect_params
                     
-                    # Use the coordinates directly from DeepStream
                     box_tlwh = [rect.left, rect.top, rect.width, rect.height]
                     
                     area = box_tlwh[2] * box_tlwh[3]
@@ -74,7 +73,7 @@ class OSDProbeHandler:
                                 aspect_ratio <= self.ocsort_config.aspect_ratio_thresh)
                     
                     if is_valid:
-                        valid_bboxes_tlwh.append(box_tlwh) # Use the direct, unscaled box
+                        valid_bboxes_tlwh.append(box_tlwh)
                         valid_track_ids.append(obj_meta.object_id)
                         valid_obj_metas.append(obj_meta)
                     
@@ -94,10 +93,8 @@ class OSDProbeHandler:
                 current_map_size=current_map_size,
             )
 
-            # 3. Draw Track ID on each VALID object
-            for i, obj_meta in enumerate(valid_obj_metas):
-                if i >= MAX_DISPLAY_META_ELEMENTS: break
-                
+            # 3. Draw Track ID on each VALID object by OVERWRITING existing text params
+            for obj_meta in valid_obj_metas:
                 txt_params = obj_meta.text_params
                 txt_params.display_text = f"ID: {obj_meta.object_id}"
                 txt_params.x_offset = int(obj_meta.rect_params.left)
@@ -122,10 +119,33 @@ class OSDProbeHandler:
                 line_params.line_width = 3
                 line_params.line_color.set(0.0, 1.0, 0.0, 1.0)
                 pyds.nvds_add_display_meta_to_frame(frame_meta, display_meta)
-            # === END OF FINAL FIX ===
 
-            # --- Data publishing logic ---
-            # ... (code giữ nguyên)
+            # 5. Package and send data to the queue
+            objects = []
+            for bbox_xyxy, coords, tid in zip(valid_bboxes_xyxy, mapped_points, valid_track_ids):
+                objects.append(ObjectDetection(track_id=int(tid), bbox=bbox_xyxy, coordinates_2D=[float(coords[0]), float(coords[1])]))
+
+            in_cnt = self.counting_service.count_in
+            out_cnt = self.counting_service.count_out
+            occupancy = self.counting_service.current_people
+
+            if out_cnt > in_cnt:
+                logger.warning(f"Reversed count detected (In: {in_cnt}, Out: {out_cnt}). Check 'inside_point' in counting_config.json.")
+
+            alert = 'none'
+            if occupancy >= self.critical_threshold: alert = 'critical'
+            elif occupancy >= self.warning_threshold: alert = 'warning'
+            elif occupancy >= self.info_threshold: alert = 'info'
+            
+            frame_data = FrameData(
+                timestamp=datetime.now(timezone.utc), count_in=in_cnt, count_out=out_cnt, occupancy=occupancy,
+                alert=alert, fps=self.current_fps, save_to_db=True, 
+                height_frame=current_frame_size[1], width_frame=current_frame_size[0],
+                height_2D=current_map_size[1], width_2D=current_map_size[0], objects=objects
+            )
+            
+            if not self.frame_data_queue.full():
+                self.frame_data_queue.put(frame_data)
             
             try:
                 l_frame = l_frame.next
