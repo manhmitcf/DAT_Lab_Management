@@ -27,7 +27,7 @@ custom-lib-path=/workspace/ai_core/deploy/DeepStream/libnvdsinfer_custom_impl_Yo
 # 5. Settings related to BBox filtering
 [class-attrs-all]
 # Synchronized with the original python 'exps' file
-pre-cluster-threshold=0.1
+pre-cluster-threshold=0.15
 nms-iou-threshold=0.7
 
 # Disable drawing of raw detection boxes from nvinfer.

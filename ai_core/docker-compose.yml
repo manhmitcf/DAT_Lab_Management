@@ -32,6 +32,6 @@ services:
         pip install -r requirements.txt &&
 
         echo '>>> Setup complete. Starting application...' &&
-        python3 deepstream_app.py
+        GST_DEBUG=nvinfer:4 python3 deepstream_app.py
       "
     # === END OF MODIFICATION ===

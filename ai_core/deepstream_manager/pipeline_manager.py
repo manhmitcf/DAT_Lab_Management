@@ -134,6 +134,31 @@ class PipelineManager:
         return streammux
 
     def _create_pgie(self):
+        logger.debug(f"[SETUP YOLOX] Creating PGIE. Input config: {self.app.pgie_config_path}")
+        
+        try:
+            with open(self.app.pgie_config_path, 'r') as f:
+                lines = f.readlines()
+            
+            yolo_config = {"pre-cluster-threshold": "N/A", "nms-iou-threshold": "N/A", "model-engine-file": "N/A"}
+            for line in lines:
+                line = line.strip()
+                if not line or line.startswith('#'): continue
+                if '=' in line:
+                    key, val = line.split('=', 1)
+                    if key.strip() in yolo_config:
+                        yolo_config[key.strip()] = val.strip()
+            
+            print("\n=============================================")
+            print("[RUNTIME DEBUG] YOLOX nvinfer Pipeline configs:")
+            print(f"  engine_file:           {yolo_config['model-engine-file']}")
+            print(f"  pre-cluster-threshold: {yolo_config['pre-cluster-threshold']}")
+            print(f"  nms-iou-threshold:     {yolo_config['nms-iou-threshold']}")
+            print("=============================================\n")
+            logger.info("[RUNTIME DEBUG] Printed YOLOX config to console.")
+        except Exception as e:
+            logger.warning(f"Could not parse YOLOX config for debug printing: {e}")
+
         pgie = Gst.ElementFactory.make("nvinfer", "primary-inference")
         pgie.set_property("config-file-path", self.app.pgie_config_path)
         pgie.set_property("unique-id", 1)
