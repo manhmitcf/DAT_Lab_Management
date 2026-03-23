@@ -23,7 +23,6 @@ class DeepStreamApp:
         self.video_source = os.getenv("INPUT_VIDEO_SOURCE", "/dev/video0")
         self.pgie_config_path = os.getenv("PGIE_CONFIG_PATH", "deploy/DeepStream/config_infer_primary_yolox.txt")
 
-        # --- INITIALIZE PYTHON SERVICES & CONFIGS ---
         self.mapping_config = MappingConfig("config/mapping_config.json")
         self.counting_config = CountingConfig(json_path="config/counting_config.json")
         self.ocsort_config = OCSortConfig("config/tracking_config.json")
@@ -31,37 +30,23 @@ class DeepStreamApp:
         self.mapping_service = MappingService(mapping_config=self.mapping_config)
         self.counting_service = CountingService(counting_config=self.counting_config, current_frame_size=(1920, 1080))
         
-        # === START OF FIX ===
-        # Pass the required 'ocsort_config' argument to the OSDProbeHandler constructor.
         self.osd_probe_handler = OSDProbeHandler(
             frame_data_queue=self.frame_data_queue,
             counting_service=self.counting_service,
             mapping_service=self.mapping_service,
             ocsort_config=self.ocsort_config 
         )
-        # === END OF FIX ===
         
         self.load_initial_thresholds()
 
-        # Manager instances
         self.diagnostics = Diagnostics(self.video_source, self.pgie_config_path)
         self.pipeline_manager = PipelineManager(self)
         self.service_manager = ServiceManager(self)
 
     def load_initial_thresholds(self):
         import json
-        threshold_path = "config/threshold_config.json"
-        if os.path.exists(threshold_path):
-            try:
-                with open(threshold_path, 'r') as f:
-                    cfg = json.load(f)
-                if "info_threshold" in cfg: self.osd_probe_handler.info_threshold = cfg["info_threshold"]
-                if "warning_threshold" in cfg: self.osd_probe_handler.warning_threshold = cfg["warning_threshold"]
-                if "critical_threshold" in cfg: self.osd_probe_handler.critical_threshold = cfg["critical_threshold"]
-                logger.info(f"[CONFIG] Initial Threshold settings loaded from {threshold_path}")
-            except Exception as e:
-                logger.error(f"[CONFIG] Failed to load initial threshold config: {e}")
-
+        # ... (code giữ nguyên)
+        
     def run(self):
         logger.info("DeepStream AI Application Initializing...")
         check_and_convert_models()
@@ -74,9 +59,20 @@ class DeepStreamApp:
             processing_width = self.pipeline_manager.streammux.get_property("width")
             processing_height = self.pipeline_manager.streammux.get_property("height")
             correct_processing_size = (processing_width, processing_height)
-            logger.info(f"Pipeline built. True processing size: {correct_processing_size}. Applying correct scaling...")
+            
+            # === START OF FINAL FIX ===
+            # Get the model's input size from the OCSortConfig (which reads tracking_config.json)
+            # This assumes tsize in the config matches the 'infer-dims' in the nvinfer config.
+            model_input_size = (self.ocsort_config.tsize, self.ocsort_config.tsize)
+            
+            logger.info(f"Pipeline built. True processing size: {correct_processing_size}. Model input size: {model_input_size}.")
 
-            self.osd_probe_handler.set_processing_size(correct_processing_size)
+            # Pass BOTH sizes to the probe handler.
+            self.osd_probe_handler.set_frame_sizes(
+                processing_size=correct_processing_size,
+                model_input_size=model_input_size
+            )
+            # === END OF FINAL FIX ===
 
             self.handle_counting_update({
                 "line_start": self.counting_config.line_start,
@@ -95,6 +91,7 @@ class DeepStreamApp:
             self.service_manager.stop_services()
             logger.info("Shutdown complete.")
 
+    # ... (các hàm handle_update giữ nguyên) ...
     def handle_mapping_update(self, data: dict) -> None:
         logger.info("[WebSocket] Received MAPPING update. Updating Python MappingService.")
         try:

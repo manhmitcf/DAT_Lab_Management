@@ -18,27 +18,46 @@ from services.counting_service import CountingService
 from services.mapping_service import MappingService
 from config.data_config import OCSortConfig
 
+MAX_DISPLAY_META_ELEMENTS = 64
+
 class OSDProbeHandler:
-    """
-    Handles extracting tracking information, filtering it, processing it with Python services,
-    and adding custom display metadata for drawing.
-    """
     def __init__(self, frame_data_queue, counting_service: CountingService, mapping_service: MappingService, ocsort_config: OCSortConfig):
         self.frame_data_queue = frame_data_queue
         self.counting_service = counting_service
         self.mapping_service = mapping_service
         self.ocsort_config = ocsort_config
         self.processing_size = (1920, 1080)
+        self.model_input_size = (640, 640)
         self.info_threshold = 10
         self.warning_threshold = 25
         self.critical_threshold = 25
         self._fps_frame_count = 0
         self._last_fps_time = time.time()
         self.current_fps = 0.0
+        self.debug_mode = True # Enable debug logging
 
-    def set_processing_size(self, size: tuple):
-        logger.info(f"OSD Probe Handler received processing size: {size}")
-        self.processing_size = size
+    def set_frame_sizes(self, processing_size: tuple, model_input_size: tuple):
+        logger.info(f"OSD Probe Handler received sizes: processing={processing_size}, model_input={model_input_size}")
+        self.processing_size = processing_size
+        self.model_input_size = model_input_size
+
+    def _scale_box_from_model_to_processing(self, box_tlwh: list, frame_num: int, obj_id: int) -> list:
+        proc_w, proc_h = self.processing_size
+        model_w, model_h = self.model_input_size
+        
+        ratio = min(model_w / proc_w, model_h / proc_h)
+        
+        x1, y1, w, h = box_tlwh
+        
+        scaled_x1 = x1 / ratio
+        scaled_y1 = y1 / ratio
+        scaled_w = w / ratio
+        scaled_h = h / ratio
+        
+        if self.debug_mode:
+            logger.debug(f"[F:{frame_num}|ID:{obj_id}] SCALING: Ratio={ratio:.4f} | RawBox(w,h)=({w:.1f}, {h:.1f}) -> ScaledBox(w,h)=({scaled_w:.1f}, {scaled_h:.1f})")
+
+        return [scaled_x1, scaled_y1, scaled_w, scaled_h]
 
     def osd_sink_pad_buffer_probe(self, pad, info, u_data) -> Gst.PadProbeReturn:
         self._fps_frame_count += 1
@@ -50,12 +69,9 @@ class OSDProbeHandler:
             self._last_fps_time = current_time
             self._fps_frame_count = 0
 
-        if not pyds:
-            return Gst.PadProbeReturn.OK
-
+        if not pyds: return Gst.PadProbeReturn.OK
         gst_buffer = info.get_buffer()
-        if not gst_buffer:
-            return Gst.PadProbeReturn.OK
+        if not gst_buffer: return Gst.PadProbeReturn.OK
 
         batch_meta = pyds.gst_buffer_get_nvds_batch_meta(hash(gst_buffer))
         l_frame = batch_meta.frame_meta_list
@@ -66,79 +82,86 @@ class OSDProbeHandler:
             except StopIteration:
                 break
 
-            # --- We will add a single display_meta for the counting line later ---
+            # --- DEBUG: Log only for the first few frames to avoid spam ---
+            if frame_meta.frame_num > 150 and self.debug_mode:
+                logger.info("Disabling debug mode after 150 frames to reduce log spam.")
+                self.debug_mode = False
 
-            # 1. Collect AND Filter objects
-            valid_bboxes_tlwh, valid_track_ids, valid_obj_metas = [], [], []
+            # 1. Collect, Scale, and Filter all objects
+            bboxes_tlwh, track_ids, obj_metas = [], [], []
             l_obj = frame_meta.obj_meta_list
             while l_obj is not None:
                 try:
                     obj_meta = pyds.NvDsObjectMeta.cast(l_obj.data)
                     rect = obj_meta.rect_params
-                    area = rect.width * rect.height
-                    aspect_ratio = rect.width / rect.height if rect.height > 0 else 0
+                    
+                    if self.debug_mode:
+                        logger.debug(f"[F:{frame_meta.frame_num}|ID:{obj_meta.object_id}] RAW BOX from DS: [l:{rect.left:.1f}, t:{rect.top:.1f}, w:{rect.width:.1f}, h:{rect.height:.1f}]")
+
+                    scaled_box = self._scale_box_from_model_to_processing([rect.left, rect.top, rect.width, rect.height], frame_meta.frame_num, obj_meta.object_id)
+                    scaled_w, scaled_h = scaled_box[2], scaled_box[3]
+                    
+                    area = scaled_w * scaled_h
+                    aspect_ratio = scaled_w / scaled_h if scaled_h > 0 else 0
                     
                     is_valid = (area >= self.ocsort_config.min_box_area and 
                                 aspect_ratio <= self.ocsort_config.aspect_ratio_thresh)
                     
+                    if self.debug_mode:
+                        logger.debug(f"[F:{frame_meta.frame_num}|ID:{obj_meta.object_id}] FILTER: Area={area:.1f} (>{self.ocsort_config.min_box_area:.1f}?) | Aspect={aspect_ratio:.2f} (<{self.ocsort_config.aspect_ratio_thresh:.2f}?) -> Valid: {is_valid}")
+
                     if is_valid:
-                        valid_bboxes_tlwh.append([rect.left, rect.top, rect.width, rect.height])
-                        valid_track_ids.append(obj_meta.object_id)
-                        valid_obj_metas.append(obj_meta)
+                        bboxes_tlwh.append(scaled_box)
+                        track_ids.append(obj_meta.object_id)
+                        obj_metas.append(obj_meta)
                     
                     l_obj = l_obj.next
                 except StopIteration:
                     break
 
-            # 2. Call Python services with CLEANED data
-            self.counting_service.update(valid_bboxes_tlwh, valid_track_ids)
+            # 2. Call Python services with CORRECTLY SCALED data
+            self.counting_service.update(bboxes_tlwh, track_ids)
             
-            valid_bboxes_xyxy = [[x, y, x + w, y + h] for x, y, w, h in valid_bboxes_tlwh]
+            # --- Data publishing and drawing logic (no changes needed here) ---
+            bboxes_xyxy = [[x, y, x + w, y + h] for x, y, w, h in bboxes_tlwh]
             current_frame_size = self.processing_size
             current_map_size = self.mapping_service.map_size
             mapped_points = self.mapping_service.project_bboxes(
-                bboxes=[tuple(b) for b in valid_bboxes_xyxy],
+                bboxes=[tuple(b) for b in bboxes_xyxy],
                 current_frame_size=current_frame_size,
                 current_map_size=current_map_size,
             )
 
-            # === START OF DRAWING LOGIC FIX ===
-            # 3. Draw Track ID directly on each VALID object's metadata
-            for obj_meta in valid_obj_metas:
-                # Acquire a new display meta for each object to draw on.
-                display_meta = pyds.nvds_acquire_display_meta_from_pool(batch_meta)
-                display_meta.num_labels = 1
-                txt_params = display_meta.text_params[0]
-                
+            display_meta = pyds.nvds_acquire_display_meta_from_pool(batch_meta)
+            display_meta.num_labels = 0
+            display_meta.num_lines = 0
+            for i, obj_meta in enumerate(obj_metas):
+                if i >= MAX_DISPLAY_META_ELEMENTS: break
+                scaled_box = bboxes_tlwh[i]
+                txt_params = display_meta.text_params[i]
                 txt_params.display_text = f"ID: {obj_meta.object_id}"
-                txt_params.x_offset = int(obj_meta.rect_params.left)
-                txt_params.y_offset = int(obj_meta.rect_params.top) - 10
-                
+                txt_params.x_offset = int(scaled_box[0])
+                txt_params.y_offset = int(scaled_box[1]) - 10
                 txt_params.font_params.font_name = "Serif"
                 txt_params.font_params.font_size = 10
                 txt_params.font_params.font_color.set(1.0, 1.0, 1.0, 1.0)
                 txt_params.set_bg_clr = 1
                 txt_params.text_bg_clr.set(0.0, 0.0, 0.0, 0.7)
-                
-                # Attach this specific display meta to this specific object meta
-                pyds.nvds_add_display_meta_to_frame(frame_meta, display_meta)
+                display_meta.num_labels += 1
 
-            # 4. Draw the Counting Line (using a separate display meta for the frame)
-            line_display_meta = pyds.nvds_acquire_display_meta_from_pool(batch_meta)
-            line_display_meta.num_lines = 1
-            line_params = line_display_meta.line_params[0]
-            line_params.x1 = int(self.counting_service.line_counter.start_point[0])
-            line_params.y1 = int(self.counting_service.line_counter.start_point[1])
-            line_params.x2 = int(self.counting_service.line_counter.end_point[0])
-            line_params.y2 = int(self.counting_service.line_counter.end_point[1])
-            line_params.line_width = 3
-            line_params.line_color.set(0.0, 1.0, 0.0, 1.0)
-            pyds.nvds_add_display_meta_to_frame(frame_meta, line_display_meta)
-            # === END OF DRAWING LOGIC FIX ===
+            if display_meta.num_lines < MAX_DISPLAY_META_ELEMENTS:
+                line_params = display_meta.line_params[display_meta.num_lines]
+                line_params.x1 = int(self.counting_service.line_counter.start_point[0])
+                line_params.y1 = int(self.counting_service.line_counter.start_point[1])
+                line_params.x2 = int(self.counting_service.line_counter.end_point[0])
+                line_params.y2 = int(self.counting_service.line_counter.end_point[1])
+                line_params.line_width = 3
+                line_params.line_color.set(0.0, 1.0, 0.0, 1.0)
+                display_meta.num_lines += 1
+            pyds.nvds_add_display_meta_to_frame(frame_meta, display_meta)
 
-            # --- Data publishing logic ---
             objects = []
-            for bbox_xyxy, coords, tid in zip(valid_bboxes_xyxy, mapped_points, valid_track_ids):
+            for bbox_xyxy, coords, tid in zip(bboxes_xyxy, mapped_points, track_ids):
                 objects.append(ObjectDetection(track_id=int(tid), bbox=bbox_xyxy, coordinates_2D=[float(coords[0]), float(coords[1])]))
 
             in_cnt = self.counting_service.count_in
