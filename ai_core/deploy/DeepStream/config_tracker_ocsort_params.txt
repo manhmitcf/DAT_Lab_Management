@@ -1,11 +1,6 @@
-# Low-level parameters for the OCSort algorithm library
-
 det_thresh=0.6
 iou_threshold=0.3
-
 inertia=0
-
-
 max_age=5
 min_hits=3
 use_byte=0
