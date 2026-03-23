@@ -1,0 +1,13 @@
+# Low-level parameters for the OCSort algorithm library
+
+# Maximum number of frames to keep a track alive without new detections.
+# Default in C++ code is 30.
+max_age=5
+
+# Minimum number of hits to start a track.
+# Default in C++ code is 3.
+min_hits=3
+
+# IOU threshold for association.
+# Default in C++ code is 0.3.
+iou_threshold=0.3
