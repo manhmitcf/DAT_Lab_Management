@@ -24,6 +24,15 @@ custom-lib-path=/workspace/ai_core/deploy/DeepStream/libnvdsinfer_custom_impl_Yo
 
 # 5. Settings related to BBox filtering
 [class-attrs-all]
-pre-cluster-threshold=0.1
+# === START OF FINAL FIX ===
+# Synchronize with the original python 'exps' file (test_conf = 0.001)
+# This is the most critical parameter. A low threshold allows the tracker
+# to see low-confidence detections and prevent losing tracks when objects are occluded.
+pre-cluster-threshold=0.001
+
+# Synchronize with the original python 'exps' file (nmsthre = 0.7)
 nms-iou-threshold=0.7
+# === END OF FINAL FIX ===
+
+# Disable drawing of raw detection boxes from nvinfer to show only the final tracker output.
 display-bbox=0
