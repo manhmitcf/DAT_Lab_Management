@@ -1,7 +1,15 @@
 [property]
 gpu-id=0
 net-scale-factor=1.0
-interval=1
+
+# === CRITICAL FIX FOR GHOST BOXES ===
+# When interval=1, DeepStream skips inference on every other frame.
+# On skipped frames, the tracker MUST GUESS where the object is.
+# This guess is what creates the "ghost" or "trailing" box.
+# Setting interval=0 forces YOLOX to run on EVERY frame, eliminating guesses.
+interval=0
+# ====================================
+
 symmetric-padding=1
 onnx-opset=18
 
@@ -30,5 +38,4 @@ pre-cluster-threshold=0.001
 nms-iou-threshold=0.7
 
 # Disable drawing of raw detection boxes from nvinfer.
-# This is the correct group for this property.
 display-bbox=0

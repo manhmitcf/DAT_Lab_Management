@@ -1,6 +1,18 @@
+# Low-level parameters for the OCSort algorithm library
+
 det_thresh=0.6
 iou_threshold=0.3
-inertia=0.2
-max_age=30
+
+# === CRITICAL FIX FOR GHOST BOXES ===
+# Inertia controls the Kalman filter's "momentum".
+# A value of 0.2 means it trusts its previous speed and direction too much.
+# When the object changes direction or stops, the box "drifts" (ghosts) past the object.
+# Setting inertia to 0 forces the tracker to instantly snap to the YOLOX detection.
+inertia=0
+# ====================================
+
+# Synchronized with original python config
+max_age=5
 min_hits=3
+use_byte=0
 use_byte=0
