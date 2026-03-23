@@ -6,7 +6,7 @@ def check_and_convert_models() -> None:
     """Checks for Engine/ONNX existence and builds engine natively if missing."""
     engine_path = os.getenv("MODEL_ENGINE_PATH", "pretrained/ocsort_x_mot20_fp16.engine")
     onnx_path = os.getenv("MODEL_ONNX_PATH", "pretrained/ocsort_x_mot20.onnx")
-    pth_path = os.getenv("MODEL_PTH_PATH", "pretrained/ocsort_x_mot20.pth")
+    pth_path = os.getenv("MODEL_PTH_PATH", "pretrained/ocsort_x_mot20.pth.tar")
     exp_file = os.getenv("MODEL_EXP_FILE", "exps/yolox_x_mix_mot20_ch.py")
     
     if os.path.exists(engine_path):
