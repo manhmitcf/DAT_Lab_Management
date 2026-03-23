@@ -7,6 +7,16 @@ import {
 import { createPortal } from 'react-dom';
 import { useTrackingStore } from '@/stores/trackingStore';
 import { sendCalibrationPayload } from '@/lib/settingsWebSocket';
+import { useJanusStream } from '@/hooks/useJanusStream';
+import { JANUS_URL } from '@/config/api';
+
+const CAMERA_STREAM_URL = process.env.NEXT_PUBLIC_CAMERA_STREAM_URL ?? '';
+
+function getCamDimensions(el: HTMLImageElement | HTMLVideoElement | null): { w: number; h: number } {
+    if (!el) return { w: 1920, h: 1080 };
+    if (el instanceof HTMLVideoElement) return { w: el.videoWidth || 1920, h: el.videoHeight || 1080 };
+    return { w: (el as HTMLImageElement).naturalWidth || 1920, h: (el as HTMLImageElement).naturalHeight || 1080 };
+}
 
 const LS_KEY_MAPPING = 'edgesentinel.calibration.mapping.v1';
 const LS_KEY_COUNTING = 'edgesentinel.calibration.counting.v1';
@@ -646,11 +656,11 @@ function MappingSidebar({ pairs, mapPick, sel, onRemove, onEditPx, camRef, fpRef
     sel: SelPt | null;
     onRemove(id: number): void;
     onEditPx(id: number, side: 'camera' | 'map', axis: 'x' | 'y', px: number): void;
-    camRef: React.RefObject<HTMLImageElement | null>;
+    camRef: React.RefObject<HTMLImageElement | HTMLVideoElement | null>;
     fpRef:  React.RefObject<HTMLImageElement | null>;
 }) {
-    const cW = camRef.current?.naturalWidth  || 1920;
-    const cH = camRef.current?.naturalHeight || 1080;
+    const cW = getCamDimensions(camRef.current).w;
+    const cH = getCamDimensions(camRef.current).h;
     const mW = fpRef.current?.naturalWidth   || 1000;
     const mH = fpRef.current?.naturalHeight  || 1000;
     const px = (n: number, d: number) => Math.round(n * d);
@@ -736,10 +746,10 @@ function CountingSidebar({ counting, sel, cntPick, setCounting, onEditPx, camRef
     cntPick: CountingPick;
     setCounting: React.Dispatch<React.SetStateAction<CountingCfg>>;
     onEditPx(pt: 'lineStart' | 'lineEnd' | 'insidePoint', axis: 'x' | 'y', px: number): void;
-    camRef: React.RefObject<HTMLImageElement | null>;
+    camRef: React.RefObject<HTMLImageElement | HTMLVideoElement | null>;
 }) {
-    const cW = camRef.current?.naturalWidth  || 1920;
-    const cH = camRef.current?.naturalHeight || 1080;
+    const cW = getCamDimensions(camRef.current).w;
+    const cH = getCamDimensions(camRef.current).h;
     const px = (n: number, d: number) => Math.round(n * d);
     const isSel = (pt: 'lineStart' | 'lineEnd' | 'insidePoint') =>
         sel?.scope === 'counting' && (sel as { scope: 'counting'; pt: string }).pt === pt;
@@ -861,6 +871,8 @@ function CountingSidebar({ counting, sel, cntPick, setCounting, onEditPx, camRef
 function CalibrationModal({ onClose }: { onClose(): void }) {
     const currentFrame = useTrackingStore(s => s.currentFrame);
     const wsStatus     = useTrackingStore(s => s.wsStatus);
+    const { videoRef: janusVideoRef, status: janusStatus, error: janusError } = useJanusStream();
+    const useJanus = !!JANUS_URL;
 
     const [mode, setMode]     = useState<ModeType>('mapping');
 
@@ -882,7 +894,7 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
     const [sel, setSel] = useState<SelPt | null>(null);
 
     const nextId  = useRef(1);
-    const camRef  = useRef<HTMLImageElement>(null);
+    const camRef  = useRef<HTMLImageElement | HTMLVideoElement | null>(null);
     const fpRef   = useRef<HTMLImageElement>(null);
     const camZoom = useRef<ZoomHandle>(null);
     const fpZoom  = useRef<ZoomHandle>(null);
@@ -971,15 +983,15 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
             const dy = e.key === 'ArrowUp'   ? -step : e.key === 'ArrowDown'  ? step : 0;
             if (sel.scope === 'mapping') {
                 const { pairId, side } = sel;
-                const rW = side === 'camera' ? (camRef.current?.naturalWidth  || 1920) : (fpRef.current?.naturalWidth  || 1000);
-                const rH = side === 'camera' ? (camRef.current?.naturalHeight || 1080) : (fpRef.current?.naturalHeight || 1000);
+                const rW = side === 'camera' ? (getCamDimensions(camRef.current).w  || 1920) : (fpRef.current?.naturalWidth  || 1000);
+                const rH = side === 'camera' ? (getCamDimensions(camRef.current).h || 1080) : (fpRef.current?.naturalHeight || 1000);
                 setPairs(prev => prev.map(p =>
                     p.id !== pairId ? p : { ...p, [side]: { x: clamp(p[side].x + dx/rW), y: clamp(p[side].y + dy/rH) } }
                 ));
             } else {
                 const { pt } = sel;
-                const rW = camRef.current?.naturalWidth  || 1920;
-                const rH = camRef.current?.naturalHeight || 1080;
+                const rW = getCamDimensions(camRef.current).w  || 1920;
+                const rH = getCamDimensions(camRef.current).h || 1080;
                 setCounting(prev => {
                     const old = prev[pt]; if (!old) return prev;
                     return { ...prev, [pt]: { x: clamp(old.x + dx/rW), y: clamp(old.y + dy/rH) } };
@@ -1020,8 +1032,8 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
     };
 
     const editMapPx = useCallback((id: number, side: 'camera' | 'map', axis: 'x' | 'y', px: number) => {
-        const rW = side === 'camera' ? (camRef.current?.naturalWidth  || 1920) : (fpRef.current?.naturalWidth  || 1000);
-        const rH = side === 'camera' ? (camRef.current?.naturalHeight || 1080) : (fpRef.current?.naturalHeight || 1000);
+        const rW = side === 'camera' ? (getCamDimensions(camRef.current).w  || 1920) : (fpRef.current?.naturalWidth  || 1000);
+        const rH = side === 'camera' ? (getCamDimensions(camRef.current).h || 1080) : (fpRef.current?.naturalHeight || 1000);
         setPairs(prev => prev.map(p => {
             if (p.id !== id) return p;
             return { ...p, [side]: { ...p[side], [axis]: px / (axis === 'x' ? rW : rH) } };
@@ -1034,8 +1046,8 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
 
     const saveMapping = async () => {
         if (pairs.length < 4) return;
-        const iW = camRef.current?.naturalWidth || 1920;
-        const iH = camRef.current?.naturalHeight || 1080;
+        const iW = getCamDimensions(camRef.current).w || 1920;
+        const iH = getCamDimensions(camRef.current).h || 1080;
         const mW = fpRef.current?.naturalWidth || 1000;
         const mH = fpRef.current?.naturalHeight || 1000;
         const body = {
@@ -1081,8 +1093,8 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
     }, [cntPick]);
 
     const editCntPx = useCallback((pt: 'lineStart' | 'lineEnd' | 'insidePoint', axis: 'x' | 'y', px: number) => {
-        const rW = camRef.current?.naturalWidth  || 1920;
-        const rH = camRef.current?.naturalHeight || 1080;
+        const rW = getCamDimensions(camRef.current).w  || 1920;
+        const rH = getCamDimensions(camRef.current).h || 1080;
         setCounting(prev => {
             const old = prev[pt]; if (!old) return prev;
             return { ...prev, [pt]: { ...old, [axis]: px / (axis === 'x' ? rW : rH) } };
@@ -1107,8 +1119,8 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
     const saveCounting = async () => {
         const { lineStart: s, lineEnd: e, insidePoint: ip, crossingMargin: cm } = counting;
         if (!s || !e || !ip) return;
-        const fW = camRef.current?.naturalWidth  || 1920;
-        const fH = camRef.current?.naturalHeight || 1080;
+        const fW = getCamDimensions(camRef.current).w  || 1920;
+        const fH = getCamDimensions(camRef.current).h || 1080;
         const body = {
             line_start: [+(s.x * fW).toFixed(4), +(s.y * fH).toFixed(4)],
             line_end: [+(e.x * fW).toFixed(4), +(e.y * fH).toFixed(4)],
@@ -1156,15 +1168,15 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
         if (sel.scope === 'mapping') {
             const i = pairs.findIndex(p => p.id === sel.pairId); if (i < 0) return null;
             const pt = sel.side === 'camera' ? pairs[i].camera : pairs[i].map;
-            const rW = sel.side === 'camera' ? (camRef.current?.naturalWidth || 1920) : (fpRef.current?.naturalWidth || 1000);
-            const rH = sel.side === 'camera' ? (camRef.current?.naturalHeight || 1080) : (fpRef.current?.naturalHeight || 1000);
+            const rW = sel.side === 'camera' ? (getCamDimensions(camRef.current).w || 1920) : (fpRef.current?.naturalWidth || 1000);
+            const rH = sel.side === 'camera' ? (getCamDimensions(camRef.current).h || 1080) : (fpRef.current?.naturalHeight || 1000);
             return `p${i+1} (${sel.side}) @ (${Math.round(pt.x*rW)}, ${Math.round(pt.y*rH)}) — ↑↓←→`;
         } else {
             const ptName = (sel as { scope: 'counting'; pt: string }).pt;
             const pt = counting[ptName as 'lineStart' | 'lineEnd' | 'insidePoint'];
             if (!pt) return null;
-            const rW = camRef.current?.naturalWidth  || 1920;
-            const rH = camRef.current?.naturalHeight || 1080;
+            const rW = getCamDimensions(camRef.current).w  || 1920;
+            const rH = getCamDimensions(camRef.current).h || 1080;
             const labels: Record<string, string> = { lineStart: 'Line Start', lineEnd: 'Line End', insidePoint: 'Inside Point' };
             return `${labels[ptName]} @ (${Math.round(pt.x*rW)}, ${Math.round(pt.y*rH)}) — ↑↓←→`;
         }
@@ -1359,13 +1371,37 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
                                         onNormDragEnd={() => {}}
                                         onCanvasClick={() => setSel(null)}
                                         overlay={camMapOverlay}>
-                                        {currentFrame
-                                            ? <img ref={camRef} src={currentFrame} alt="" draggable={false} className="absolute inset-0 w-full h-full object-contain bg-black" />
-                                            : <div className="absolute inset-0 bg-surface-0 flex flex-col items-center justify-center gap-2">
+                                        {useJanus ? (
+                                            <>
+                                                <video
+                                                    ref={(el) => {
+                                                        (camRef as React.MutableRefObject<HTMLImageElement | HTMLVideoElement | null>).current = el;
+                                                        janusVideoRef(el);
+                                                    }}
+                                                    autoPlay playsInline muted
+                                                    className={`absolute inset-0 w-full h-full object-contain bg-black ${janusStatus === 'connected' ? '' : 'opacity-0'}`}
+                                                />
+                                                {janusStatus === 'error' && (
+                                                    <div className="absolute inset-0 bg-surface-0 flex flex-col items-center justify-center gap-2">
+                                                        <span className="material-symbols-outlined text-5xl text-danger">videocam_off</span>
+                                                        <p className="text-xs text-text-tertiary">{janusError || 'Janus error'}</p>
+                                                    </div>
+                                                )}
+                                                {['loading', 'connecting'].includes(janusStatus) && (
+                                                    <div className="absolute inset-0 bg-surface-0 flex flex-col items-center justify-center gap-2">
+                                                        <span className="material-symbols-outlined text-5xl text-accent animate-spin">progress_activity</span>
+                                                        <p className="text-xs text-text-tertiary">Connecting Janus…</p>
+                                                    </div>
+                                                )}
+                                            </>
+                                        ) : (currentFrame || CAMERA_STREAM_URL) ? (
+                                            <img ref={camRef as React.RefObject<HTMLImageElement>} src={currentFrame || CAMERA_STREAM_URL} alt="" draggable={false} className="absolute inset-0 w-full h-full object-contain bg-black" />
+                                        ) : (
+                                            <div className="absolute inset-0 bg-surface-0 flex flex-col items-center justify-center gap-2">
                                                 <span className="material-symbols-outlined text-5xl text-text-tertiary">videocam_off</span>
                                                 <p className="text-xs text-text-tertiary">No live frame</p>
-                                              </div>
-                                        }
+                                            </div>
+                                        )}
                                     </ZoomableCanvas>
 
                                     <ZoomableCanvas ref={fpZoom} label="Floor Plan (Map)"
@@ -1398,13 +1434,37 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
                                     onNormDragEnd={handleCntDrag}
                                     onCanvasClick={() => setSel(null)}
                                     overlay={camCntOverlay}>
-                                    {currentFrame
-                                        ? <img ref={camRef} src={currentFrame} alt="" draggable={false} className="absolute inset-0 w-full h-full object-contain bg-black" />
-                                        : <div className="absolute inset-0 bg-surface-0 flex flex-col items-center justify-center gap-2">
+                                    {useJanus ? (
+                                        <>
+                                            <video
+                                                ref={(el) => {
+                                                    (camRef as React.MutableRefObject<HTMLImageElement | HTMLVideoElement | null>).current = el;
+                                                    janusVideoRef(el);
+                                                }}
+                                                autoPlay playsInline muted
+                                                className={`absolute inset-0 w-full h-full object-contain bg-black ${janusStatus === 'connected' ? '' : 'opacity-0'}`}
+                                            />
+                                            {janusStatus === 'error' && (
+                                                <div className="absolute inset-0 bg-surface-0 flex flex-col items-center justify-center gap-2">
+                                                    <span className="material-symbols-outlined text-5xl text-danger">videocam_off</span>
+                                                    <p className="text-xs text-text-tertiary">{janusError || 'Janus error'}</p>
+                                                </div>
+                                            )}
+                                            {['loading', 'connecting'].includes(janusStatus) && (
+                                                <div className="absolute inset-0 bg-surface-0 flex flex-col items-center justify-center gap-2">
+                                                    <span className="material-symbols-outlined text-5xl text-accent animate-spin">progress_activity</span>
+                                                    <p className="text-xs text-text-tertiary">Connecting Janus…</p>
+                                                </div>
+                                            )}
+                                        </>
+                                    ) : (currentFrame || CAMERA_STREAM_URL) ? (
+                                        <img ref={camRef as React.RefObject<HTMLImageElement>} src={currentFrame || CAMERA_STREAM_URL} alt="" draggable={false} className="absolute inset-0 w-full h-full object-contain bg-black" />
+                                    ) : (
+                                        <div className="absolute inset-0 bg-surface-0 flex flex-col items-center justify-center gap-2">
                                             <span className="material-symbols-outlined text-5xl text-text-tertiary">videocam_off</span>
                                             <p className="text-xs text-text-tertiary">No live frame</p>
-                                          </div>
-                                    }
+                                        </div>
+                                    )}
                                     <CountingShapeLayer counting={counting} />
                                 </ZoomableCanvas>
                             </>
