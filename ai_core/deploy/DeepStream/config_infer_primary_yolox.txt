@@ -1,11 +1,7 @@
 [property]
 gpu-id=0
 net-scale-factor=1.0
-
-# Set interval to 0 to run detection on every frame. This is the first step to remove "ghosts".
 interval=0
-
-# Force nvinfer to maintain the aspect ratio, matching the original Python preprocessing.
 symmetric-padding=1
 
 # 1. Define input size and color for TensorRT
@@ -28,12 +24,11 @@ custom-lib-path=/workspace/ai_core/deploy/DeepStream/libnvdsinfer_custom_impl_Yo
 
 # 5. Settings related to BBox filtering
 [class-attrs-all]
-pre-cluster-threshold=0.3
-nms-iou-threshold=0.45
+# === START OF CONFIG SYNC ===
+# Match the original python source configuration
+pre-cluster-threshold=0.1
+nms-iou-threshold=0.7
+# === END OF CONFIG SYNC ===
 
-# === START OF FINAL FIX ===
 # Disable drawing of raw detection boxes from nvinfer.
-# We will let nvosd handle all drawing based on the final, smoothed tracker output.
-# This ensures only ONE consistent bounding box is displayed, removing the visual "ghost" effect.
 display-bbox=0
-# === END OF FINAL FIX ===
