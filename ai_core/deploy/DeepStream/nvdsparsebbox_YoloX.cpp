@@ -77,6 +77,15 @@ extern "C" bool NvDsInferParseYoloX(
         return false;
     }
 
+    static bool config_printed = false;
+    if (!config_printed) {
+        std::cout << "\n=============================================\n";
+        std::cout << "[RUNTIME DEBUG] YOLOX C++ Parser running with:\n";
+        std::cout << "  pre-cluster-threshold (class 0): " << detectionParams.perClassPreclusterThreshold[0] << "\n";
+        std::cout << "=============================================\n";
+        config_printed = true;
+    }
+
     // Default output layer is usually "output"
     const NvDsInferLayerInfo& output = outputLayersInfo[0];
     float* output_data = (float*)output.buffer;

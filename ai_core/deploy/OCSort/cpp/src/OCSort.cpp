@@ -30,6 +30,19 @@ namespace ocsort {
         inertia = inertia_;
         use_byte = use_byte_;
         KalmanBoxTracker::count = 0;
+
+        // LOG RUNTIME CONFIG FOR DEBUGGING
+        std::cout << "\n=============================================\n";
+        std::cout << "[RUNTIME DEBUG] OCSort Tracker allocated with:\n";
+        std::cout << "  det_thresh:    " << det_thresh << "\n";
+        std::cout << "  max_age:       " << max_age << "\n";
+        std::cout << "  min_hits:      " << min_hits << "\n";
+        std::cout << "  iou_threshold: " << iou_threshold << "\n";
+        std::cout << "  delta_t:       " << delta_t << "\n";
+        std::cout << "  asso_func:     " << asso_func_ << "\n";
+        std::cout << "  inertia:       " << inertia << "\n";
+        std::cout << "  use_byte:      " << (use_byte ? "true" : "false") << "\n";
+        std::cout << "=============================================\n";
     }
     std::ostream& precision(std::ostream& os) {
         os << std::fixed << std::setprecision(2);

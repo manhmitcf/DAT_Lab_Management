@@ -1,7 +1,8 @@
 det_thresh=0.6
-iou_threshold=0.3
-inertia=0
-max_age=5
+max_age=30
 min_hits=3
-use_byte=0
-use_byte=0
+iou_threshold=0.3
+delta_t=3
+asso_func='iou'
+inertia=0.2
+use_byte=False
