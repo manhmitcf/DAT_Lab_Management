@@ -1,7 +1,7 @@
 [property]
 gpu-id=0
 net-scale-factor=1.0
-interval=1
+interval=0
 symmetric-padding=1
 
 # 1. Define input size and color for TensorRT
