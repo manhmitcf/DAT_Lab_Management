@@ -1,29 +1,33 @@
 [property]
 gpu-id=0
 net-scale-factor=1.0
-interval=1
+interval=0
 symmetric-padding=1
 
-
+# 1. Define input size and color for TensorRT
 offsets=123.675;116.28;103.53
 net-scale-factor=0.0171247538316637
 
-
+# 2. TensorRT engine file
 model-engine-file=../../pretrained/ocsort_x_mot20_fp16.engine
 onnx-file=../../pretrained/yolox.onnx
 
-
+# 3. Architecture parameters
 infer-dims=3;640;640
 network-type=0
 num-detected-classes=1
 workspace-size=6144
 
-
+# 4. Point to the recently compiled C++ Custom Parser library
 parse-bbox-func-name=NvDsInferParseYoloX
 custom-lib-path=/workspace/ai_core/deploy/DeepStream/libnvdsinfer_custom_impl_YoloX.so
 
-
+# 5. Settings related to BBox filtering
 [class-attrs-all]
+# Synchronized with the original python 'exps' file
 pre-cluster-threshold=0.001
 nms-iou-threshold=0.7
+
+# Disable drawing of raw detection boxes from nvinfer.
+# This is the correct group for this property.
 display-bbox=0
