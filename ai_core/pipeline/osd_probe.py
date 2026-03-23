@@ -78,6 +78,11 @@ class OSDProbeHandler:
                         valid_bboxes_tlwh.append(box_tlwh)
                         valid_track_ids.append(obj_meta.object_id)
                         valid_obj_metas.append(obj_meta)
+                    else:
+                        # Ẩn hoàn toàn các box không hợp lệ, không cho nvosd vẽ
+                        obj_meta.rect_params.border_width = 0
+                        obj_meta.text_params.display_text = ""
+                        obj_meta.text_params.set_bg_clr = 0
                     
                     l_obj = l_obj.next
                 except StopIteration:
@@ -95,12 +100,25 @@ class OSDProbeHandler:
             )
 
             for obj_meta in valid_obj_metas:
+                # Đảm bảo box hợp lệ được hiển thị với màu sắc và nội dung tùy chỉnh
+                obj_meta.rect_params.border_width = 2
+                obj_meta.rect_params.border_color.set(0.0, 1.0, 0.0, 1.0) # Màu Xanh lá
+                
                 txt_params = obj_meta.text_params
-                txt_params.display_text = f"ID: {obj_meta.object_id}"
+                # Deepstream python bindings update text
+                new_text = f"ID: {obj_meta.object_id}"
+                
+                # Ở một số bản pyds, gán chữ trực tiếp bị ghi đè, ta thử cấp phát chuỗi
+                import pyds
+                if hasattr(pyds, 'get_string'):
+                    txt_params.display_text = pyds.get_string(new_text)
+                else:
+                    txt_params.display_text = new_text
+
                 txt_params.x_offset = int(obj_meta.rect_params.left)
-                txt_params.y_offset = int(obj_meta.rect_params.top) - 10
+                txt_params.y_offset = max(0, int(obj_meta.rect_params.top) - 20)
                 txt_params.font_params.font_name = "Serif"
-                txt_params.font_params.font_size = 10
+                txt_params.font_params.font_size = 12
                 txt_params.font_params.font_color.set(1.0, 1.0, 1.0, 1.0)
                 txt_params.set_bg_clr = 1
                 txt_params.text_bg_clr.set(0.0, 0.0, 0.0, 0.7)
