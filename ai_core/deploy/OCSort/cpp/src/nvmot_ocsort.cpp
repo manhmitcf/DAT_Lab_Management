@@ -21,7 +21,7 @@ using namespace ocsort;
 class NvMOTContext {
 public:
     std::map<uint64_t, std::unique_ptr<OCSort>> stream_trackers;
-    float det_thresh = 0.3f;
+    float det_thresh = 0.6f;
     float iou_thresh = 0.3f;
     int max_age = 30;
     int min_hits = 3;
