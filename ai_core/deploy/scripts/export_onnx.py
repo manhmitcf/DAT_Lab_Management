@@ -25,7 +25,7 @@ def make_parser():
         "--output", default="output", type=str, help="output node name of onnx model"
     )
     parser.add_argument(
-        "-o", "--opset", default=11, type=int, help="onnx opset version"
+        "-o", "--opset", default=16, type=int, help="onnx opset version"
     )
     parser.add_argument("--no-onnxsim", action="store_true", help="use onnxsim or not")
     parser.add_argument(
@@ -64,7 +64,6 @@ def main():
     else:
         ckpt_file = args.ckpt
 
-    # load the model state dict
     ckpt = torch.load(ckpt_file, map_location="cpu")
 
     model.eval()
@@ -77,7 +76,7 @@ def main():
     model = replace_module(model, nn.SiLU, SiLU)
     model.head.decode_in_inference = False
 
-    logger.info("Starting ONNX export with torch.onnx.export...")
+    logger.info(f"Starting ONNX export with opset {args.opset}...")
     torch.onnx.export(
         model,
         dummy_input,
@@ -87,13 +86,11 @@ def main():
         opset_version=args.opset,
     )
     logger.success("ONNX export completed successfully.")
-    # === END OF FIX ===
 
     if not args.no_onnxsim:
         import onnx
         from onnxsim import simplify
 
-        # use onnx-simplifier to simplify the onnx
         onnx_model = onnx.load(args.output_name)
         model_simp, check = simplify(onnx_model)
         assert check, "Simplified ONNX model could not be validated"
