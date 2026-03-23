@@ -115,7 +115,14 @@ class PipelineManager:
         logger.info("Setting pipeline processing resolution to 1920x1080 for logic consistency.")
         streammux.set_property("width", 1920)
         streammux.set_property("height", 1080)
-        streammux.set_property("batch-size", 1)
+        
+        # === START OF OPTIMIZATION ===
+        # Increase batch-size to leverage parallel processing capabilities of the GPU.
+        # This can significantly increase throughput (FPS).
+        logger.info("Setting streammux batch-size to 4 for performance optimization.")
+        streammux.set_property("batch-size", 4)
+        # === END OF OPTIMIZATION ===
+
         streammux.set_property("batched-push-timeout", 33000)
         if is_live:
             streammux.set_property("live-source", 1)
