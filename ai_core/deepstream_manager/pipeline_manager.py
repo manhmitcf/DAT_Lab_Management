@@ -3,14 +3,17 @@ import sys
 from loguru import logger
 
 import gi
+
 gi.require_version('Gst', '1.0')
 from gi.repository import Gst, GLib
+
 
 class PipelineManager:
     """
     Builds, manages, and runs the GStreamer DeepStream pipeline.
     This version processes at 1080p and forks a downscaled 720p stream for Janus.
     """
+
     def __init__(self, app_instance):
         self.app = app_instance
         self.pipeline = None
@@ -24,7 +27,7 @@ class PipelineManager:
         self.pipeline = Gst.Pipeline()
 
         is_live = self.app.video_source.startswith("/dev/video")
-        
+
         # --- Create Core Processing Elements (1080p) ---
         if is_live:
             source, caps_v4l2src, cam_queue, jpegparse, jpegdec = self._create_live_source_bin()
@@ -36,7 +39,8 @@ class PipelineManager:
         self.streammux = self._create_streammux(is_live)
         pgie = self._create_pgie()
         tracker = self._create_tracker()
-        nvvidconv_osd, nvosd = Gst.ElementFactory.make("nvvideoconvert", "convertor-osd"), Gst.ElementFactory.make("nvdsosd", "onscreendisplay")
+        nvvidconv_osd, nvosd = Gst.ElementFactory.make("nvvideoconvert", "convertor-osd"), Gst.ElementFactory.make(
+            "nvdsosd", "onscreendisplay")
 
         # --- Create the Fork and the Janus Streaming Branch (720p) ---
         tee = Gst.ElementFactory.make("tee", "video-splitter")
@@ -44,17 +48,19 @@ class PipelineManager:
 
         # Add all elements to the pipeline
         elements = [e for e in [
-            source, caps_v4l2src, cam_queue, jpegparse, jpegdec, 
-            nvvidconv_src, caps_vidconv_src, self.streammux, pgie, tracker, 
-            nvvidconv_osd, nvosd, tee, janus_queue, nvvidconv_scale, caps_scale, 
+            source, caps_v4l2src, cam_queue, jpegparse, jpegdec,
+            nvvidconv_src, caps_vidconv_src, self.streammux, pgie, tracker,
+            nvvidconv_osd, nvosd, tee, janus_queue, nvvidconv_scale, caps_scale,
             encoder, h264parse, rtppay, udpsink
         ] if e]
         for elem in elements:
             self.pipeline.add(elem)
 
         # Link elements
-        self._link_elements(is_live, source, caps_v4l2src, cam_queue, jpegparse, jpegdec, nvvidconv_src, caps_vidconv_src, self.streammux, pgie, tracker, nvvidconv_osd, nvosd, tee, janus_queue, nvvidconv_scale, caps_scale, encoder, h264parse, rtppay, udpsink)
-        
+        self._link_elements(is_live, source, caps_v4l2src, cam_queue, jpegparse, jpegdec, nvvidconv_src,
+                            caps_vidconv_src, self.streammux, pgie, tracker, nvvidconv_osd, nvosd, tee, janus_queue,
+                            nvvidconv_scale, caps_scale, encoder, h264parse, rtppay, udpsink)
+
         self._attach_probes(nvosd)
         logger.success("[PIPELINE] All elements created and linked successfully.")
 
@@ -77,7 +83,7 @@ class PipelineManager:
             self.pipeline = None
         if self.loop and self.loop.is_running():
             self.loop.quit()
-            
+
     # --- Private Helper Methods for Element Creation ---
 
     def _create_live_source_bin(self):
@@ -115,14 +121,7 @@ class PipelineManager:
         logger.info("Setting pipeline processing resolution to 1920x1080 for logic consistency.")
         streammux.set_property("width", 1920)
         streammux.set_property("height", 1080)
-        
-        # === START OF OPTIMIZATION ===
-        # Increase batch-size to leverage parallel processing capabilities of the GPU.
-        # This can significantly increase throughput (FPS).
-        logger.info("Setting streammux batch-size to 4 for performance optimization.")
-        streammux.set_property("batch-size", 4)
-        # === END OF OPTIMIZATION ===
-
+        streammux.set_property("batch-size", 1)
         streammux.set_property("batched-push-timeout", 33000)
         if is_live:
             streammux.set_property("live-source", 1)
@@ -136,8 +135,10 @@ class PipelineManager:
 
     def _create_tracker(self):
         tracker = Gst.ElementFactory.make("nvtracker", "tracker")
-        tracker.set_property("ll-lib-file", os.getenv("TRACKER_LIB_PATH", "/workspace/ai_core/deploy/OCSort/cpp/build/libnvds_ocsort.so"))
-        tracker.set_property("ll-config-file", os.getenv("TRACKER_CONFIG_PATH", "deploy/DeepStream/config_tracker_ocsort.txt"))
+        tracker.set_property("ll-lib-file", os.getenv("TRACKER_LIB_PATH",
+                                                      "/workspace/ai_core/deploy/OCSort/cpp/build/libnvds_ocsort.so"))
+        tracker.set_property("ll-config-file",
+                             os.getenv("TRACKER_CONFIG_PATH", "deploy/DeepStream/config_tracker_ocsort.txt"))
         tracker.set_property("tracker-width", 640)
         tracker.set_property("tracker-height", 640)
         return tracker
@@ -148,7 +149,7 @@ class PipelineManager:
         nvvidconv_scale = Gst.ElementFactory.make("nvvideoconvert", "scaler-for-janus")
         caps_scale = Gst.ElementFactory.make("capsfilter", "caps-for-scaler")
         caps_scale.set_property("caps", Gst.Caps.from_string("video/x-raw(memory:NVMM), width=1280, height=720"))
-        
+
         encoder = Gst.ElementFactory.make("nvv4l2h264enc", "h264-encoder")
         encoder.set_property("bitrate", int(os.getenv("VIDEO_BITRATE", "1200000")))
         encoder.set_property("profile", 0)
@@ -157,7 +158,7 @@ class PipelineManager:
         encoder.set_property("maxperf-enable", 1)
         encoder.set_property("insert-sps-pps", 1)
         encoder.set_property("iframeinterval", 30)
-        
+
         h264parse = Gst.ElementFactory.make("h264parse", "h264-parser")
         h264parse.set_property("config-interval", 1)
         rtppay = Gst.ElementFactory.make("rtph264pay", "rtp-payer")
@@ -170,7 +171,9 @@ class PipelineManager:
         udpsink.set_property("sync", False)
         return janus_queue, nvvidconv_scale, caps_scale, encoder, h264parse, rtppay, udpsink
 
-    def _link_elements(self, is_live, source, caps_v4l2src, cam_queue, jpegparse, jpegdec, nvvidconv_src, caps_vidconv_src, streammux, pgie, tracker, nvvidconv_osd, nvosd, tee, janus_queue, nvvidconv_scale, caps_scale, encoder, h264parse, rtppay, udpsink):
+    def _link_elements(self, is_live, source, caps_v4l2src, cam_queue, jpegparse, jpegdec, nvvidconv_src,
+                       caps_vidconv_src, streammux, pgie, tracker, nvvidconv_osd, nvosd, tee, janus_queue,
+                       nvvidconv_scale, caps_scale, encoder, h264parse, rtppay, udpsink):
         def _link(e1, e2):
             if not e1.link(e2):
                 logger.error(f"[PIPELINE] Failed to link {e1.get_name()} → {e2.get_name()}")
@@ -188,7 +191,7 @@ class PipelineManager:
             source.connect("pad-added", self._cb_newpad, nvvidconv_src)
 
         _link(nvvidconv_src, caps_vidconv_src)
-        
+
         sinkpad_mux = streammux.get_request_pad("sink_0")
         srcpad_conv = caps_vidconv_src.get_static_pad("src")
         if srcpad_conv.link(sinkpad_mux) != Gst.PadLinkReturn.OK:
