@@ -91,17 +91,17 @@ class PipelineManager:
         source.set_property("device", self.app.video_source)
         source.set_property("io-mode", 2)
         source.set_property("do-timestamp", True)
-        
-        # EXACT MATCH for the user's gst-launch string
+
         caps_v4l2src = Gst.ElementFactory.make("capsfilter", "v4l2src_caps")
-        caps_v4l2src.set_property("caps", Gst.Caps.from_string("image/jpeg,format=MJPG,width=1920,height=1080,framerate=30/1"))
-        
+        caps_v4l2src.set_property("caps",
+                                  Gst.Caps.from_string("image/jpeg,format=MJPG,width=1920,height=1080,framerate=30/1"))
+
         cam_queue = Gst.ElementFactory.make("queue", "camera-queue")
         cam_queue.set_property("max-size-buffers", 1)
-        cam_queue.set_property("leaky", 2) # leaky=downstream
-        
+        cam_queue.set_property("leaky", 2)
+
         jpegparse = Gst.ElementFactory.make("jpegparse", "jpeg-parser")
-        
+
         jpegdec = Gst.ElementFactory.make("nvv4l2decoder", "jpeg-decoder")
         jpegdec.set_property("mjpeg", 1)
 
@@ -118,16 +118,8 @@ class PipelineManager:
 
     def _create_input_conversion_bin(self):
         nvvidconv_src = Gst.ElementFactory.make("nvvideoconvert", "convertor_src")
-        # Ensure hardware compute is used to prevent transform failures
-        nvvidconv_src.set_property("compute-hw", 1)
-        
-        # === FIX FOR nvvideoconvert CRASH ===
-        # Explicitly set width/height here to prevent the converter from choking 
-        # if the camera temporarily sends a corrupted frame.
         caps_vidconv_src = Gst.ElementFactory.make("capsfilter", "caps_vidconv_src")
-        caps_vidconv_src.set_property("caps", Gst.Caps.from_string("video/x-raw(memory:NVMM),format=NV12,width=1920,height=1080"))
-        # ====================================
-        
+        caps_vidconv_src.set_property("caps", Gst.Caps.from_string("video/x-raw(memory:NVMM),format=NV12"))
         return nvvidconv_src, caps_vidconv_src
 
     def _create_streammux(self, is_live):
@@ -136,21 +128,9 @@ class PipelineManager:
         streammux.set_property("width", 1920)
         streammux.set_property("height", 1080)
         streammux.set_property("batch-size", 1)
-        
+        streammux.set_property("batched-push-timeout", 33000)
         if is_live:
             streammux.set_property("live-source", 1)
-            streammux.set_property("batched-push-timeout", 33000)
-            
-            # === CRITICAL FIX FOR LIVE CAMERA GHOST BOXES ===
-            # attach-sys-ts=0 tells the muxer to USE THE CAMERA'S HARDWARE TIMESTAMP (PTS),
-            # instead of overwriting it with the jittery system clock time.
-            # This provides the Kalman filter in OCSort with perfectly accurate time deltas,
-            # completely eliminating "ghosting" or "trailing" boxes.
-            streammux.set_property("attach-sys-ts", 0)
-            # ================================================
-        else:
-            streammux.set_property("batched-push-timeout", 33000)
-            
         return streammux
 
     def _create_pgie(self):
@@ -167,9 +147,6 @@ class PipelineManager:
                              os.getenv("TRACKER_CONFIG_PATH", "deploy/DeepStream/config_tracker_ocsort.txt"))
         tracker.set_property("tracker-width", 640)
         tracker.set_property("tracker-height", 640)
-        
-        # Ensure the tracker uses the frame's hardware timestamp to sync predictions perfectly
-        tracker.set_property("compute-hw", 1)
         return tracker
 
     def _create_webrtc_sink_bin(self):
