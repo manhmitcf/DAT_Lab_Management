@@ -26,12 +26,21 @@ class OSDProbeHandler:
         self.counting_service = counting_service
         self.mapping_service = mapping_service
         self.ocsort_config = ocsort_config
+
+        self.processing_size = (1920, 1080) 
+        
         self.info_threshold = 10
         self.warning_threshold = 25
         self.critical_threshold = 25
+        
         self._fps_frame_count = 0
         self._last_fps_time = time.time()
         self.current_fps = 0.0
+
+    def set_processing_size(self, size: tuple):
+        """Allows the main application to set the true processing size after the pipeline is built."""
+        logger.info(f"OSD Probe Handler received correct processing size: {size}")
+        self.processing_size = size
 
     def osd_sink_pad_buffer_probe(self, pad, info, u_data) -> Gst.PadProbeReturn:
         self._fps_frame_count += 1
@@ -85,15 +94,17 @@ class OSDProbeHandler:
             self.counting_service.update(valid_bboxes_tlwh, valid_track_ids)
             
             valid_bboxes_xyxy = [[x, y, x + w, y + h] for x, y, w, h in valid_bboxes_tlwh]
-            current_frame_size = (frame_meta.source_frame_width, frame_meta.source_frame_height)
+
+            current_frame_size = self.processing_size
             current_map_size = self.mapping_service.map_size
+            
             mapped_points = self.mapping_service.project_bboxes(
                 bboxes=[tuple(b) for b in valid_bboxes_xyxy],
                 current_frame_size=current_frame_size,
                 current_map_size=current_map_size,
             )
 
-            # 3. Draw Track ID on each VALID object by OVERWRITING existing text params
+            # 3. Draw Track ID on each VALID object
             for obj_meta in valid_obj_metas:
                 txt_params = obj_meta.text_params
                 txt_params.display_text = f"ID: {obj_meta.object_id}"
@@ -120,7 +131,7 @@ class OSDProbeHandler:
                 line_params.line_color.set(0.0, 1.0, 0.0, 1.0)
                 pyds.nvds_add_display_meta_to_frame(frame_meta, display_meta)
 
-            # 5. Package and send data to the queue
+            # 5. Package and send data
             objects = []
             for bbox_xyxy, coords, tid in zip(valid_bboxes_xyxy, mapped_points, valid_track_ids):
                 objects.append(ObjectDetection(track_id=int(tid), bbox=bbox_xyxy, coordinates_2D=[float(coords[0]), float(coords[1])]))
