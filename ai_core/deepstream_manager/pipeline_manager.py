@@ -97,8 +97,8 @@ class PipelineManager:
                                   Gst.Caps.from_string("image/jpeg,format=MJPG,width=1920,height=1080,framerate=30/1"))
 
         cam_queue = Gst.ElementFactory.make("queue", "camera-queue")
-        cam_queue.set_property("max-size-buffers", 1)
-        cam_queue.set_property("leaky", 2)
+        cam_queue.set_property("max-size-buffers", 5)
+        cam_queue.set_property("leaky", 0)
 
         jpegparse = Gst.ElementFactory.make("jpegparse", "jpeg-parser")
 
