@@ -79,7 +79,6 @@ class OSDProbeHandler:
                         valid_track_ids.append(obj_meta.object_id)
                         valid_obj_metas.append(obj_meta)
                     else:
-                        # Ẩn hoàn toàn các box không hợp lệ, không cho nvosd vẽ
                         obj_meta.rect_params.border_width = 0
                         obj_meta.text_params.display_text = ""
                         obj_meta.text_params.set_bg_clr = 0
@@ -100,12 +99,10 @@ class OSDProbeHandler:
             )
 
             for obj_meta in valid_obj_metas:
-                # Đảm bảo box hợp lệ được hiển thị với màu sắc và nội dung tùy chỉnh
                 obj_meta.rect_params.border_width = 2
-                obj_meta.rect_params.border_color.set(0.0, 1.0, 0.0, 1.0) # Màu Xanh lá
+                obj_meta.rect_params.border_color.set(0.0, 1.0, 0.0, 1.0) 
                 
                 txt_params = obj_meta.text_params
-                # Gán trực tiếp chuỗi vào display_text
                 new_text = f"ID: {obj_meta.object_id}"
                 txt_params.display_text = new_text
 

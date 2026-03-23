@@ -9,6 +9,10 @@
 #include <vector>
 #include <memory>
 #include <map>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <algorithm>
 #include "OCSort.hpp" // Your original header file
 
 using namespace ocsort;
@@ -19,6 +23,12 @@ public:
     std::map<uint64_t, std::unique_ptr<OCSort>> stream_trackers;
     float det_thresh = 0.3f;
     float iou_thresh = 0.3f;
+    int max_age = 30;
+    int min_hits = 3;
+    int delta_t = 3;
+    std::string asso_func = "iou";
+    float inertia = 0.2f;
+    bool use_byte = false;
 };
 
 // 1. Initialize Tracker
@@ -33,7 +43,29 @@ extern "C" NvMOTStatus NvMOT_Init(NvMOTConfig *pConfigIn, NvMOTContextHandle *pC
     // Read configuration parameters from nvtracker txt file (if there is a custom config)
     if (pConfigIn->customConfigFilePath) {
         std::cout << "[OCSort NvMOT] Loading config from: " << pConfigIn->customConfigFilePath << std::endl;
-        // Todo: Parse yaml config if needed
+        std::ifstream infile(pConfigIn->customConfigFilePath);
+        std::string line;
+        while (std::getline(infile, line)) {
+            if (line.empty() || line[0] == '#') continue;
+            std::istringstream is_line(line);
+            std::string key;
+            if (std::getline(is_line, key, '=')) {
+                std::string value;
+                if (std::getline(is_line, value)) {
+                    // Remove quotes from string if any
+                    value.erase(std::remove(value.begin(), value.end(), '\''), value.end());
+                    value.erase(std::remove(value.begin(), value.end(), '\"'), value.end());
+                    if (key == "det_thresh") context->det_thresh = std::stof(value);
+                    else if (key == "iou_threshold") context->iou_thresh = std::stof(value);
+                    else if (key == "max_age") context->max_age = std::stoi(value);
+                    else if (key == "min_hits") context->min_hits = std::stoi(value);
+                    else if (key == "delta_t") context->delta_t = std::stoi(value);
+                    else if (key == "asso_func") context->asso_func = value;
+                    else if (key == "inertia") context->inertia = std::stof(value);
+                    else if (key == "use_byte") context->use_byte = (value == "True" || value == "1" || value == "true");
+                }
+            }
+        }
     }
 
     *pContextHandle = (NvMOTContextHandle)context;
@@ -57,8 +89,10 @@ extern "C" NvMOTStatus NvMOT_Process(NvMOTContextHandle contextHandle, NvMOTProc
 
         // If this camera stream does not have an OCSort Tracker yet, create a new one
         if (context->stream_trackers.find(stream_id) == context->stream_trackers.end()) {
-            // OCSort parameters: det_thresh, max_age, min_hits, iou_threshold
-            context->stream_trackers[stream_id] = std::unique_ptr<OCSort>(new OCSort(context->det_thresh, 30, 3, context->iou_thresh));
+            context->stream_trackers[stream_id] = std::unique_ptr<OCSort>(new OCSort(
+                context->det_thresh, context->max_age, context->min_hits, context->iou_thresh,
+                context->delta_t, context->asso_func, context->inertia, context->use_byte
+            ));
         }
 
         OCSort* tracker = context->stream_trackers[stream_id].get();
