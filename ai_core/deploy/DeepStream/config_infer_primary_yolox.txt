@@ -3,7 +3,7 @@ gpu-id=0
 net-scale-factor=1.0
 interval=1
 symmetric-padding=1
-onnx-opset=16
+onnx-opset=18
 
 # 1. Define input size and color for TensorRT
 offsets=123.675;116.28;103.53

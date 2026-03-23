@@ -25,7 +25,7 @@ def make_parser():
         "--output", default="output", type=str, help="output node name of onnx model"
     )
     parser.add_argument(
-        "-o", "--opset", default=16, type=int, help="onnx opset version"
+        "-o", "--opset", default=18, type=int, help="onnx opset version"
     )
     parser.add_argument("--no-onnxsim", action="store_true", help="use onnxsim or not")
     parser.add_argument(
