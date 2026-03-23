@@ -15,7 +15,6 @@ from .diagnostics import Diagnostics
 from .pipeline_manager import PipelineManager
 from .service_manager import ServiceManager
 
-
 class DeepStreamApp:
     def __init__(self):
         self.frame_data_queue = queue.Queue(maxsize=100)
@@ -30,14 +29,14 @@ class DeepStreamApp:
 
         self.mapping_service = MappingService(mapping_config=self.mapping_config)
         self.counting_service = CountingService(counting_config=self.counting_config, current_frame_size=(1920, 1080))
-
+        
         self.osd_probe_handler = OSDProbeHandler(
             frame_data_queue=self.frame_data_queue,
             counting_service=self.counting_service,
             mapping_service=self.mapping_service,
-            ocsort_config=self.ocsort_config
+            ocsort_config=self.ocsort_config 
         )
-
+        
         self.load_initial_thresholds()
 
         self.diagnostics = Diagnostics(self.video_source, self.pgie_config_path)
@@ -63,32 +62,23 @@ class DeepStreamApp:
         check_and_convert_models()
         self.diagnostics.run_preflight_check()
         self.service_manager.start_services()
-
+        
         try:
             self.pipeline_manager.build_pipeline()
 
             processing_width = self.pipeline_manager.streammux.get_property("width")
             processing_height = self.pipeline_manager.streammux.get_property("height")
-            correct_processing_size = (processing_width, processing_height)
-
-            model_input_size = (self.ocsort_config.tsize, self.ocsort_config.tsize)
-
-            logger.info(
-                f"Pipeline built. True processing size: {correct_processing_size}. Model input size: {model_input_size}.")
-
-            self.osd_probe_handler.set_frame_sizes(
-                processing_size=correct_processing_size,
-                model_input_size=model_input_size
-            )
+            logger.info(f"Pipeline built. Processing size: ({processing_width}, {processing_height}). Applying config scaling...")
 
             self.handle_counting_update({
                 "line_start": self.counting_config.line_start,
                 "line_end": self.counting_config.line_end,
                 "inside_point": self.counting_config.inside_point,
                 "crossing_margin": self.counting_config.crossing_margin,
-                "frame_width": 1920,
+                "frame_width": 1920, # The reference size the config was made for
                 "frame_height": 1080
             }, is_initial_setup=True)
+            # === END OF SIMPLIFICATION ===
 
             self.pipeline_manager.run()
         except Exception as e:
@@ -105,13 +95,13 @@ class DeepStreamApp:
             correspondences = data.get("correspondences", [])
             cam_pts = [(float(i["camera"][0]), float(i["camera"][1])) for i in correspondences]
             map_pts = [(float(i["map"][0]), float(i["map"][1])) for i in correspondences]
-
+            
             cam_sz = data.get("image_size", {})
             camera_size = (int(cam_sz.get("width", 1920)), int(cam_sz.get("height", 1080)))
-
+            
             m_sz = data.get("map_size", {})
             map_size = (int(m_sz.get("width", 723)), int(m_sz.get("height", 1266)))
-
+            
             self.mapping_service.update_mapping(
                 camera_points=cam_pts,
                 map_points=map_pts,
@@ -126,13 +116,12 @@ class DeepStreamApp:
         """Callback to handle counting configuration updates from WebSocket."""
         if not is_initial_setup:
             logger.info("[WebSocket] Received COUNTING update. Updating Python CountingService.")
-
+        
         try:
             if "line_start" in data and "line_end" in data and "inside_point" in data:
-
+                
                 source_frame_size = (data.get("frame_width", 1920), data.get("frame_height", 1080))
-                current_frame_size = (self.pipeline_manager.streammux.get_property("width"),
-                                      self.pipeline_manager.streammux.get_property("height"))
+                current_frame_size = (self.pipeline_manager.streammux.get_property("width"), self.pipeline_manager.streammux.get_property("height"))
 
                 self.counting_service.update_config(
                     line_start=tuple(data["line_start"]),
@@ -150,4 +139,3 @@ class DeepStreamApp:
             if "critical_threshold" in data: self.osd_probe_handler.critical_threshold = data["critical_threshold"]
         except Exception as e:
             logger.error(f"Error handling counting update: {e}")
-
