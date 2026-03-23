@@ -6,11 +6,7 @@ gpu-id=0
 # The compiled NvMOT tracking library (.so)
 ll-lib-file=/workspace/ai_core/deploy/OCSort/cpp/build/libnvds_ocsort.so
 
-# === START OF FIX ===
-# Point to the low-level configuration file that contains OCSort-specific parameters.
-# This will override the default values compiled into the C++ library.
 ll-config-file=config_tracker_ocsort_params.txt
-# === END OF FIX ===
 
 enable-batch-process=1
 enable-past-frame=0

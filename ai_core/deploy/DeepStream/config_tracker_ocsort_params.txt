@@ -1,24 +1,11 @@
-# Low-level parameters for the OCSort algorithm library
-# These values are synchronized with the original Python OCSortConfig dataclass.
-
-# Detection threshold for a detection to be considered high-confidence.
-# Corresponds to 'track_thresh' in the dataclass.
 det_thresh=0.6
 
-# IOU threshold for association.
-# Corresponds to 'iou_thresh' in the dataclass.
 iou_threshold=0.3
 
-# Kalman filter motion inertia parameter.
-# A lower value reduces the "ghosting" effect.
 inertia=0
 
-# Maximum number of frames to keep a track alive without new detections.
 max_age=5
 
-# Minimum number of hits to start a track.
 min_hits=3
 
-# Whether to use the BYTE association algorithm for low-score detections.
-# Corresponds to 'use_byte' in the dataclass.
 use_byte=0
