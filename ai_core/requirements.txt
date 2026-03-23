@@ -1,9 +1,9 @@
-# Core ML and Computer Vision
+# This file is for packages required by the main application logic.
 torch
 torchvision
 
-# Jetson Requirements (L4T r36.4.0)
-# numpy version is not pinned to support Python 3.12
+# YOLOX and its dependencies
+cython
 numpy
 loguru
 scikit-image
@@ -13,21 +13,25 @@ thop
 ninja
 tabulate
 tensorboard
+pycocotools
+
+# Tracking specific
 lap
-# motmetrics # now we use the local and customized version instead
 filterpy
 h5py
 protobuf==3.20.3
 
-# Added for Python-based counting/mapping services
+# OpenCV (headless for server environments)
 opencv-python-headless
 
-# Release version constraints for ARM64 compatibility
+# ONNX related
 onnx
 onnxruntime
 onnx-simplifier
 
-# Backend & Settings synchronization
+onnxscript
+
+# Application specific
 pydantic>=2.5.0
 python-dotenv
 websocket-client
