@@ -112,6 +112,32 @@ FE nhận JSON text được BE forward từ Edge Device:
 
 ---
 
+## Janus WebRTC Video Stream ✅ Implemented
+
+Video từ camera stream qua **Janus Gateway** (WebRTC) — độc lập với metadata WebSocket. Khi có `NEXT_PUBLIC_JANUS_URL`, FE connect trực tiếp tới Janus server và watch mountpoint.
+
+### Cấu hình FE
+
+| Env | Mô tả | Ví dụ |
+|-----|-------|-------|
+| `NEXT_PUBLIC_JANUS_URL` | WebSocket URL Janus Gateway | `wss://datwebrtc.eastasia.cloudapp.azure.com/janus` |
+| `NEXT_PUBLIC_JANUS_MOUNTPOINT` | ID mountpoint streaming plugin | `1` (default) |
+
+### Flow
+
+1. Load jQuery, webrtc-adapter, janus.js (CDN)
+2. `Janus.init` → connect `server: JANUS_URL`
+3. Attach plugin `janus.plugin.streaming`
+4. `request: "watch", id: JANUS_MOUNTPOINT_ID`
+5. `onremotetrack` → attach stream vào `<video>` element
+
+### Fallback
+
+- Nếu **không set** `NEXT_PUBLIC_JANUS_URL` → FE dùng **MJPEG** hoặc **still image** từ `NEXT_PUBLIC_CAMERA_STREAM_URL` hoặc frame metadata (nếu có).
+- Nếu Janus connect lỗi → hiển thị error UI, không auto-fallback sang MJPEG (cần refresh).
+
+---
+
 # Tab 2 — Analytics (`/analytics`) ✅ API
 
 > [!NOTE]

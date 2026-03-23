@@ -1,11 +1,14 @@
 'use client';
 
+import { useJanusStream } from '@/hooks/useJanusStream';
+import { JANUS_URL } from '@/config/api';
 import { useTrackingStore } from '@/stores/trackingStore';
 
-/** Optional MJPEG or still image when video is not sent on the metadata WebSocket (WebRTC/Janus path). */
+/** Optional MJPEG or still image when video is not sent on the metadata WebSocket (non-Janus path). */
 const CAMERA_STREAM_URL = process.env.NEXT_PUBLIC_CAMERA_STREAM_URL ?? '';
 
 export default function VideoPlayer() {
+    const { videoRef, status: janusStatus, error: janusError } = useJanusStream();
     const currentFrame = useTrackingStore((state) => state.currentFrame);
     const wsStatus = useTrackingStore((state) => state.wsStatus);
     const currentTime = new Date().toISOString().replace('T', ' ').slice(0, 23);
@@ -14,11 +17,58 @@ export default function VideoPlayer() {
     const isDisconnected = wsStatus === 'disconnected' || wsStatus === 'error';
     const metadataConnected = wsStatus === 'connected';
 
-    const videoSrc = currentFrame || CAMERA_STREAM_URL || null;
+    const useJanus = !!JANUS_URL;
+    const videoSrc = !useJanus ? (currentFrame || CAMERA_STREAM_URL || null) : null;
+
+    const janusConnected = janusStatus === 'connected';
+    const janusConnecting = ['loading', 'connecting'].includes(janusStatus);
+    const janusFailed = janusStatus === 'error';
 
     return (
         <div className="flex-1 min-h-[180px] min-w-0 relative rounded-[var(--radius-lg)] overflow-hidden bg-black">
-            {videoSrc ? (
+            {useJanus ? (
+                <>
+                    <video
+                        ref={videoRef}
+                        autoPlay
+                        playsInline
+                        muted
+                        className={`absolute inset-0 w-full h-full object-contain ${janusConnected ? '' : 'hidden'}`}
+                    />
+                    {!janusConnected && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+                            {janusConnecting ? (
+                                <>
+                                    <span className="material-symbols-outlined text-4xl text-accent animate-spin">
+                                        progress_activity
+                                    </span>
+                                    <p className="text-text-tertiary text-xs font-mono uppercase tracking-widest">
+                                        Connecting to Janus…
+                                    </p>
+                                </>
+                            ) : janusFailed ? (
+                                <>
+                                    <span className="material-symbols-outlined text-4xl text-danger">
+                                        videocam_off
+                                    </span>
+                                    <p className="text-text-tertiary text-xs font-mono uppercase tracking-widest">
+                                        {janusError || 'Janus error'}
+                                    </p>
+                                </>
+                            ) : (
+                                <>
+                                    <span className="material-symbols-outlined text-4xl text-text-tertiary">
+                                        videocam
+                                    </span>
+                                    <p className="text-text-tertiary text-xs font-mono uppercase tracking-widest">
+                                        Waiting for stream…
+                                    </p>
+                                </>
+                            )}
+                        </div>
+                    )}
+                </>
+            ) : videoSrc ? (
                 <img
                     src={videoSrc}
                     alt="Live camera feed"

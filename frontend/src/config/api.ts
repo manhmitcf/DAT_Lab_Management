@@ -21,3 +21,14 @@ export const WS_URLS = {
  * Should match `map_size` used in calibration (default in API doc: 1000×1000).
  */
 export const FLOOR_PLAN_MAP_SIZE = { width: 1000, height: 1000 } as const;
+
+/**
+ * Janus WebRTC streaming — video từ camera qua Janus Gateway.
+ * Set NEXT_PUBLIC_JANUS_URL để bật (ví dụ: wss://datwebrtc.eastasia.cloudapp.azure.com/janus).
+ * Mountpoint: NEXT_PUBLIC_JANUS_MOUNTPOINT (default 1).
+ */
+export const JANUS_URL = process.env.NEXT_PUBLIC_JANUS_URL ?? '';
+export const JANUS_MOUNTPOINT_ID = parseInt(
+    process.env.NEXT_PUBLIC_JANUS_MOUNTPOINT ?? '1',
+    10
+);
