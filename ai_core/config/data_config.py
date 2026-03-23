@@ -4,24 +4,22 @@ from typing import Optional, Tuple, List
 
 @dataclass
 class OCSortConfig:
-
+    """
+    Configuration for tracker parameters, loaded from tracking_config.json.
+    This class mirrors the original python version to ensure all attributes exist.
+    The actual values will be loaded from the JSON file.
+    """
     json_path: Optional[str] = "config/tracking_config.json"
 
     device: str = "gpu"
-
-    # detection
     conf: float = 0.1
     nms: float = 0.7
     tsize: int = 640
     ckpt: Optional[str] = None
-
-    # inference options
     fp16: bool = False
     fuse: bool = False
     trt: bool = False
     trt_file: Optional[str] = None
-
-    # tracking
     track_thresh: float = 0.6
     iou_thresh: float = 0.3
     use_byte: bool = False
@@ -29,21 +27,23 @@ class OCSortConfig:
     min_box_area: float = 10
 
     def __post_init__(self):
-
         if self.json_path is None:
             return
+        try:
+            with open(self.json_path, "r") as f:
+                config = json.load(f)
+            for key, value in config.items():
+                key = key.replace("-", "_")
+                if hasattr(self, key):
+                    setattr(self, key, value)
+                else:
+                    # This warning is helpful for debugging config files.
+                    print(f"Warning: Unknown config key '{key}' in {self.json_path}")
+        except FileNotFoundError:
+            print(f"Warning: Tracking config file not found at {self.json_path}. Using default values.")
+        except Exception as e:
+            print(f"Error loading tracking config: {e}")
 
-        with open(self.json_path, "r") as f:
-            config = json.load(f)
-
-        for key, value in config.items():
-
-            key = key.replace("-", "_")
-
-            if hasattr(self, key):
-                setattr(self, key, value)
-            else:
-                print(f"Unknown config key: {key}")
 
 @dataclass
 class CountingConfig:
@@ -74,6 +74,7 @@ class CountingConfig:
         except Exception as e:
             print(f"Error loading counting config: {e}")
 
+
 @dataclass
 class MappingConfig:
     """Config for MappingService loaded from mapping_config.json."""
@@ -89,7 +90,7 @@ class MappingConfig:
         try:
             with open(self.json_path, "r") as f:
                 config = json.load(f)
-            
+
             correspondences = config.get("correspondences", [])
             if not correspondences:
                 raise ValueError("No correspondences found in mapping config")
@@ -123,3 +124,4 @@ class MappingConfig:
             pass
         except Exception as e:
             print(f"Error loading mapping config: {e}")
+

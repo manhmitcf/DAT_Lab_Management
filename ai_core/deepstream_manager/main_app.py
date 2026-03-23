@@ -95,6 +95,9 @@ class DeepStreamApp:
             logger.info("Initiating graceful shutdown of all services...")
             self.service_manager.stop_services()
             logger.info("Shutdown complete.")
+
+    # === START OF FIX ===
+    # Restore the callback handler methods required by ServiceManager.
     def handle_mapping_update(self, data: dict) -> None:
         """Callback to handle homography configuration updates from WebSocket."""
         logger.info("[WebSocket] Received MAPPING update. Updating Python MappingService.")
@@ -146,3 +149,4 @@ class DeepStreamApp:
             if "critical_threshold" in data: self.osd_probe_handler.critical_threshold = data["critical_threshold"]
         except Exception as e:
             logger.error(f"Error handling counting update: {e}")
+    # === END OF FIX ===
