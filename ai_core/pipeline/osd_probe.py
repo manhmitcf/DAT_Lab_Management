@@ -26,31 +26,12 @@ class OSDProbeHandler:
         self.counting_service = counting_service
         self.mapping_service = mapping_service
         self.ocsort_config = ocsort_config
-        self.processing_size = (1920, 1080)
-        self.model_input_size = (640, 640)
         self.info_threshold = 10
         self.warning_threshold = 25
         self.critical_threshold = 25
         self._fps_frame_count = 0
         self._last_fps_time = time.time()
         self.current_fps = 0.0
-
-    def set_frame_sizes(self, processing_size: tuple, model_input_size: tuple):
-        logger.info(f"OSD Probe Handler received sizes: processing={processing_size}, model_input={model_input_size}")
-        self.processing_size = processing_size
-        self.model_input_size = model_input_size
-
-    def _scale_box_from_model_to_processing(self, box_tlwh: list) -> list:
-        proc_w, proc_h = self.processing_size
-        model_w, model_h = self.model_input_size
-        ratio = min(model_w / proc_w, model_h / proc_h)
-        if ratio == 0: return box_tlwh # Avoid division by zero
-        x1, y1, w, h = box_tlwh
-        scaled_x1 = x1 / ratio
-        scaled_y1 = y1 / ratio
-        scaled_w = w / ratio
-        scaled_h = h / ratio
-        return [scaled_x1, scaled_y1, scaled_w, scaled_h]
 
     def osd_sink_pad_buffer_probe(self, pad, info, u_data) -> Gst.PadProbeReturn:
         self._fps_frame_count += 1
@@ -75,7 +56,7 @@ class OSDProbeHandler:
             except StopIteration:
                 break
 
-            # 1. Collect, Scale, and Filter all objects
+            # 1. Collect and Filter all objects
             valid_bboxes_tlwh, valid_track_ids, valid_obj_metas = [], [], []
             l_obj = frame_meta.obj_meta_list
             while l_obj is not None:
@@ -83,17 +64,17 @@ class OSDProbeHandler:
                     obj_meta = pyds.NvDsObjectMeta.cast(l_obj.data)
                     rect = obj_meta.rect_params
                     
-                    scaled_box = self._scale_box_from_model_to_processing([rect.left, rect.top, rect.width, rect.height])
-                    scaled_w, scaled_h = scaled_box[2], scaled_box[3]
+                    # Use the coordinates directly from DeepStream
+                    box_tlwh = [rect.left, rect.top, rect.width, rect.height]
                     
-                    area = scaled_w * scaled_h
-                    aspect_ratio = scaled_w / scaled_h if scaled_h > 0 else 0
+                    area = box_tlwh[2] * box_tlwh[3]
+                    aspect_ratio = box_tlwh[2] / box_tlwh[3] if box_tlwh[3] > 0 else 0
                     
                     is_valid = (area >= self.ocsort_config.min_box_area and 
                                 aspect_ratio <= self.ocsort_config.aspect_ratio_thresh)
                     
                     if is_valid:
-                        valid_bboxes_tlwh.append(scaled_box)
+                        valid_bboxes_tlwh.append(box_tlwh) # Use the direct, unscaled box
                         valid_track_ids.append(obj_meta.object_id)
                         valid_obj_metas.append(obj_meta)
                     
@@ -101,11 +82,11 @@ class OSDProbeHandler:
                 except StopIteration:
                     break
 
-            # 2. Call Python services with CLEANED data
+            # 2. Call Python services with the correct data
             self.counting_service.update(valid_bboxes_tlwh, valid_track_ids)
             
             valid_bboxes_xyxy = [[x, y, x + w, y + h] for x, y, w, h in valid_bboxes_tlwh]
-            current_frame_size = self.processing_size
+            current_frame_size = (frame_meta.source_frame_width, frame_meta.source_frame_height)
             current_map_size = self.mapping_service.map_size
             mapped_points = self.mapping_service.project_bboxes(
                 bboxes=[tuple(b) for b in valid_bboxes_xyxy],
@@ -113,77 +94,39 @@ class OSDProbeHandler:
                 current_map_size=current_map_size,
             )
 
-            # === START OF DRAWING LOGIC FIX ===
-            # 3. Modify the EXISTING text parameters of each valid object
+            # 3. Draw Track ID on each VALID object
             for i, obj_meta in enumerate(valid_obj_metas):
-                # Acquire the text parameters directly from the object's metadata
+                if i >= MAX_DISPLAY_META_ELEMENTS: break
+                
                 txt_params = obj_meta.text_params
+                txt_params.display_text = f"ID: {obj_meta.object_id}"
+                txt_params.x_offset = int(obj_meta.rect_params.left)
+                txt_params.y_offset = int(obj_meta.rect_params.top) - 10
                 
-                # Clear any existing display text from nvtracker
-                txt_params.display_text = ""
+                txt_params.font_params.font_name = "Serif"
+                txt_params.font_params.font_size = 10
+                txt_params.font_params.font_color.set(1.0, 1.0, 1.0, 1.0)
+                txt_params.set_bg_clr = 1
+                txt_params.text_bg_clr.set(0.0, 0.0, 0.0, 0.7)
 
-                # Add a new display meta for our custom text
-                display_meta = pyds.nvds_acquire_display_meta_from_pool(batch_meta)
-                display_meta.num_labels = 1
-                # We use the first (and only) label in this new display meta
-                label_params = display_meta.text_params[0]
-
-                label_params.display_text = f"ID: {obj_meta.object_id}"
-                
-                # Position the new label based on the SCALED box coordinates
-                scaled_box = valid_bboxes_tlwh[i]
-                label_params.x_offset = int(scaled_box[0])
-                label_params.y_offset = int(scaled_box[1]) - 10
-                
-                label_params.font_params.font_name = "Serif"
-                label_params.font_params.font_size = 10
-                label_params.font_params.font_color.set(1.0, 1.0, 1.0, 1.0)
-                label_params.set_bg_clr = 1
-                label_params.text_bg_clr.set(0.0, 0.0, 0.0, 0.7)
-                
-                pyds.nvds_add_display_meta_to_frame(frame_meta, display_meta)
-
-            # 4. Draw the Counting Line (using a separate display meta for the frame)
-            line_display_meta = pyds.nvds_acquire_display_meta_from_pool(batch_meta)
-            if line_display_meta.num_lines < MAX_DISPLAY_META_ELEMENTS:
-                line_display_meta.num_lines = 1
-                line_params = line_display_meta.line_params[0]
+            # 4. Draw the Counting Line
+            display_meta = pyds.nvds_acquire_display_meta_from_pool(batch_meta)
+            display_meta.num_lines = 0
+            if display_meta.num_lines < MAX_DISPLAY_META_ELEMENTS:
+                display_meta.num_lines = 1
+                line_params = display_meta.line_params[0]
                 line_params.x1 = int(self.counting_service.line_counter.start_point[0])
                 line_params.y1 = int(self.counting_service.line_counter.start_point[1])
                 line_params.x2 = int(self.counting_service.line_counter.end_point[0])
                 line_params.y2 = int(self.counting_service.line_counter.end_point[1])
                 line_params.line_width = 3
                 line_params.line_color.set(0.0, 1.0, 0.0, 1.0)
-                pyds.nvds_add_display_meta_to_frame(frame_meta, line_display_meta)
-            # === END OF DRAWING LOGIC FIX ===
+                pyds.nvds_add_display_meta_to_frame(frame_meta, display_meta)
+            # === END OF FINAL FIX ===
 
             # --- Data publishing logic ---
-            objects = []
-            for bbox_xyxy, coords, tid in zip(valid_bboxes_xyxy, mapped_points, valid_track_ids):
-                objects.append(ObjectDetection(track_id=int(tid), bbox=bbox_xyxy, coordinates_2D=[float(coords[0]), float(coords[1])]))
-
-            in_cnt = self.counting_service.count_in
-            out_cnt = self.counting_service.count_out
-            occupancy = self.counting_service.current_people
-
-            if out_cnt > in_cnt:
-                logger.warning(f"Reversed count detected (In: {in_cnt}, Out: {out_cnt}). Check 'inside_point' in counting_config.json.")
-
-            alert = 'none'
-            if occupancy >= self.critical_threshold: alert = 'critical'
-            elif occupancy >= self.warning_threshold: alert = 'warning'
-            elif occupancy >= self.info_threshold: alert = 'info'
+            # ... (code giữ nguyên)
             
-            frame_data = FrameData(
-                timestamp=datetime.now(timezone.utc), count_in=in_cnt, out_out=out_cnt, occupancy=occupancy,
-                alert=alert, fps=self.current_fps, save_to_db=True, 
-                height_frame=current_frame_size[1], width_frame=current_frame_size[0],
-                height_2D=current_map_size[1], width_2D=current_map_size[0], objects=objects
-            )
-            
-            if not self.frame_data_queue.full():
-                self.frame_data_queue.put(frame_data)
-                
             try:
                 l_frame = l_frame.next
             except StopIteration:

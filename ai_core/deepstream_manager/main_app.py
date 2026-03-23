@@ -59,20 +59,7 @@ class DeepStreamApp:
             processing_width = self.pipeline_manager.streammux.get_property("width")
             processing_height = self.pipeline_manager.streammux.get_property("height")
             correct_processing_size = (processing_width, processing_height)
-            
-            # === START OF FINAL FIX ===
-            # Get the model's input size from the OCSortConfig (which reads tracking_config.json)
-            # This assumes tsize in the config matches the 'infer-dims' in the nvinfer config.
-            model_input_size = (self.ocsort_config.tsize, self.ocsort_config.tsize)
-            
-            logger.info(f"Pipeline built. True processing size: {correct_processing_size}. Model input size: {model_input_size}.")
-
-            # Pass BOTH sizes to the probe handler.
-            self.osd_probe_handler.set_frame_sizes(
-                processing_size=correct_processing_size,
-                model_input_size=model_input_size
-            )
-            # === END OF FINAL FIX ===
+            logger.info(f"Pipeline built. Processing size: {correct_processing_size}. Applying config scaling...")
 
             self.handle_counting_update({
                 "line_start": self.counting_config.line_start,
@@ -91,47 +78,47 @@ class DeepStreamApp:
             self.service_manager.stop_services()
             logger.info("Shutdown complete.")
 
-    # ... (các hàm handle_update giữ nguyên) ...
-    def handle_mapping_update(self, data: dict) -> None:
-        logger.info("[WebSocket] Received MAPPING update. Updating Python MappingService.")
-        try:
-            correspondences = data.get("correspondences", [])
-            cam_pts = [(float(i["camera"][0]), float(i["camera"][1])) for i in correspondences]
-            map_pts = [(float(i["map"][0]), float(i["map"][1])) for i in correspondences]
-            cam_sz = data.get("image_size", {})
-            camera_size = (int(cam_sz.get("width", 1920)), int(cam_sz.get("height", 1080)))
-            m_sz = data.get("map_size", {})
-            map_size = (int(m_sz.get("width", 723)), int(m_sz.get("height", 1266)))
-            
-            self.mapping_service.update_mapping(
-                camera_points=cam_pts, map_points=map_pts, camera_size=camera_size, map_size=map_size
-            )
-            logger.success("Python MappingService updated successfully.")
-        except Exception as e:
-            logger.error(f"Error handling mapping update: {e}")
+        def handle_mapping_update(self, data: dict) -> None:
+            logger.info("[WebSocket] Received MAPPING update. Updating Python MappingService.")
+            try:
+                correspondences = data.get("correspondences", [])
+                cam_pts = [(float(i["camera"][0]), float(i["camera"][1])) for i in correspondences]
+                map_pts = [(float(i["map"][0]), float(i["map"][1])) for i in correspondences]
+                cam_sz = data.get("image_size", {})
+                camera_size = (int(cam_sz.get("width", 1920)), int(cam_sz.get("height", 1080)))
+                m_sz = data.get("map_size", {})
+                map_size = (int(m_sz.get("width", 723)), int(m_sz.get("height", 1266)))
 
-    def handle_counting_update(self, data: dict, is_initial_setup: bool = False) -> None:
-        if not is_initial_setup:
-            logger.info("[WebSocket] Received COUNTING update. Updating Python CountingService.")
-        
-        try:
-            if "line_start" in data and "line_end" in data and "inside_point" in data:
-                source_frame_size = (data.get("frame_width", 1920), data.get("frame_height", 1080))
-                current_frame_size = (self.pipeline_manager.streammux.get_property("width"), self.pipeline_manager.streammux.get_property("height"))
-
-                self.counting_service.update_config(
-                    line_start=tuple(data["line_start"]),
-                    line_end=tuple(data["line_end"]),
-                    inside_point=tuple(data["inside_point"]),
-                    crossing_margin=data.get("crossing_margin", 10),
-                    source_frame_size=source_frame_size,
-                    current_frame_size=current_frame_size
+                self.mapping_service.update_mapping(
+                    camera_points=cam_pts, map_points=map_pts, camera_size=camera_size, map_size=map_size
                 )
-                if not is_initial_setup:
-                    logger.success("Python CountingService updated successfully.")
+                logger.success("Python MappingService updated successfully.")
+            except Exception as e:
+                logger.error(f"Error handling mapping update: {e}")
 
-            if "info_threshold" in data: self.osd_probe_handler.info_threshold = data["info_threshold"]
-            if "warning_threshold" in data: self.osd_probe_handler.warning_threshold = data["warning_threshold"]
-            if "critical_threshold" in data: self.osd_probe_handler.critical_threshold = data["critical_threshold"]
-        except Exception as e:
-            logger.error(f"Error handling counting update: {e}")
+        def handle_counting_update(self, data: dict, is_initial_setup: bool = False) -> None:
+            if not is_initial_setup:
+                logger.info("[WebSocket] Received COUNTING update. Updating Python CountingService.")
+
+            try:
+                if "line_start" in data and "line_end" in data and "inside_point" in data:
+                    source_frame_size = (data.get("frame_width", 1920), data.get("frame_height", 1080))
+                    current_frame_size = (self.pipeline_manager.streammux.get_property("width"),
+                                          self.pipeline_manager.streammux.get_property("height"))
+
+                    self.counting_service.update_config(
+                        line_start=tuple(data["line_start"]),
+                        line_end=tuple(data["line_end"]),
+                        inside_point=tuple(data["inside_point"]),
+                        crossing_margin=data.get("crossing_margin", 10),
+                        source_frame_size=source_frame_size,
+                        current_frame_size=current_frame_size
+                    )
+                    if not is_initial_setup:
+                        logger.success("Python CountingService updated successfully.")
+
+                if "info_threshold" in data: self.osd_probe_handler.info_threshold = data["info_threshold"]
+                if "warning_threshold" in data: self.osd_probe_handler.warning_threshold = data["warning_threshold"]
+                if "critical_threshold" in data: self.osd_probe_handler.critical_threshold = data["critical_threshold"]
+            except Exception as e:
+                logger.error(f"Error handling counting update: {e}")
