@@ -136,16 +136,18 @@ class PipelineManager:
         pgie = Gst.ElementFactory.make("nvinfer", "primary-inference")
         pgie.set_property("config-file-path", self.app.pgie_config_path)
         pgie.set_property("unique-id", 1)
+        logger.debug(f"[SETUP] PGIE (Model) config path: {self.app.pgie_config_path}")
         return pgie
 
     def _create_tracker(self):
         tracker = Gst.ElementFactory.make("nvtracker", "tracker")
-        tracker.set_property("ll-lib-file", os.getenv("TRACKER_LIB_PATH",
-                                                      "/workspace/ai_core/deploy/OCSort/cpp/build/libnvds_ocsort.so"))
-        tracker.set_property("ll-config-file",
-                             os.getenv("TRACKER_CONFIG_PATH", "deploy/DeepStream/config_tracker_ocsort.txt"))
+        tracker_lib = os.getenv("TRACKER_LIB_PATH", "/workspace/ai_core/deploy/OCSort/cpp/build/libnvds_ocsort.so")
+        tracker_config = os.getenv("TRACKER_CONFIG_PATH", "deploy/DeepStream/config_tracker_ocsort.txt")
+        tracker.set_property("ll-lib-file", tracker_lib)
+        tracker.set_property("ll-config-file", tracker_config)
         tracker.set_property("tracker-width", 640)
         tracker.set_property("tracker-height", 640)
+        logger.debug(f"[SETUP] Tracker config: lib={tracker_lib}, config={tracker_config}, width=640, height=640")
         return tracker
 
     def _create_webrtc_sink_bin(self):

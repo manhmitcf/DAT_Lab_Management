@@ -4,15 +4,17 @@ from loguru import logger
 
 def setup_logging():
     """Configures the Loguru logger for the application."""
+    log_level = os.getenv("LOG_LEVEL", "DEBUG")
     logger.remove()
     logger.add(
         sys.stdout, 
         colorize=True, 
+        level=log_level,
         format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
     )
     
     os.makedirs("logs", exist_ok=True)
-    logger.add("logs/app.log", rotation="50 MB", retention=5, level="INFO")
+    logger.add("logs/app.log", rotation="50 MB", retention=5, level=log_level)
 
 def main():
     """

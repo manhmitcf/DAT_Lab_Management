@@ -78,6 +78,7 @@ class OSDProbeHandler:
                         valid_bboxes_tlwh.append(box_tlwh)
                         valid_track_ids.append(obj_meta.object_id)
                         valid_obj_metas.append(obj_meta)
+                        logger.debug(f"[TRACKING] Detected Object - ID: {obj_meta.object_id}, BBox(tlwh): {box_tlwh}, Area: {area:.2f}, Aspect Ratio: {aspect_ratio:.2f}")
                     
                     l_obj = l_obj.next
                 except StopIteration:
