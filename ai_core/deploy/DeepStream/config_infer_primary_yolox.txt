@@ -1,14 +1,12 @@
 [property]
 gpu-id=0
 net-scale-factor=1.0
-interval=1
 
-# === START OF FIX ===
-# Force nvinfer to maintain the aspect ratio of the input and add symmetric padding.
-# This ensures the preprocessing method matches the original Python 'preproc' function,
-# preventing geometric misalignment that can cause "ghost boxes".
+# Set interval to 0 to run detection on every frame. This is the first step to remove "ghosts".
+interval=0
+
+# Force nvinfer to maintain the aspect ratio, matching the original Python preprocessing.
 symmetric-padding=1
-# === END OF FIX ===
 
 # 1. Define input size and color for TensorRT
 offsets=123.675;116.28;103.53
@@ -32,4 +30,10 @@ custom-lib-path=/workspace/ai_core/deploy/DeepStream/libnvdsinfer_custom_impl_Yo
 [class-attrs-all]
 pre-cluster-threshold=0.3
 nms-iou-threshold=0.45
-display-bbox=1
+
+# === START OF FINAL FIX ===
+# Disable drawing of raw detection boxes from nvinfer.
+# We will let nvosd handle all drawing based on the final, smoothed tracker output.
+# This ensures only ONE consistent bounding box is displayed, removing the visual "ghost" effect.
+display-bbox=0
+# === END OF FINAL FIX ===
