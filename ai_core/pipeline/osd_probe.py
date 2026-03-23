@@ -109,7 +109,6 @@ class OSDProbeHandler:
                 new_text = f"ID: {obj_meta.object_id}"
                 
                 # Ở một số bản pyds, gán chữ trực tiếp bị ghi đè, ta thử cấp phát chuỗi
-                import pyds
                 if hasattr(pyds, 'get_string'):
                     txt_params.display_text = pyds.get_string(new_text)
                 else:
