@@ -28,3 +28,9 @@ custom-lib-path=/workspace/ai_core/deploy/DeepStream/libnvdsinfer_custom_impl_Yo
 [class-attrs-all]
 pre-cluster-threshold=0.3
 nms-iou-threshold=0.45
+
+# === START OF FIX ===
+# Force the nvinfer plugin to draw its own raw detection boxes.
+# This will show the "real" boxes from YOLOX, not the smoothed boxes from the tracker.
+display-bbox=1
+# === END OF FIX ===
