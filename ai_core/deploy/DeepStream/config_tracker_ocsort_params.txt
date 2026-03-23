@@ -2,7 +2,7 @@
 
 # Maximum number of frames to keep a track alive without new detections.
 # Default in C++ code is 30.
-max_age=5
+max_age=30
 
 # Minimum number of hits to start a track.
 # Default in C++ code is 3.
