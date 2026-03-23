@@ -65,26 +65,17 @@ class DeepStreamApp:
         
         try:
             self.pipeline_manager.build_pipeline()
-            
+
             processing_width = self.pipeline_manager.streammux.get_property("width")
             processing_height = self.pipeline_manager.streammux.get_property("height")
-            correct_processing_size = (processing_width, processing_height)
-            
-            model_input_size = (self.ocsort_config.tsize, self.ocsort_config.tsize)
-            
-            logger.info(f"Pipeline built. True processing size: {correct_processing_size}. Model input size: {model_input_size}.")
-
-            self.osd_probe_handler.set_frame_sizes(
-                processing_size=correct_processing_size,
-                model_input_size=model_input_size
-            )
+            logger.info(f"Pipeline built. Processing size: ({processing_width}, {processing_height}). Applying config scaling...")
 
             self.handle_counting_update({
                 "line_start": self.counting_config.line_start,
                 "line_end": self.counting_config.line_end,
                 "inside_point": self.counting_config.inside_point,
                 "crossing_margin": self.counting_config.crossing_margin,
-                "frame_width": 1920,
+                "frame_width": 1920, # The reference size the config was made for
                 "frame_height": 1080
             }, is_initial_setup=True)
 
@@ -96,8 +87,6 @@ class DeepStreamApp:
             self.service_manager.stop_services()
             logger.info("Shutdown complete.")
 
-    # === START OF FIX ===
-    # Restore the callback handler methods required by ServiceManager.
     def handle_mapping_update(self, data: dict) -> None:
         """Callback to handle homography configuration updates from WebSocket."""
         logger.info("[WebSocket] Received MAPPING update. Updating Python MappingService.")
@@ -149,4 +138,3 @@ class DeepStreamApp:
             if "critical_threshold" in data: self.osd_probe_handler.critical_threshold = data["critical_threshold"]
         except Exception as e:
             logger.error(f"Error handling counting update: {e}")
-    # === END OF FIX ===
