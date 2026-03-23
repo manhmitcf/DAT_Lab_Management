@@ -42,8 +42,29 @@ extern "C" NvMOTStatus NvMOT_Init(NvMOTConfig *pConfigIn, NvMOTContextHandle *pC
 
     // Read configuration parameters from nvtracker txt file (if there is a custom config)
     if (pConfigIn->customConfigFilePath) {
-        std::cout << "[OCSort NvMOT] Loading config from: " << pConfigIn->customConfigFilePath << std::endl;
-        std::ifstream infile(pConfigIn->customConfigFilePath);
+        std::string config_path = pConfigIn->customConfigFilePath;
+        
+        // DeepStream passes the top-level config file. We must extract the nested parameter file.
+        std::ifstream top_file(config_path);
+        std::string tline;
+        while (std::getline(top_file, tline)) {
+            if (tline.find("ll-config-file=") != std::string::npos) {
+                std::string nested = tline.substr(tline.find("=") + 1);
+                // Strip carriage returns just in case
+                nested.erase(std::remove(nested.begin(), nested.end(), '\r'), nested.end());
+                nested.erase(std::remove(nested.begin(), nested.end(), '\n'), nested.end());
+                size_t slash = config_path.find_last_of("/");
+                if (slash != std::string::npos) {
+                    config_path = config_path.substr(0, slash + 1) + nested;
+                } else {
+                    config_path = nested;
+                }
+                break;
+            }
+        }
+
+        std::cout << "[OCSort NvMOT] Loading OCSort params from: " << config_path << std::endl;
+        std::ifstream infile(config_path);
         std::string line;
         while (std::getline(infile, line)) {
             if (line.empty() || line[0] == '#') continue;
