@@ -11,7 +11,7 @@ iou_threshold=0.3
 
 # Kalman filter motion inertia parameter.
 # A lower value reduces the "ghosting" effect.
-inertia=0.1
+inertia=0
 
 # Maximum number of frames to keep a track alive without new detections.
 max_age=5

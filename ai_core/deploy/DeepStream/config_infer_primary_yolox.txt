@@ -1,7 +1,7 @@
 [property]
 gpu-id=0
 net-scale-factor=1.0
-interval=0
+interval=1
 symmetric-padding=1
 
 # 1. Define input size and color for TensorRT
@@ -24,11 +24,6 @@ custom-lib-path=/workspace/ai_core/deploy/DeepStream/libnvdsinfer_custom_impl_Yo
 
 # 5. Settings related to BBox filtering
 [class-attrs-all]
-# === START OF CONFIG SYNC ===
-# Match the original python source configuration
 pre-cluster-threshold=0.1
 nms-iou-threshold=0.7
-# === END OF CONFIG SYNC ===
-
-# Disable drawing of raw detection boxes from nvinfer.
 display-bbox=0
