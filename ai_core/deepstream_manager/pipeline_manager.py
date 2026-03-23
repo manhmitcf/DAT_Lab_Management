@@ -92,18 +92,15 @@ class PipelineManager:
         source.set_property("io-mode", 2)
         source.set_property("do-timestamp", True)
 
-        # Configure v4l2src to capture MJPG at 1920x1080 @ 30fps
         caps_v4l2src = Gst.ElementFactory.make("capsfilter", "v4l2src_caps")
-        caps_v4l2src.set_property("caps", Gst.Caps.from_string("image/jpeg,width=1920,height=1080,framerate=30/1"))
+        caps_v4l2src.set_property("caps", Gst.Caps.from_string("image/jpeg,format=MJPG,width=1920,height=1080,framerate=30/1"))
         
-        # Use a leaky queue to drop old frames if processing falls behind, ensuring low latency
         cam_queue = Gst.ElementFactory.make("queue", "camera-queue")
         cam_queue.set_property("max-size-buffers", 1)
-        cam_queue.set_property("leaky", 2) # 2 = leaky downstream (drop old buffers)
+        cam_queue.set_property("leaky", 2)
         
         jpegparse = Gst.ElementFactory.make("jpegparse", "jpeg-parser")
         
-        # Use hardware-accelerated NVIDIA JPEG decoder
         jpegdec = Gst.ElementFactory.make("nvv4l2decoder", "jpeg-decoder")
         jpegdec.set_property("mjpeg", 1)
 
