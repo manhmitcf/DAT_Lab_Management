@@ -136,6 +136,10 @@ Video từ camera stream qua **Janus Gateway** (WebRTC) — độc lập với m
 - Nếu **không set** `NEXT_PUBLIC_JANUS_URL` → FE dùng **MJPEG** hoặc **still image** từ `NEXT_PUBLIC_CAMERA_STREAM_URL` hoặc frame metadata (nếu có).
 - Nếu Janus connect lỗi → hiển thị error UI, không auto-fallback sang MJPEG (cần refresh).
 
+### Debug
+
+Set `NEXT_PUBLIC_JANUS_DEBUG=true` trong `.env.local` để xem log Janus trên console (F12 → Console).
+
 ---
 
 # Tab 2 — Analytics (`/analytics`) ✅ API
