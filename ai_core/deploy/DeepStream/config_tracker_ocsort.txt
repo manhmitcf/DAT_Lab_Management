@@ -12,8 +12,6 @@ ll-config-file=config_tracker_ocsort_params.txt
 enable-batch-process=1
 enable-past-frame=0
 
-# === START OF FIX ===
-# Disable the tracker's default ID drawing.
-# We are now handling all custom drawing (ID, lines, etc.) inside our Python probe handler.
+
 display-tracking-id=0
-# === END OF FIX ===
+

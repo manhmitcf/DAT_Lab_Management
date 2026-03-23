@@ -92,14 +92,18 @@ class PipelineManager:
         source.set_property("io-mode", 2)
         source.set_property("do-timestamp", True)
         
-        # === FIX CRASH ===
-        # Removed 'format=MJPG' because it is invalid for 'image/jpeg' caps and causes the pipeline to crash downstream.
         caps_v4l2src = Gst.ElementFactory.make("capsfilter", "v4l2src_caps")
         caps_v4l2src.set_property("caps", Gst.Caps.from_string("image/jpeg,width=1920,height=1080,framerate=30/1"))
         
         cam_queue = Gst.ElementFactory.make("queue", "camera-queue")
-        cam_queue.set_property("max-size-buffers", 1)
-        cam_queue.set_property("leaky", 2) # leaky=downstream (drops oldest frame to minimize latency)
+        # === CRITICAL FIX FOR LIVE CAMERA GHOST BOXES ===
+        # DO NOT drop frames here! If you set leaky=2 (drop), frames get skipped when the pipeline is slightly busy.
+        # Skipping a frame causes the timestamp delta to jump from 33ms to 66ms.
+        # The Kalman Filter in OCSort relies on smooth, continuous time steps.
+        # A sudden jump makes the filter predict the object moved twice as far, causing the "Ghost Box" to shoot ahead.
+        cam_queue.set_property("max-size-buffers", 30) 
+        cam_queue.set_property("leaky", 0) # 0 = no drop. We buffer instead of dropping.
+        # ================================================
         
         jpegparse = Gst.ElementFactory.make("jpegparse", "jpeg-parser")
         
@@ -119,6 +123,8 @@ class PipelineManager:
 
     def _create_input_conversion_bin(self):
         nvvidconv_src = Gst.ElementFactory.make("nvvideoconvert", "convertor_src")
+        # Ensure hardware compute is used for consistent memory alignment on Jetson
+        nvvidconv_src.set_property("compute-hw", 1)
         caps_vidconv_src = Gst.ElementFactory.make("capsfilter", "caps_vidconv_src")
         caps_vidconv_src.set_property("caps", Gst.Caps.from_string("video/x-raw(memory:NVMM),format=NV12"))
         return nvvidconv_src, caps_vidconv_src
@@ -130,12 +136,17 @@ class PipelineManager:
         streammux.set_property("height", 1080)
         streammux.set_property("batch-size", 1)
         
-        # === FIX GHOST BOX ===
-        # By setting live-source=0 EVEN FOR THE CAMERA, we force DeepStream to treat the live feed 
-        # exactly like a video file. This ignores USB timestamp jitter and provides perfect 
-        # sequential timing to the Tracker's Kalman Filter, completely eliminating "Ghost Boxes".
-        streammux.set_property("live-source", 0)
-        streammux.set_property("batched-push-timeout", 33000)
+        if is_live:
+            streammux.set_property("live-source", 1)
+            # For 30fps live stream, a timeout of 40000us (40ms) is safe
+            streammux.set_property("batched-push-timeout", 40000) 
+            # === CRITICAL FIX FOR LIVE CAMERA GHOST BOXES ===
+            # Overwrite the jittery USB camera timestamps with smooth system timestamps.
+            # This ensures OCSort receives a perfectly smooth timeline.
+            streammux.set_property("attach-sys-ts", 1)
+            # ================================================
+        else:
+            streammux.set_property("batched-push-timeout", 33000)
             
         return streammux
 
@@ -153,6 +164,9 @@ class PipelineManager:
                              os.getenv("TRACKER_CONFIG_PATH", "deploy/DeepStream/config_tracker_ocsort.txt"))
         tracker.set_property("tracker-width", 640)
         tracker.set_property("tracker-height", 640)
+        
+        # Ensure the tracker uses the frame's hardware timestamp to sync predictions perfectly
+        tracker.set_property("compute-hw", 1)
         return tracker
 
     def _create_webrtc_sink_bin(self):
