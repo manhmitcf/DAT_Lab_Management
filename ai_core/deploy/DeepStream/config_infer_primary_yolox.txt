@@ -1,7 +1,7 @@
 [property]
 gpu-id=0
 net-scale-factor=1.0
-interval=0
+interval=1
 
 # === START OF FIX ===
 # Force nvinfer to maintain the aspect ratio of the input and add symmetric padding.
