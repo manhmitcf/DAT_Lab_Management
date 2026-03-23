@@ -105,14 +105,9 @@ class OSDProbeHandler:
                 obj_meta.rect_params.border_color.set(0.0, 1.0, 0.0, 1.0) # Màu Xanh lá
                 
                 txt_params = obj_meta.text_params
-                # Deepstream python bindings update text
+                # Gán trực tiếp chuỗi vào display_text
                 new_text = f"ID: {obj_meta.object_id}"
-                
-                # Ở một số bản pyds, gán chữ trực tiếp bị ghi đè, ta thử cấp phát chuỗi
-                if hasattr(pyds, 'get_string'):
-                    txt_params.display_text = pyds.get_string(new_text)
-                else:
-                    txt_params.display_text = new_text
+                txt_params.display_text = new_text
 
                 txt_params.x_offset = int(obj_meta.rect_params.left)
                 txt_params.y_offset = max(0, int(obj_meta.rect_params.top) - 20)
