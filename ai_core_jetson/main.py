@@ -17,6 +17,7 @@ except ImportError:
     pass
 
 from core.config import ConfigManager
+from core.model_converter import check_and_convert_models
 from services.analytics.tracking_service import TrackingService
 from services.analytics.counting_service import CountingService
 from services.analytics.mapping_service import MappingService
@@ -139,6 +140,9 @@ class AuraAnalyticsApp:
         logger.info("=== Starting Aura Analytics Application ===")
         
         try:
+            # 0. Auto-convert model if needed (PTH → ONNX → TensorRT)
+            check_and_convert_models()
+            
             self._setup_services()
             self._setup_pipeline()
             self._setup_hot_reload()
