@@ -7,13 +7,28 @@ from typing import List, Any
 import os.path as osp
 import cv2
 import torch
-from loguru import logger
+import tensorrt as trt
+import pycuda.driver as cuda
+import pycuda.autoinit
+from numba import njit
 from exps.yolox_x_mix_mot20_ch import Exp
+from loguru import logger
 from yolox.data.data_augment import preproc
 from yolox.utils import fuse_model, get_model_info, postprocess
 from trackers.ocsort_tracker.ocsort import OCSort
 from trackers.tracking_utils.timer import Timer
 
+
+@njit(fastmath=True)
+def fast_preprocess(img, mean, std):
+    h, w, c = img.shape
+    res = np.empty((c, h, w), dtype=np.float32)
+    for i in range(h):
+        for j in range(w):
+            res[0, i, j] = (img[i, j, 0] / 255.0 - mean[0]) / std[0]
+            res[1, i, j] = (img[i, j, 1] / 255.0 - mean[1]) / std[1]
+            res[2, i, j] = (img[i, j, 2] / 255.0 - mean[2]) / std[2]
+    return res
 
 class Predictor(object):
     def __init__(
@@ -25,71 +40,87 @@ class Predictor(object):
             device=torch.device("cuda"),
             fp16=False
     ):
-        self.model = model
-        self.decoder = decoder
-        self.num_classes = exp.num_classes
+        self.logger = trt.Logger(trt.Logger.INFO)
         self.confthre = exp.test_conf
         self.nmsthre = exp.nmsthre
-        self.test_size = exp.test_size
-        self.device = device
-        self.fp16 = fp16
-        if trt_file is not None:
-            from torch2trt import TRTModule
+        self.input_shape = exp.test_size
+        
+        engine_path = trt_file
+        if not engine_path:
+            raise ValueError("trt_file must be provided for TRT Predictor!")
+            
+        engine_bytes = None
+        try:
+            import torch
+            ckpt = torch.load(engine_path, map_location="cpu")
+            if isinstance(ckpt, dict) and 'engine' in ckpt:
+                engine_bytes = bytes(ckpt['engine'])
+            elif isinstance(ckpt, bytearray):
+                engine_bytes = bytes(ckpt)
+        except Exception:
+            pass
+            
+        if engine_bytes is None:
+            with open(engine_path, "rb") as f:
+                engine_bytes = f.read()
+                
+        with trt.Runtime(self.logger) as runtime:
+            self.engine = runtime.deserialize_cuda_engine(engine_bytes)
+            
+        if self.engine is None:
+            raise RuntimeError("Engine deserialization failed! Please check if your .trt file is valid.")
+            
+        self.context = self.engine.create_execution_context()
+        self.inputs, self.outputs, self.bindings, self.stream = self.allocate_buffers(self.engine)
+        self.mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+        self.std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
-            model_trt = TRTModule()
-            model_trt.load_state_dict(torch.load(trt_file))
+    def allocate_buffers(self, engine):
+        inputs, outputs, bindings = [], [], []
+        stream = cuda.Stream()
+        for binding in engine:
+            shape = engine.get_binding_shape(binding)
+            size = trt.volume(shape)
+            dtype = trt.nptype(engine.get_binding_dtype(binding))
+            host_mem = cuda.pagelocked_empty(size, dtype)
+            device_mem = cuda.mem_alloc(host_mem.nbytes)
+            bindings.append(int(device_mem))
+            if engine.binding_is_input(binding):
+                inputs.append({'host': host_mem, 'device': device_mem})
+            else:
+                outputs.append({'host': host_mem, 'device': device_mem})
+        return inputs, outputs, bindings, stream
 
-            x = torch.ones((1, 3, exp.test_size[0], exp.test_size[1]), device=device)
-            self.model(x)
-            self.model = model_trt
-        self.rgb_means = (0.485, 0.456, 0.406)
-        self.std = (0.229, 0.224, 0.225)
+    def preproc(self, img, input_size):
+        padded_img = np.ones((input_size[0], input_size[1], 3), dtype=np.uint8) * 114
+        r = min(input_size[0] / img.shape[0], input_size[1] / img.shape[1])
+        resized_img = cv2.resize(img, (int(img.shape[1] * r), int(img.shape[0] * r)), interpolation=cv2.INTER_LINEAR)
+        padded_img[: int(img.shape[0] * r), : int(img.shape[1] * r)] = resized_img
+        return fast_preprocess(padded_img, self.mean, self.std), r
 
-    def inference(self, img, timer):
-        img_info = {"id": 0}
-        if isinstance(img, str):
-            img_info["file_name"] = osp.basename(img)
-            img = cv2.imread(img)
-        else:
-            img_info["file_name"] = None
-
-        height, width = img.shape[:2]
-        img_info["height"] = height
-        img_info["width"] = width
-        img_info["raw_img"] = img
-
-        img, ratio = preproc(img, self.test_size, self.rgb_means, self.std)
+    def inference(self, frame, timer):
+        img_info = {"height": frame.shape[0], "width": frame.shape[1], "raw_img": frame}
+        img_pre, ratio = self.preproc(frame, self.input_shape)
         img_info["ratio"] = ratio
-        img = torch.from_numpy(img).unsqueeze(0).float().to(self.device)
-        if self.fp16:
-            img = img.half()  # to FP16
-
-        with torch.no_grad():
-            timer.tic()
-            outputs = self.model(img)
-
-            # Handle TensorRT output list/tuple
-            if isinstance(outputs, (list, tuple)):
-                outputs = outputs[0]
-
-            # Debug: print shape to understand structure
-            # logger.info(f"Raw output shape: {outputs.shape}")
-
-            # If outputs has 4 dims (1, 1, N, C), squeeze the second dim
-            if outputs.dim() == 4 and outputs.shape[1] == 1:
-                outputs = outputs.squeeze(1)
-
-            # Additional check: ensure it is (Batch, N, C)
-            # If input batch is 1, output should be (1, N, C)
-
-            if self.decoder is not None:
-                outputs = self.decoder(outputs, dtype=outputs.type())
-
-            outputs = postprocess(
-                outputs, self.num_classes, self.confthre, self.nmsthre
-            )
-        return outputs, img_info
-
+        np.copyto(self.inputs[0]['host'], img_pre.ravel())
+        timer.tic()
+        cuda.memcpy_htod_async(self.inputs[0]['device'], self.inputs[0]['host'], self.stream)
+        self.context.execute_async_v2(bindings=self.bindings, stream_handle=self.stream.handle)
+        cuda.memcpy_dtoh_async(self.outputs[0]['host'], self.outputs[0]['device'], self.stream)
+        self.stream.synchronize()
+        output = self.outputs[0]['host'].reshape(self.engine.get_binding_shape(1))
+        from yolox.utils import multiclass_nms, demo_postprocess
+        predictions = demo_postprocess(output, self.input_shape, p6=False)[0]
+        if predictions is None: return [None], img_info
+        boxes_xyxy = np.ones_like(predictions[:, :4])
+        boxes_xyxy[:, 0] = (predictions[:, 0] - predictions[:, 2]/2.)
+        boxes_xyxy[:, 1] = (predictions[:, 1] - predictions[:, 3]/2.)
+        boxes_xyxy[:, 2] = (predictions[:, 0] + predictions[:, 2]/2.)
+        boxes_xyxy[:, 3] = (predictions[:, 1] + predictions[:, 3]/2.)
+        dets = multiclass_nms(boxes_xyxy, predictions[:, 4:5] * predictions[:, 5:], nms_thr=self.nmsthre, score_thr=self.confthre)
+        
+        result = dets[:, :-1] if dets is not None else None
+        return [result], img_info
 
 class YOLOX:
     def __init__(self, args):
@@ -149,7 +180,6 @@ class YOLOX:
 
 class TrackingService:
     def __init__(self, args):
-
         self.yolo = YOLOX(args=args)
 
         self.predictor = Predictor(self.yolo.model,
