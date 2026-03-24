@@ -38,6 +38,9 @@ class AnalyticsProbe:
         
         self.warning_threshold = warning_threshold
         self.critical_threshold = critical_threshold
+        self._frame_count = 0
+        self._fps_start_time = time.time()
+        self._fps_frame_count = 0
 
         # Visual styles (matching legacy)
         self.line_color = (255, 0, 255, 1.0)  # Magenta (RGBA for pyds)
@@ -56,6 +59,21 @@ class AnalyticsProbe:
             b = (i * 113) % 255
             palette.append((r / 255.0, g / 255.0, b / 255.0, 1.0))
         return palette
+
+    def _calc_fps(self) -> float:
+        """Calculate real processing FPS."""
+        self._fps_frame_count += 1
+        now = time.time()
+        elapsed = now - self._fps_start_time
+        if elapsed > 0:
+            fps = self._fps_frame_count / elapsed
+        else:
+            fps = 0.0
+        # Reset every 30 frames for rolling average
+        if self._fps_frame_count >= 30:
+            self._fps_start_time = now
+            self._fps_frame_count = 0
+        return fps
 
     def probe_callback(self, pad, info, u_data):
         """
@@ -89,6 +107,7 @@ class AnalyticsProbe:
         """Extract objects, run services, and update metadata."""
         frame_id = frame_meta.frame_num
         timestamp = datetime.now(timezone.utc)
+        self._frame_count += 1
         
         # 1. Extract raw detections from nvinfer metadata
         detections = []
@@ -115,6 +134,9 @@ class AnalyticsProbe:
             self.counting_service.update([], [])
             self._send_empty_frame(frame_meta, timestamp)
             self._draw_osd(frame_meta, batch_meta)
+            if self._frame_count % 30 == 0:
+                fps = self._calc_fps()
+                logger.info(f"[Probe] Frame #{frame_id} | FPS: {fps:.1f} | Detections: 0 | Occ: {self.counting_service.current_people}")
             return
 
         # 2. Run Tracking (C++ OCSort)
@@ -176,6 +198,11 @@ class AnalyticsProbe:
 
         # 9. Publish results
         self.publisher.send_frame(frame_data)
+
+        # Log periodically (every 30 frames)
+        if self._frame_count % 30 == 0:
+            fps = self._calc_fps()
+            logger.info(f"[Probe] Frame #{frame_id} | FPS: {fps:.1f} | Detections: {len(detections)} | Tracked: {len(tracked_objects)} | Occ: {current_people}")
 
         # 10. Draw OSD metadata (Counting Line, Counts)
         self._draw_osd(frame_meta, batch_meta)
