@@ -59,9 +59,11 @@ class PipelineManager:
                 self.elements["decoder"] = ElementFactory.create("nvv4l2decoder", "decoder")
             else:
                 # USB Camera (Logitech C270 / MJPG webcam)
-                # Pipeline: v4l2src → caps(MJPG 1080p@30) → nvjpegdec → nvvideoconvert → muxer
+                # Pipeline: v4l2src → caps(MJPG 1080p@30) → queue → jpegparse → nvv4l2decoder(mjpeg=1) → nvstreammux
                 self.elements["source"] = ElementFactory.create("v4l2src", "usb-source")
                 self.elements["source"].set_property("device", source_uri)
+                self.elements["source"].set_property("io-mode", 2)
+                self.elements["source"].set_property("do-timestamp", True)
                 
                 self.elements["capsfilter"] = ElementFactory.create("capsfilter", "mjpg-caps")
                 self.elements["capsfilter"].set_property(
@@ -70,8 +72,15 @@ class PipelineManager:
                     )
                 )
                 
-                self.elements["jpegdec"] = ElementFactory.create("nvjpegdec", "jpeg-decoder")
-                self.elements["decoder"] = ElementFactory.create("nvvideoconvert", "hw-convert")
+                self.elements["cam_queue"] = ElementFactory.create_and_configure(
+                    "queue", "camera-queue",
+                    {"max-size-buffers": 1, "leaky": 2}
+                )
+                self.elements["jpegparse"] = ElementFactory.create("jpegparse", "jpeg-parser")
+                self.elements["decoder"] = ElementFactory.create_and_configure(
+                    "nvv4l2decoder", "jpeg-decoder",
+                    {"mjpeg": 1}
+                )
 
             # DeepStream Core
             self.elements["muxer"] = ElementFactory.create_and_configure(
@@ -140,10 +149,11 @@ class PipelineManager:
                 self.elements["qtdemux"].connect("pad-added", self._on_pad_added)
                 self.elements["h264parse"].link(self.elements["decoder"])
             else:
-                # USB Camera (MJPG): source → caps → jpegdec → decoder → muxer
+                # USB Camera (MJPG): source → caps → queue → jpegparse → decoder → muxer
                 self._link(self.elements["source"], self.elements["capsfilter"])
-                self._link(self.elements["capsfilter"], self.elements["jpegdec"])
-                self._link(self.elements["jpegdec"], self.elements["decoder"])
+                self._link(self.elements["capsfilter"], self.elements["cam_queue"])
+                self._link(self.elements["cam_queue"], self.elements["jpegparse"])
+                self._link(self.elements["jpegparse"], self.elements["decoder"])
 
             # Common StreamMux Link
             sink_pad = self.elements["muxer"].get_request_pad("sink_0")
