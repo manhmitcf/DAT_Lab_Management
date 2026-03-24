@@ -42,6 +42,28 @@ def build_yolox_model(num_classes: int, depth: float, width: float):
 
 
 # ──────────────────────────────────────────────────────────────
+# Normalization Wrapper (bakes ImageNet mean/std into ONNX)
+# ──────────────────────────────────────────────────────────────
+class NormalizeWrapper(nn.Module):
+    """
+    Wraps a YOLOX model to prepend ImageNet normalization.
+    Input:  [0, 1] scaled RGB tensor (what DeepStream sends with net-scale-factor=1/255)
+    Output: normalized tensor matching Python preproc exactly.
+    
+    This eliminates the per-channel scale issue in nvinfer config.
+    """
+    def __init__(self, model: nn.Module, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)):
+        super().__init__()
+        self.model = model
+        self.register_buffer('mean', torch.tensor(mean).view(1, 3, 1, 1))
+        self.register_buffer('std', torch.tensor(std).view(1, 3, 1, 1))
+
+    def forward(self, x):
+        x = (x - self.mean) / self.std
+        return self.model(x)
+
+
+# ──────────────────────────────────────────────────────────────
 # Core Export Logic
 # ──────────────────────────────────────────────────────────────
 def export_onnx(
@@ -52,18 +74,24 @@ def export_onnx(
     input_name: str = "images",
     output_name: str = "output",
     simplify_model: bool = True,
+    rgb_means: tuple = (0.485, 0.456, 0.406),
+    rgb_std: tuple = (0.229, 0.224, 0.225),
 ) -> None:
-    """Export a PyTorch model to ONNX format."""
+    """Export a PyTorch model to ONNX format with baked-in normalization."""
 
     model = replace_module(model, nn.SiLU, SiLU)
     model.head.decode_in_inference = False
     model.eval()
 
+    # Wrap model with normalization so DeepStream only needs to send [0,1] scaled pixels
+    wrapped = NormalizeWrapper(model, rgb_means, rgb_std)
+    wrapped.eval()
+
     dummy_input = torch.randn(1, 3, input_size[0], input_size[1])
 
-    logger.info(f"Exporting ONNX (opset={opset}, input={input_size})...")
+    logger.info(f"Exporting ONNX (opset={opset}, input={input_size}, normalized=True)...")
     torch.onnx.export(
-        model,
+        wrapped,
         dummy_input,
         onnx_path,
         input_names=[input_name],
