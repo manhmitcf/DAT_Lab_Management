@@ -79,27 +79,39 @@ class AnalyticsProbe:
         """
         GStreamer Pad Probe Callback.
         """
-        gst_buffer = info.get_buffer()
-        if not gst_buffer:
-            logger.error("Unable to get GstBuffer from probe info")
-            return pyds.GST_PAD_PROBE_OK
+        import sys
+        try:
+            gst_buffer = info.get_buffer()
+            if not gst_buffer:
+                logger.error("Unable to get GstBuffer from probe info")
+                return pyds.GST_PAD_PROBE_OK
 
-        # 1. Access Batch Metadata
-        batch_meta = pyds.gst_buffer_get_nvds_batch_meta(hash(gst_buffer))
-        l_frame = batch_meta.frame_meta_list
-        
-        while l_frame is not None:
-            try:
-                frame_meta = pyds.NvDsFrameMeta.cast(l_frame.data)
-            except StopIteration:
-                break
+            # Quick heartbeat every 30 frames
+            self._frame_count += 1
+            if self._frame_count % 30 == 1:
+                print(f"[PROBE HEARTBEAT] frame_count={self._frame_count}", file=sys.stderr, flush=True)
 
-            self._process_frame_meta(frame_meta, batch_meta)
+            # 1. Access Batch Metadata
+            batch_meta = pyds.gst_buffer_get_nvds_batch_meta(hash(gst_buffer))
+            l_frame = batch_meta.frame_meta_list
+            
+            while l_frame is not None:
+                try:
+                    frame_meta = pyds.NvDsFrameMeta.cast(l_frame.data)
+                except StopIteration:
+                    break
 
-            try:
-                l_frame = l_frame.next
-            except StopIteration:
-                break
+                self._process_frame_meta(frame_meta, batch_meta)
+
+                try:
+                    l_frame = l_frame.next
+                except StopIteration:
+                    break
+
+        except Exception as e:
+            print(f"[PROBE CRASH] {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+            import traceback
+            traceback.print_exc(file=sys.stderr)
 
         return pyds.GST_PAD_PROBE_OK
 
