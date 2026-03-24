@@ -14,7 +14,8 @@ WORKDIR /workspace/ai_core
 # =========================================================
 # 1. FIX repo lỗi + cài system dependencies
 # =========================================================
-RUN rm -rf /etc/apt/sources.list.d/*kitware* || true && \
+RUN sed -i '/apt.kitware.com/d' /etc/apt/sources.list || true && \
+    rm -rf /etc/apt/sources.list.d/* || true && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
     wget git curl build-essential pkg-config ninja-build \
