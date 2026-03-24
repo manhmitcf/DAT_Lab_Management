@@ -16,7 +16,8 @@ model-engine-file=/workspace/ai_core/pretrained/model_trt.engine
 labelfile-path=/workspace/ai_core/config/labels.txt
 batch-size=1
 process-mode=1
-network-mode=0
+# Change from FP32 (0) to FP16 (1) for massive speedup on Jetson
+network-mode=1
 parse-bbox-func-name=NvDsInferParseCustomYOLOX
 custom-lib-path=/workspace/ai_core/cpp_plugins/lib/libnvdsinfer_custombboxparser_yolox.so
 infer-dims=3;640;640
