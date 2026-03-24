@@ -19,13 +19,7 @@ services:
       - NVIDIA_DRIVER_CAPABILITIES=all
 
     volumes:
-      # Models & Videos (large files, not in image)
-      - ./pretrained:/workspace/ai_core/pretrained
-      - ./videos:/workspace/ai_core/videos
-      - ./logs:/workspace/ai_core/logs
-      # Config (hot-reload via SettingsSubscriber)
-      - ./config:/workspace/ai_core/config
-
+      - .:/workspace/ai_core
     devices:
       # USB Camera (adjust if using CSI or different port)
       - /dev/video0:/dev/video0
