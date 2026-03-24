@@ -61,7 +61,7 @@ class ElementFactory:
 
     @classmethod
     def create_and_configure(
-        self, 
+        cls, 
         factory_name: str, 
         element_name: str, 
         properties: Optional[Dict[str, Any]] = None
@@ -69,7 +69,7 @@ class ElementFactory:
         """
         Utility to create an element and immediately set its properties.
         """
-        element = self.create(factory_name, element_name)
+        element = cls.create(factory_name, element_name)
         if properties:
-            self.set_properties(element, properties)
+            cls.set_properties(element, properties)
         return element
