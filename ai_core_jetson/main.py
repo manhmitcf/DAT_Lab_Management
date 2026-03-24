@@ -16,7 +16,7 @@ try:
 except ImportError:
     pass
 
-from config.data_config import OCSortConfig, CountingConfig, MappingConfig
+from core.config import ConfigManager
 from services.analytics.tracking_service import TrackingService
 from services.analytics.counting_service import CountingService
 from services.analytics.mapping_service import MappingService
@@ -47,18 +47,18 @@ class AuraAnalyticsApp:
         """Initialize all business logic services."""
         logger.info("[App] Initializing core services...")
         
-        # 1. Load Configs
-        tracking_cfg = OCSortConfig(self.config_paths["tracking"])
-        counting_cfg = CountingConfig(self.config_paths["counting"])
-        mapping_cfg = MappingConfig(self.config_paths["mapping"])
+        # 1. Load Configs via ConfigManager
+        tracking_cfg = ConfigManager.get_ocsort_config(self.config_paths["tracking"])
+        counting_cfg = ConfigManager.get_counting_config(self.config_paths["counting"])
+        mapping_cfg = ConfigManager.get_mapping_config(self.config_paths["mapping"])
 
         # 2. Instantiate Services
         # Default 1080p, will sync with actual source resolution in probe
         init_size = (1920, 1080)
         
-        self.services["tracking"] = TrackingService(args=tracking_cfg)
+        self.services["tracking"] = TrackingService(config=tracking_cfg)
         self.services["counting"] = CountingService(counting_config=counting_cfg, current_frame_size=init_size)
-        self.services["mapping"] = MappingService(mapping_config=mapping_cfg)
+        self.services["mapping"] = MappingService(config=mapping_cfg)
         
         self.services["publisher"] = ResultPublisher(
             endpoint=os.getenv("RESULTS_WS_URL"),
