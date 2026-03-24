@@ -1,3 +1,9 @@
+#!/usr/bin/env python3
+# -*- coding:utf-8 -*-
+# Copyright (c) Megvii, Inc. and its affiliates.
+
+import argparse
+import os
 from loguru import logger
 
 import torch
@@ -7,14 +13,10 @@ from yolox.exp import get_exp
 from yolox.models.network_blocks import SiLU
 from yolox.utils import replace_module
 
-import argparse
-import os
-
-
 def make_parser():
     parser = argparse.ArgumentParser("YOLOX onnx deploy")
     parser.add_argument(
-        "--output-name", type=str, default="ocsort.onnx", help="output name of models"
+        "--output-name", type=str, default="yolox.onnx", help="output name of onnx model"
     )
     parser.add_argument(
         "--input", default="images", type=str, help="input node name of onnx model"
@@ -23,7 +25,7 @@ def make_parser():
         "--output", default="output", type=str, help="output node name of onnx model"
     )
     parser.add_argument(
-        "-o", "--opset", default=11, type=int, help="onnx opset version"
+        "-o", "--opset", default=18, type=int, help="onnx opset version"
     )
     parser.add_argument("--no-onnxsim", action="store_true", help="use onnxsim or not")
     parser.add_argument(
@@ -45,7 +47,6 @@ def make_parser():
 
     return parser
 
-
 @logger.catch
 def main():
     args = make_parser().parse_args()
@@ -63,19 +64,20 @@ def main():
     else:
         ckpt_file = args.ckpt
 
-    # load the model state dict
     ckpt = torch.load(ckpt_file, map_location="cpu")
 
     model.eval()
     if "model" in ckpt:
         ckpt = ckpt["model"]
     model.load_state_dict(ckpt)
+    logger.info("loading checkpoint done.")
+    dummy_input = torch.randn(1, 3, exp.test_size[0], exp.test_size[1])
+
     model = replace_module(model, nn.SiLU, SiLU)
     model.head.decode_in_inference = False
 
-    logger.info("loading checkpoint done.")
-    dummy_input = torch.randn(1, 3, exp.test_size[0], exp.test_size[1])
-    torch.onnx._export(
+    logger.info(f"Starting ONNX export with opset {args.opset}...")
+    torch.onnx.export(
         model,
         dummy_input,
         args.output_name,
@@ -83,19 +85,17 @@ def main():
         output_names=[args.output],
         opset_version=args.opset,
     )
-    logger.info("generated onnx model named {}".format(args.output_name))
+    logger.success("ONNX export completed successfully.")
 
     if not args.no_onnxsim:
         import onnx
-
         from onnxsim import simplify
 
-        # use onnxsimplify to reduce reduent model.
         onnx_model = onnx.load(args.output_name)
         model_simp, check = simplify(onnx_model)
         assert check, "Simplified ONNX model could not be validated"
         onnx.save(model_simp, args.output_name)
-        logger.info("generated simplified onnx model named {}".format(args.output_name))
+        logger.info("ONNX model simplified successfully.")
 
 
 if __name__ == "__main__":
