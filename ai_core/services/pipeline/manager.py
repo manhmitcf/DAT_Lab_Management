@@ -68,7 +68,7 @@ class PipelineManager:
                 self.elements["capsfilter"] = ElementFactory.create("capsfilter", "mjpg-caps")
                 self.elements["capsfilter"].set_property(
                     "caps", Gst.Caps.from_string(
-                        "image/jpeg,format=MJPG,width=1920,height=1080,framerate=30/1"
+                        "image/jpeg,width=1920,height=1080,framerate=30/1"
                     )
                 )
                 
@@ -81,6 +81,7 @@ class PipelineManager:
                     "nvv4l2decoder", "jpeg-decoder",
                     {"mjpeg": 1}
                 )
+                self.elements["hwconvert"] = ElementFactory.create("nvvideoconvert", "hw-convert")
 
             # DeepStream Core
             self.elements["muxer"] = ElementFactory.create_and_configure(
@@ -149,15 +150,16 @@ class PipelineManager:
                 self.elements["qtdemux"].connect("pad-added", self._on_pad_added)
                 self.elements["h264parse"].link(self.elements["decoder"])
             else:
-                # USB Camera (MJPG): source → caps → queue → jpegparse → decoder → muxer
+                # USB Camera (MJPG): source → caps → queue → jpegparse → decoder → hwconvert → muxer
                 self._link(self.elements["source"], self.elements["capsfilter"])
                 self._link(self.elements["capsfilter"], self.elements["cam_queue"])
                 self._link(self.elements["cam_queue"], self.elements["jpegparse"])
                 self._link(self.elements["jpegparse"], self.elements["decoder"])
+                self._link(self.elements["decoder"], self.elements["hwconvert"])
 
             # Common StreamMux Link
             sink_pad = self.elements["muxer"].get_request_pad("sink_0")
-            src_pad = self.elements["decoder"].get_static_pad("src")
+            src_pad = self.elements["hwconvert" if "hwconvert" in self.elements else "decoder"].get_static_pad("src")
             src_pad.link(sink_pad)
 
             # Core: muxer -> pgie -> nvvidconv -> nvosd -> tee
