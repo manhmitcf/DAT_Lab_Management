@@ -17,6 +17,7 @@ except ImportError:
     pass
 
 from core.config import ConfigManager
+from core.model_converter import check_and_convert_models
 from services.analytics.tracking_service import TrackingService
 from services.analytics.counting_service import CountingService
 from services.analytics.mapping_service import MappingService
@@ -35,9 +36,13 @@ class AuraAnalyticsApp:
         self.settings_sub = None
         self.services = {}
         
+        # Load System & YOLOX configs early (used by model_converter + pipeline)
+        self.system_cfg = ConfigManager.get_system_config()
+        self.yolox_cfg = ConfigManager.get_yolox_config()
+        
         # Configuration paths
         self.config_paths = {
-            "tracking": "config/tracking_config.json",
+            "tracking": "config/ocsort_config.json",
             "counting": "config/counting_config.json",
             "mapping": "config/mapping_config.json",
             "infer": os.getenv("CONFIG_INFER", "config/config_infer.txt")
@@ -46,6 +51,8 @@ class AuraAnalyticsApp:
     def _setup_services(self):
         """Initialize all business logic services."""
         logger.info("[App] Initializing core services...")
+        logger.info(f"[App] System: device={self.system_cfg.device}, fp16={self.system_cfg.fp16}, trt={self.system_cfg.trt}")
+        logger.info(f"[App] YOLOX:  engine={self.yolox_cfg.engine_path}, conf={self.yolox_cfg.conf_thresh}, nms={self.yolox_cfg.nms_thresh}")
         
         # 1. Load Configs via ConfigManager
         tracking_cfg = ConfigManager.get_ocsort_config(self.config_paths["tracking"])
@@ -85,7 +92,8 @@ class AuraAnalyticsApp:
         try:
             self.pipeline_manager.build_pipeline(
                 source_uri=video_source,
-                config_infer=self.config_paths["infer"]
+                config_infer=self.config_paths["infer"],
+                yolox_cfg=self.yolox_cfg,
             )
             self.pipeline_manager.attach_probe(probe)
         except Exception as e:
@@ -139,6 +147,12 @@ class AuraAnalyticsApp:
         logger.info("=== Starting Aura Analytics Application ===")
         
         try:
+            # 0. Auto-convert model if needed (PTH → ONNX → TensorRT)
+            check_and_convert_models(
+                yolox_cfg=self.yolox_cfg,
+                system_cfg=self.system_cfg,
+            )
+            
             self._setup_services()
             self._setup_pipeline()
             self._setup_hot_reload()
