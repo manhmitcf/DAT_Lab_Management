@@ -4,6 +4,10 @@ Orchestrates Tracking, Counting, Mapping, and Result Publishing.
 Handles metadata extraction and visual injection for OSD.
 """
 
+import gi
+gi.require_version('Gst', '1.0')
+from gi.repository import Gst
+
 import time
 from datetime import datetime, timezone
 import numpy as np
@@ -38,96 +42,78 @@ class AnalyticsProbe:
         
         self.warning_threshold = warning_threshold
         self.critical_threshold = critical_threshold
-        self._frame_count = 0
-        self._fps_start_time = time.time()
-        self._fps_frame_count = 0
 
         # Visual styles (matching legacy)
         self.line_color = (255, 0, 255, 1.0)  # Magenta (RGBA for pyds)
         self.text_color = (1.0, 1.0, 1.0, 1.0)  # White
         
         # High-contrast colors for tracks (Zeno's Dichotomy replication simplified)
-        self.color_palette = self._generate_palette(100)
+        self.color_palette = self._generate_palette(256)
 
-    def _generate_palette(self, n: int):
-        """Replicate legacy color palette logic."""
+        # Performance Monitoring
+        self.frame_count = 0
+        self.fps_start_time = time.time()
+        self.current_fps = 0.0
+
+    @staticmethod
+    def _generate_palette(n: int):
+        """Generate colors with maximum contrast between consecutive IDs using golden angle."""
+        import colorsys
+        golden_angle = 0.618033988749895  # 1 / golden_ratio
         palette = []
         for i in range(n):
-            # Simple high-contrast generation for now
-            r = (i * 37) % 255
-            g = (i * 71) % 255
-            b = (i * 113) % 255
-            palette.append((r / 255.0, g / 255.0, b / 255.0, 1.0))
+            hue = (i * golden_angle) % 1.0  # golden angle spacing
+            saturation = 0.9 if (i % 2 == 0) else 0.7  # alternate saturation
+            value = 1.0 if (i % 3 != 0) else 0.85       # alternate brightness
+            r, g, b = colorsys.hsv_to_rgb(hue, saturation, value)
+            palette.append((r, g, b, 1.0))
         return palette
-
-    def _calc_fps(self) -> float:
-        """Calculate real processing FPS."""
-        self._fps_frame_count += 1
-        now = time.time()
-        elapsed = now - self._fps_start_time
-        if elapsed > 0:
-            fps = self._fps_frame_count / elapsed
-        else:
-            fps = 0.0
-        # Reset every 30 frames for rolling average
-        if self._fps_frame_count >= 30:
-            self._fps_start_time = now
-            self._fps_frame_count = 0
-        return fps
 
     def probe_callback(self, pad, info, u_data):
         """
         GStreamer Pad Probe Callback.
         """
-        import sys
-        try:
-            gst_buffer = info.get_buffer()
-            if not gst_buffer:
-                logger.error("Unable to get GstBuffer from probe info")
-                return pyds.GST_PAD_PROBE_OK
+        gst_buffer = info.get_buffer()
+        if not gst_buffer:
+            logger.error("Unable to get GstBuffer from probe info")
+            return Gst.PadProbeReturn.OK
 
-            # Quick heartbeat every 30 frames
-            self._frame_count += 1
-            if self._frame_count % 30 == 1:
-                print(f"[PROBE HEARTBEAT] frame_count={self._frame_count}", file=sys.stderr, flush=True)
+        # 1. Access Batch Metadata
+        batch_meta = pyds.gst_buffer_get_nvds_batch_meta(hash(gst_buffer))
+        l_frame = batch_meta.frame_meta_list
+        
+        while l_frame is not None:
+            try:
+                frame_meta = pyds.NvDsFrameMeta.cast(l_frame.data)
+            except StopIteration:
+                break
 
-            # 1. Access Batch Metadata
-            batch_meta = pyds.gst_buffer_get_nvds_batch_meta(hash(gst_buffer))
-            l_frame = batch_meta.frame_meta_list
-            
-            while l_frame is not None:
-                try:
-                    frame_meta = pyds.NvDsFrameMeta.cast(l_frame.data)
-                except StopIteration:
-                    break
+            self._process_frame_meta(frame_meta, batch_meta)
 
-                self._process_frame_meta(frame_meta, batch_meta)
+            try:
+                l_frame = l_frame.next
+            except StopIteration:
+                break
 
-                try:
-                    l_frame = l_frame.next
-                except StopIteration:
-                    break
-
-        except Exception as e:
-            print(f"[PROBE CRASH] {type(e).__name__}: {e}", file=sys.stderr, flush=True)
-            import traceback
-            traceback.print_exc(file=sys.stderr)
-
-        return pyds.GST_PAD_PROBE_OK
+        return Gst.PadProbeReturn.OK
 
     def _process_frame_meta(self, frame_meta, batch_meta):
         """Extract objects, run services, and update metadata."""
         frame_id = frame_meta.frame_num
         timestamp = datetime.now(timezone.utc)
-        self._frame_count += 1
         
         # 1. Extract raw detections from nvinfer metadata
         detections = []
-        l_obj = frame_meta.object_meta_list
+        l_obj = frame_meta.obj_meta_list
         while l_obj is not None:
             try:
                 obj_meta = pyds.NvDsObjectMeta.cast(l_obj.data)
                 rect = obj_meta.rect_params
+                
+                # ALWAYS set border so bbox is visible on nvdsosd/Janus
+                rect.border_width = 3
+                rect.border_color.set(0.0, 1.0, 0.0, 1.0)  # Green
+                
                 # Format: [x1, y1, x2, y2, score, class_id]
                 detections.append([
                     rect.left, 
@@ -146,22 +132,33 @@ class AnalyticsProbe:
             self.counting_service.update([], [])
             self._send_empty_frame(frame_meta, timestamp)
             self._draw_osd(frame_meta, batch_meta)
-            if self._frame_count % 30 == 0:
-                fps = self._calc_fps()
-                logger.info(f"[Probe] Frame #{frame_id} | FPS: {fps:.1f} | Detections: 0 | Occ: {self.counting_service.current_people}")
             return
+
+        # DEBUG: Log detection details for first 10 frames to diagnose OCSort
+        if frame_id <= 10:
+            for idx, d in enumerate(detections):
+                logger.debug(f"  [Frame {frame_id}] Det#{idx}: bbox=({d[0]:.0f},{d[1]:.0f},{d[2]:.0f},{d[3]:.0f}) score={d[4]:.4f} class={d[5]}")
 
         # 2. Run Tracking (C++ OCSort)
         detections_np = np.array(detections, dtype=np.float32)
         img_size = (frame_meta.source_frame_width, frame_meta.source_frame_height)
         tracked_objects = self.tracking_service.update(detections_np, img_size, img_size)
         
-        # tracked_objects format: [x1, y1, x2, y2, track_id, class_id]
-        bboxes_xyxy = tracked_objects[:, :4].tolist()
-        track_ids = tracked_objects[:, 4].astype(int).tolist()
-
-        # 3. Sync Track IDs back to NvDsObjectMeta for nvdsosd
-        self._sync_track_ids(frame_meta, tracked_objects)
+        # DEBUG: Log OCSort output
+        if frame_id <= 10:
+            logger.debug(f"  [Frame {frame_id}] OCSort returned {len(tracked_objects)} tracks")
+        
+        # 3. Use tracked results if available, otherwise fall back to raw detections
+        if len(tracked_objects) > 0:
+            bboxes_xyxy = tracked_objects[:, :4].tolist()
+            track_ids = tracked_objects[:, 4].astype(int).tolist()
+            # Sync Track IDs back to NvDsObjectMeta for nvdsosd
+            self._sync_track_ids(frame_meta, tracked_objects)
+        else:
+            # OCSort hasn't confirmed any tracks yet — use raw detections
+            # This matches legacy Python behavior where detections are still counted
+            bboxes_xyxy = [[d[0], d[1], d[2], d[3]] for d in detections]
+            track_ids = list(range(len(detections)))  # temporary IDs
 
         # 4. Run Counting Service
         self.counting_service.update(bboxes_xyxy, track_ids)
@@ -194,6 +191,16 @@ class AnalyticsProbe:
         elif current_people >= self.warning_threshold:
             alert = "warning"
 
+        # 7.5. Calculate FPS
+        self.frame_count += 1
+        if self.frame_count % 30 == 0:
+            elapsed = time.time() - self.fps_start_time
+            self.current_fps = 30.0 / elapsed if elapsed > 0 else 0.0
+            self.fps_start_time = time.time()
+            
+            # Print to log
+            logger.info(f"[Probe] Frame #{frame_id} | FPS: {self.current_fps:.1f} | Detections: {len(detections)} | Tracked: {len(tracked_objects)} | In: {self.counting_service.count_in} | Out: {self.counting_service.count_out} | Occ: {current_people}")
+
         # 8. Create FrameData
         frame_data = FrameData(
             timestamp=timestamp,
@@ -205,44 +212,52 @@ class AnalyticsProbe:
             height_2D=self.mapping_service._map_size[1] if self.mapping_service._map_size else 0,
             width_2D=self.mapping_service._map_size[0] if self.mapping_service._map_size else 0,
             objects=objects,
-            alert=alert
+            alert=alert,
+            fps=self.current_fps if self.current_fps > 0 else None
         )
 
         # 9. Publish results
         self.publisher.send_frame(frame_data)
 
-        # Log periodically (every 30 frames)
-        if self._frame_count % 30 == 0:
-            fps = self._calc_fps()
-            logger.info(f"[Probe] Frame #{frame_id} | FPS: {fps:.1f} | Detections: {len(detections)} | Tracked: {len(tracked_objects)} | Occ: {current_people}")
-
         # 10. Draw OSD metadata (Counting Line, Counts)
         self._draw_osd(frame_meta, batch_meta)
 
     def _sync_track_ids(self, frame_meta, tracked_objects):
-        """Update NvDsObjectMeta with OCSort Track IDs and colors."""
-        l_obj = frame_meta.object_meta_list
+        """Update NvDsObjectMeta with OCSort Track IDs and per-ID colors."""
+        l_obj = frame_meta.obj_meta_list
         while l_obj is not None:
             try:
                 obj_meta = pyds.NvDsObjectMeta.cast(l_obj.data)
                 rect = obj_meta.rect_params
+                cx = rect.left + rect.width / 2.0
+                cy = rect.top + rect.height / 2.0
                 
-                # Match by position (heuristics for DeepStream metadata sync)
+                # Find closest tracked object by center distance
+                best_dist = float('inf')
+                best_tid = -1
                 for obj in tracked_objects:
-                    # Allowing small epsilon for floating point matches
-                    if abs(rect.left - obj[0]) < 1.0 and abs(rect.top - obj[1]) < 1.0:
-                        tid = int(obj[4])
-                        obj_meta.object_id = tid
-                        
-                        # Apply legacy-style color
-                        color = self.color_palette[tid % len(self.color_palette)]
-                        rect.border_color.set(*color)
-                        rect.border_width = 2
-                        
-                        # Set ID text
-                        obj_meta.text_params.display_text = f"ID:{tid}"
-                        obj_meta.text_params.font_params.font_size = 12
-                        break
+                    tcx = (obj[0] + obj[2]) / 2.0
+                    tcy = (obj[1] + obj[3]) / 2.0
+                    dist = (cx - tcx) ** 2 + (cy - tcy) ** 2
+                    if dist < best_dist:
+                        best_dist = dist
+                        best_tid = int(obj[4])
+                
+                if best_tid >= 0:
+                    obj_meta.object_id = best_tid
+                    
+                    # Unique color per track ID
+                    color = self.color_palette[best_tid % len(self.color_palette)]
+                    rect.border_color.set(*color)
+                    rect.border_width = 3
+                    
+                    # ID label with colored background
+                    obj_meta.text_params.display_text = f"ID:{best_tid}"
+                    obj_meta.text_params.font_params.font_name = "Serif"
+                    obj_meta.text_params.font_params.font_size = 12
+                    obj_meta.text_params.font_params.font_color.set(1.0, 1.0, 1.0, 1.0)
+                    obj_meta.text_params.set_bg_clr = 1
+                    obj_meta.text_params.text_bg_clr.set(color[0], color[1], color[2], 0.6)
                 
                 l_obj = l_obj.next
             except StopIteration:
