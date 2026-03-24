@@ -30,15 +30,23 @@ class PipelineManager:
         self.elements = {}
         self.is_running = False
 
-    def build_pipeline(self, source_uri: str, config_infer: str):
+    def build_pipeline(self, source_uri: str, config_infer: str, yolox_cfg=None):
         """
         Build the DeepStream pipeline graph.
         
+        Args:
+            source_uri: Path to video file or RTSP URL.
+            config_infer: Path to nvinfer config file.
+            yolox_cfg: YOLOXConfig Pydantic model for overriding inference params.
+
         Structure: 
         filesrc/v4l2src -> h264parse -> nvv4l2decoder -> nvstreammux -> 
-        nvinfer (YOLOX) -> nvvideoconvert -> nvdsosd -> nveglglessink/fakesink
+        nvinfer (YOLOX) -> nvvideoconvert -> nvdsosd -> tee -> [sink | janus]
         """
         logger.info(f"[Pipeline] Building pipeline for source: {source_uri}")
+        if yolox_cfg:
+            logger.info(f"[Pipeline] YOLOX engine: {yolox_cfg.engine_path}")
+            logger.info(f"[Pipeline] YOLOX conf={yolox_cfg.conf_thresh}, nms={yolox_cfg.nms_thresh}")
 
         # 1. Create Elements
         try:
@@ -65,10 +73,17 @@ class PipelineManager:
                 {"width": 1920, "height": 1080, "batch-size": 1, "batched-push-timeout": 40000}
             )
             
+            # nvinfer: base config from file, then override with YOLOXConfig
+            pgie_props = {"config-file-path": config_infer}
             self.elements["pgie"] = ElementFactory.create_and_configure(
-                "nvinfer", "primary-inference",
-                {"config-file-path": config_infer}
+                "nvinfer", "primary-inference", pgie_props
             )
+            
+            # Override nvinfer with YOLOXConfig values (engine path, thresholds)
+            if yolox_cfg:
+                pgie = self.elements["pgie"]
+                pgie.set_property("model-engine-file", yolox_cfg.engine_path)
+                logger.info(f"[Pipeline] nvinfer model-engine-file → {yolox_cfg.engine_path}")
             
             # Visualization & Sink
             self.elements["nvvidconv"] = ElementFactory.create("nvvideoconvert", "nvvideo-converter")
