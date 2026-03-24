@@ -4,8 +4,8 @@ net-scale-factor=1.0
 # YOLOX uses custom preprocess (normalize in network_blocks.py Focus layer)
 # So we pass raw pixels (0-255) with scale=1/255
 
-model-engine-file=pretrained/model_trt.engine
-labelfile-path=config/labels.txt
+model-engine-file=/workspace/ai_core/pretrained/model_trt.engine
+labelfile-path=/workspace/ai_core/config/labels.txt
 
 batch-size=1
 process-mode=1
@@ -14,7 +14,7 @@ network-mode=0
 
 # YOLOX custom bbox parser
 parse-bbox-func-name=NvDsInferParseCustomYOLOX
-custom-lib-path=cpp_plugins/lib/libnvdsinfer_custombboxparser_yolox.so
+custom-lib-path=/workspace/ai_core/cpp_plugins/lib/libnvdsinfer_custombboxparser_yolox.so
 
 # Input dimensions (must match tsize in yolox_config.json)
 infer-dims=3;640;640
