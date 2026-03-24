@@ -111,15 +111,20 @@ class PipelineManager:
             )
             self.elements["encoder"] = ElementFactory.create_and_configure(
                 "nvv4l2h264enc", "janus-h264-enc",
-                {"bitrate": 4000000, "preset-level": 1, "insert-sps-pps": True, "bufapi-version": True}
+                {
+                    "bitrate": int(os.getenv("VIDEO_BITRATE", "1200000")),
+                    "preset-level": 1,
+                    "insert-sps-pps": True,
+                    "bufapi-version": True,
+                }
             )
             self.elements["h264parse_janus"] = ElementFactory.create("h264parse", "janus-h264-parser")
             self.elements["rtppay"] = ElementFactory.create("rtph264pay", "janus-rtp-pay")
             self.elements["udpsink"] = ElementFactory.create_and_configure(
                 "udpsink", "janus-udp-sink",
                 {
-                    "host": os.getenv("JANUS_HOST", "127.0.0.1"),
-                    "port": int(os.getenv("JANUS_PORT", "5004")),
+                    "host": os.getenv("JANUS_SERVER_IP", "127.0.0.1"),
+                    "port": int(os.getenv("JANUS_UDP_PORT", "8004")),
                     "async": False,
                     "sync": True
                 }

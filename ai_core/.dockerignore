@@ -1,8 +1,29 @@
+# Exclude large/unnecessary files from Docker build context
 pretrained/
 videos/
+logs/
+YOLOX_outputs/
+
+# Git & IDE
 .git/
-__pycache__/
-*.pyc
+.gitignore
 .idea/
 .vscode/
-YOLOX_outputs/
+.gemini/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# C++ build artifacts (rebuilt inside container)
+cpp_plugins/*/build/
+*.so
+
+# Documentation (not needed in container)
+*.md
+!requirements.txt
+LICENSE

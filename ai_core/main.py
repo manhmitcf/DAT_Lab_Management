@@ -1,196 +1,203 @@
-import os
-import time
-import cv2
-import requests
-from datetime import datetime, timezone
+"""
+Aura Analytics - Main Entry Point
+High-performance AI detection and tracking pipeline for NVIDIA Jetson.
+"""
 
+import os
+import sys
+import signal
+from typing import Tuple
+from loguru import logger
+
+# Load environment logic
 try:
-    # Load .env if python-dotenv is available
     from dotenv import load_dotenv
     load_dotenv()
 except ImportError:
     pass
 
-from config.data_config import OCSortConfig, CountingConfig, MappingConfig
-from services.pipeline_service import PipelineService
-from services.backend_gateway import ResultPublisher, SettingsSubscriber
-from loguru import logger
+from core.config import ConfigManager
+from core.model_converter import check_and_convert_models
+from core.camera_validator import CameraValidator
+from services.analytics.tracking_service import TrackingService
+from services.analytics.counting_service import CountingService
+from services.analytics.mapping_service import MappingService
+from services.gateway.backend_gateway import ResultPublisher, SettingsSubscriber
+from services.pipeline.manager import PipelineManager
+from services.pipeline.probe import AnalyticsProbe
 
-def setup_pipeline(video_size, map_size):
-    """Initialize configuration and setup the main pipeline."""
-    logger.info("Setting up pipeline configurations...")
-    tracking_cfg = OCSortConfig("config/tracking_config.json")
-    counting_cfg = CountingConfig("config/counting_config.json")
-    mapping_cfg = MappingConfig("config/mapping_config.json")
 
-    pipeline = PipelineService(
-        tracking_config=tracking_cfg,
-        counting_config=counting_cfg,
-        mapping_config=mapping_cfg,
-        video_size=video_size,
-        map_size=map_size,
-    )
-    logger.success("Pipeline setup complete.")
-    return pipeline
+class AuraAnalyticsApp:
+    """
+    Main Application class to coordinate services and the DeepStream pipeline.
+    """
 
-def create_settings_subscriber(pipeline, video_size):
-    """Create a subscriber to handle settings updates from backend."""
-    def handle_mapping_update(data):
-        logger.info("Received MAPPING update from backend")
+    def __init__(self):
+        self.pipeline_manager = PipelineManager()
+        self.settings_sub = None
+        self.services = {}
+        
+        # Load System & YOLOX configs early (used by model_converter + pipeline)
+        self.system_cfg = ConfigManager.get_system_config()
+        self.yolox_cfg = ConfigManager.get_yolox_config()
+        
+        # Configuration paths
+        self.config_paths = {
+            "tracking": "config/ocsort_config.json",
+            "counting": "config/counting_config.json",
+            "mapping": "config/mapping_config.json",
+            "infer": os.getenv("CONFIG_INFER", "config/config_infer.txt")
+        }
+
+    def _setup_services(self):
+        """Initialize all business logic services."""
+        logger.info("[App] Initializing core services...")
+        logger.info(f"[App] System: device={self.system_cfg.device}, fp16={self.system_cfg.fp16}, trt={self.system_cfg.trt}")
+        logger.info(f"[App] YOLOX:  engine={self.yolox_cfg.engine_path}, conf={self.yolox_cfg.conf_thresh}, nms={self.yolox_cfg.nms_thresh}")
+        
+        # 1. Load Configs via ConfigManager
+        tracking_cfg = ConfigManager.get_ocsort_config(self.config_paths["tracking"])
+        counting_cfg = ConfigManager.get_counting_config(self.config_paths["counting"])
+        mapping_cfg = ConfigManager.get_mapping_config(self.config_paths["mapping"])
+
+        # 2. Instantiate Services
+        # Default 1080p, will sync with actual source resolution in probe
+        init_size = (1920, 1080)
+        
+        self.services["tracking"] = TrackingService(config=tracking_cfg)
+        self.services["counting"] = CountingService(counting_config=counting_cfg, current_frame_size=init_size)
+        self.services["mapping"] = MappingService(config=mapping_cfg)
+        
+        self.services["publisher"] = ResultPublisher(
+            endpoint=os.getenv("RESULTS_WS_URL"),
+            bearer_token=os.getenv("API_BEARER_TOKEN")
+        )
+        
+        logger.success("[App] Services initialized.")
+
+    def _setup_pipeline(self):
+        """Assemble the GStreamer pipeline and attach the analytics probe."""
+        video_source = os.getenv("VIDEO_SOURCE") or os.getenv("INPUT_VIDEO_SOURCE", "/dev/video0")
+        
+        # 0. Validate camera/video source before building pipeline
+        cam_info = CameraValidator.check(video_source)
+        if not cam_info.is_valid:
+            logger.critical(f"[App] Video source validation FAILED: {video_source}")
+            for err in cam_info.errors:
+                logger.error(f"  → {err}")
+            raise RuntimeError(f"Invalid video source: {video_source}")
+        
+        # 1. Initialize Probe
+        probe = AnalyticsProbe(
+            tracking_service=self.services["tracking"],
+            counting_service=self.services["counting"],
+            mapping_service=self.services["mapping"],
+            publisher=self.services["publisher"],
+            warning_threshold=int(os.getenv("ALERT_WARNING_THRESH", 25)),
+            critical_threshold=int(os.getenv("ALERT_CRITICAL_THRESH", 50))
+        )
+
+        # 2. Build Pipeline
         try:
-            correspondences = data.get("correspondences", [])
-            camera_points = []
-            map_points = []
-            for item in correspondences:
-                cam = item.get("camera")
-                mp = item.get("map")
-                if cam and mp:
-                    camera_points.append((float(cam[0]), float(cam[1])))
-                    map_points.append((float(mp[0]), float(mp[1])))
-            
-            img_size = data.get("image_size", {})
-            camera_size_config = (int(img_size.get("width", 1920)), int(img_size.get("height", 1080)))
-            
-            m_size = data.get("map_size", {})
-            map_size_config = (int(m_size.get("width", 723)), int(m_size.get("height", 1266)))
-            
-            pipeline.mapping_service.update_mapping(
-                camera_points=camera_points,
-                map_points=map_points,
-                camera_size=camera_size_config,
-                map_size=map_size_config
+            self.pipeline_manager.build_pipeline(
+                source_uri=video_source,
+                config_infer=self.config_paths["infer"],
+                yolox_cfg=self.yolox_cfg,
             )
-            logger.success("Mapping service updated successfully")
+            self.pipeline_manager.attach_probe(probe)
         except Exception as e:
-            logger.error(f"Error updating Mapping service: {e}")
+            logger.critical(f"[App] Failed to construct pipeline: {e}")
+            raise
 
-    def handle_counting_update(data):
-        logger.info("Received COUNTING update from backend")
-        try:
-            pipeline.counting_service.update_config(
-                line_start=tuple(data.get("line_start")),
-                line_end=tuple(data.get("line_end")),
-                inside_point=tuple(data.get("inside_point")),
-                crossing_margin=data.get("crossing_margin", 10),
-                source_frame_size=(data.get("frame_width", 1920), data.get("frame_height", 1080)),
-                current_frame_size=video_size
-            )
-            logger.success("Counting service updated successfully")
-        except Exception as e:
-            logger.error(f"Error updating Counting service: {e}")
-
-    return SettingsSubscriber(
-        on_mapping_update=handle_mapping_update,
-        on_counting_update=handle_counting_update
-    )
-
-def main():
-    logger.info("Starting main application...")
-    video_path = "./videos/demo.mp4"
-    map_path = "videos/map2d.jpg"
-
-    # Read map image just to get its dimensions
-    logger.info(f"Loading map image from: {map_path}")
-    map_image = cv2.imread(map_path)
-    if map_image is None:
-        logger.error(f"Failed to read map image from {map_path}")
-        raise RuntimeError(f"Failed to read map image {map_path}")
-    map_h, map_w = map_image.shape[:2]
-    map_size = (int(map_w), int(map_h))
-    logger.info(f"Map size configured as: {map_size}")
-
-    # Open video capture
-    logger.info(f"Opening video file: {video_path}")
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        logger.error(f"Failed to open video from {video_path}")
-        raise RuntimeError(f"Failed to open video {video_path}")
-
-    width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
-    height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
-    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-    target_fps = fps if fps and fps > 1e-3 else 30.0
-    target_dt = 1.0 / target_fps
-    
-    if width == 0 or height == 0:
-        logger.error("Video has zero width/height. Cannot process.")
-        raise RuntimeError("Video has zero width/height; cannot process")
-
-    video_size = (int(width), int(height))
-    logger.info(f"Video loaded successfully. Size: {video_size}, FPS: {fps:.2f}, Target dt: {target_dt:.4f}s")
-
-    # Initialize Pipeline and Publisher
-    pipeline = setup_pipeline(video_size, map_size)
-    publisher = ResultPublisher()
-    
-    # Initialize Settings Subscriber
-    logger.info("Starting settings subscriber for backend updates...")
-    settings_sub = create_settings_subscriber(pipeline, video_size)
-    settings_sub.start()
-
-    frame_id = 0
-    start_time = time.time()
-    
-    logger.info("Entering main processing loop...")
-    try:
-        while True:
-            loop_start = time.perf_counter()
-            
-            ret_val, frame = cap.read()
-            if not ret_val:
-                logger.info("End of video stream reached.")
-                break
-                
-            frame_id += 1
-
-            # Get timestamp for current frame
-            ts_msec = cap.get(cv2.CAP_PROP_POS_MSEC)
-            if ts_msec and ts_msec > 0:
-                ts_dt = datetime.fromtimestamp(ts_msec / 1000.0, tz=timezone.utc)
-            else:
-                ts_dt = datetime.now(timezone.utc)
-
-            # Process frame using pipeline
-            frame_data = pipeline.process_frame(frame=frame, frame_id=frame_id, timestamp=ts_dt)
-            
-            # Log periodic statistics (e.g., every 30 frames)
-            if frame_id % 30 == 0:
-                current_count = max(0, frame_data.count_in - frame_data.count_out)
-                logger.debug(
-                    f"Frame {frame_id:04d} | Tracks: {len(frame_data.objects):02d} | "
-                    f"In: {frame_data.count_in:02d} | Out: {frame_data.count_out:02d} | "
-                    f"Current: {current_count:02d}"
-                )
-
-            # Send processing results to backend
+    def _setup_hot_reload(self):
+        """Configure SettingsSubscriber for live updates from backend."""
+        logger.info("[App] Starting SettingsSubscriber...")
+        
+        def on_mapping_update(data):
+            logger.info("[App:HotReload] Applying new Mapping config...")
             try:
-                publisher.send_frame(frame_data)
-            except requests.RequestException as exc:
-                logger.error(f"Failed to publish frame {frame_id}: {exc}")
+                # Basic normalization of backend data
+                img_size = data.get("image_size", {})
+                m_size = data.get("map_size", {})
+                
+                self.services["mapping"].update_mapping(
+                    camera_points=[(float(c[0]), float(c[1])) for c in data.get("correspondences_camera", [])],
+                    map_points=[(float(m[0]), float(m[1])) for m in data.get("correspondences_map", [])],
+                    camera_size=(int(img_size.get("width", 1920)), int(img_size.get("height", 1080))),
+                    map_size=(int(m_size.get("width", 1000)), int(m_size.get("height", 1000)))
+                )
+                logger.success("[App:HotReload] Mapping updated.")
+            except Exception as e:
+                logger.error(f"[App:HotReload] Mapping update failed: {e}")
 
-            # Match target FPS by sleeping if processing is faster than target dt
-            elapsed = time.perf_counter() - loop_start
-            if elapsed < target_dt:
-                time.sleep(target_dt - elapsed)
+        def on_counting_update(data):
+            logger.info("[App:HotReload] Applying new Counting config...")
+            try:
+                self.services["counting"].update_config(
+                    line_start=tuple(data.get("line_start")),
+                    line_end=tuple(data.get("line_end")),
+                    inside_point=tuple(data.get("inside_point")),
+                    crossing_margin=data.get("crossing_margin", 10.0),
+                    source_frame_size=(data.get("frame_width", 1920), data.get("frame_height", 1080)),
+                    current_frame_size=(1920, 1080) # Sync with actual if possible
+                )
+                logger.success("[App:HotReload] Counting updated.")
+            except Exception as e:
+                logger.error(f"[App:HotReload] Counting update failed: {e}")
 
-    except KeyboardInterrupt:
-        logger.warning("Processing interrupted by user (KeyboardInterrupt).")
-    except Exception as e:
-        logger.exception(f"An unexpected error occurred during processing: {e}")
-    finally:
-        logger.info("Cleaning up resources...")
-        settings_sub.stop()
-        cap.release()
+        self.settings_sub = SettingsSubscriber(
+            on_mapping_update=on_mapping_update,
+            on_counting_update=on_counting_update
+        )
+        self.settings_sub.start()
 
-    end_time = time.time()
-    total_time = end_time - start_time
-    avg_fps = frame_id / total_time if total_time > 0 else 0
-    logger.success(
-        f"Processing finished successfully.\n"
-        f"Total frames processed: {frame_id}\n"
-        f"Total time taken: {total_time:.2f}s\n"
-        f"Average FPS: {avg_fps:.2f}"
-    )
+    def run(self):
+        """Main execution entry point."""
+        logger.info("=== Starting Aura Analytics Application ===")
+        
+        try:
+            # 0. Auto-convert model if needed (PTH → ONNX → TensorRT)
+            check_and_convert_models(
+                yolox_cfg=self.yolox_cfg,
+                system_cfg=self.system_cfg,
+            )
+            
+            self._setup_services()
+            self._setup_pipeline()
+            self._setup_hot_reload()
+            
+            # Start the GStreamer Main Loop
+            self.pipeline_manager.run()
+            
+        except KeyboardInterrupt:
+            logger.warning("[App] Implementation interrupted by user (SIGINT).")
+        except Exception as e:
+            logger.exception(f"[App] Fatal error during execution: {e}")
+        finally:
+            self.shutdown()
+
+    def shutdown(self):
+        """Graceful resource cleanup."""
+        logger.info("[App] Shutdown sequence initiated...")
+        
+        if self.settings_sub:
+            self.settings_sub.stop()
+            
+        self.pipeline_manager.stop()
+        
+        logger.success("=== Aura Analytics Shutdown Complete ===")
+
+
+def signal_handler(sig, frame):
+    """Bridge OS signals to the Application shutdown."""
+    logger.warning(f"[System] Signal {sig} received.")
+    sys.exit(0)
+
 
 if __name__ == "__main__":
-    main()
+    # Register OS signals for Docker/Process management
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    app = AuraAnalyticsApp()
+    app.run()
