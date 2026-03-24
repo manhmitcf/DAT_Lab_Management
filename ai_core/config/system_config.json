@@ -1,6 +1,4 @@
 {
     "device": "gpu",
-    "fp16": false,
-    "trt": true,
-    "num_workers": 4
+    "fp16": true
 }

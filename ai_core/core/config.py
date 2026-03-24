@@ -16,8 +16,6 @@ class SystemConfig(BaseModel):
     """Common hardware and backend settings."""
     device: str = Field(default="gpu")
     fp16: bool = Field(default=False)
-    trt: bool = Field(default=True)
-    num_workers: int = Field(default=4)
     
     model_config = ConfigDict(extra="ignore")
 
