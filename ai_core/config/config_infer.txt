@@ -1,0 +1,30 @@
+[property]
+gpu-id=0
+net-scale-factor=1.0
+# YOLOX uses custom preprocess (normalize in network_blocks.py Focus layer)
+# So we pass raw pixels (0-255) with scale=1/255
+
+model-engine-file=pretrained/model_trt.engine
+labelfile-path=config/labels.txt
+
+batch-size=1
+process-mode=1
+model-color-format=0
+network-mode=0
+
+# YOLOX custom bbox parser
+parse-bbox-func-name=NvDsInferParseCustomYOLOX
+custom-lib-path=cpp_plugins/lib/libnvdsinfer_custombboxparser_yolox.so
+
+# Input dimensions (must match tsize in yolox_config.json)
+infer-dims=3;640;640
+
+## 0=FP32, 1=INT8, 2=FP16
+network-type=0
+num-detected-classes=1
+gie-unique-id=1
+output-blob-names=output
+
+[class-attrs-all]
+pre-cluster-threshold=0.1
+nms-iou-threshold=0.7
