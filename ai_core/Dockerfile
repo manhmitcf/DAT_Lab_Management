@@ -1,6 +1,6 @@
 # Sử dụng base image chính thức của Nvidia dành cho Jetson (Jetpack 6.x) đã cài sẵn PyTorch 2.2
 # Image này tương thích hoàn hảo với Jetson Orin Nano 8GB
-FROM nvcr.io/nvidia/l4t-pytorch:r36.3.0-pth2.2-py3
+FROM nvcr.io/nvidia/l4t-pytorch:r32.7.1-pth1.10-py3
 
 # Tránh bị hỏi tương tác khi cài apt-get
 ENV DEBIAN_FRONTEND=noninteractive
