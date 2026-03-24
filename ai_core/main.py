@@ -137,13 +137,24 @@ class AuraAnalyticsApp:
         def on_mapping_update(data):
             logger.info("[App:HotReload] Applying new Mapping config...")
             try:
+                # Parse correspondences from backend (list of {camera: [x,y], map: [x,y]})
+                correspondences = data.get("correspondences", [])
+                camera_pts = []
+                map_pts = []
+                for item in correspondences:
+                    cam = item.get("camera")
+                    mp = item.get("map")
+                    if cam and mp:
+                        camera_pts.append((float(cam[0]), float(cam[1])))
+                        map_pts.append((float(mp[0]), float(mp[1])))
+
                 # Basic normalization of backend data
                 img_size = data.get("image_size", {})
                 m_size = data.get("map_size", {})
                 
                 self.services["mapping"].update_mapping(
-                    camera_points=[(float(c[0]), float(c[1])) for c in data.get("correspondences_camera", [])],
-                    map_points=[(float(m[0]), float(m[1])) for m in data.get("correspondences_map", [])],
+                    camera_points=camera_pts,
+                    map_points=map_pts,
                     camera_size=(int(img_size.get("width", 1920)), int(img_size.get("height", 1080))),
                     map_size=(int(m_size.get("width", 1000)), int(m_size.get("height", 1000)))
                 )
