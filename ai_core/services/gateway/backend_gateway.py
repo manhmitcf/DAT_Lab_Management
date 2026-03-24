@@ -164,42 +164,58 @@ class SettingsSubscriber:
         """Log WebSocket close events."""
         logger.info(f"[SettingsSubscriber] Closed: {close_status_code} - {close_msg}")
 
-    def _run_ws_loop(self, url: str, on_message_fn) -> None:
-        """Generic reconnection loop for a single WebSocket channel."""
+    def _run_mapping_ws(self) -> None:
+        """Reconnection loop for the mapping settings WebSocket."""
         while not self._stop_event.is_set():
-            if not url:
+            if not self.mapping_url:
                 break
-            logger.info(f"[SettingsSubscriber] Connecting -> {url}")
-            ws_app = websocket.WebSocketApp(
-                url,
+            logger.info(f"[SettingsSubscriber] Connecting -> {self.mapping_url}")
+            self.mapping_ws = websocket.WebSocketApp(
+                self.mapping_url,
                 header=self._get_headers(),
-                on_message=on_message_fn,
+                on_message=self._on_mapping_message,
                 on_error=self._on_error,
                 on_close=self._on_close,
             )
-            ws_app.run_forever(ping_interval=30, ping_timeout=10)
+            self.mapping_ws.run_forever(ping_interval=30, ping_timeout=10)
 
             if not self._stop_event.is_set():
-                logger.info("[SettingsSubscriber] Reconnecting in 3 seconds...")
+                logger.info("[SettingsSubscriber] Reconnecting mapping WS in 3 seconds...")
+                time.sleep(3)
+
+    def _run_counting_ws(self) -> None:
+        """Reconnection loop for the counting settings WebSocket."""
+        while not self._stop_event.is_set():
+            if not self.counting_url:
+                break
+            logger.info(f"[SettingsSubscriber] Connecting -> {self.counting_url}")
+            self.counting_ws = websocket.WebSocketApp(
+                self.counting_url,
+                header=self._get_headers(),
+                on_message=self._on_counting_message,
+                on_error=self._on_error,
+                on_close=self._on_close,
+            )
+            self.counting_ws.run_forever(ping_interval=30, ping_timeout=10)
+
+            if not self._stop_event.is_set():
+                logger.info("[SettingsSubscriber] Reconnecting counting WS in 3 seconds...")
                 time.sleep(3)
 
     def start(self) -> None:
         """Start background threads for mapping and counting WebSocket listeners."""
         self._stop_event.clear()
         if self.mapping_url:
-            threading.Thread(
-                target=self._run_ws_loop,
-                args=(self.mapping_url, self._on_mapping_message),
-                daemon=True,
-            ).start()
+            threading.Thread(target=self._run_mapping_ws, daemon=True).start()
         if self.counting_url:
-            threading.Thread(
-                target=self._run_ws_loop,
-                args=(self.counting_url, self._on_counting_message),
-                daemon=True,
-            ).start()
+            threading.Thread(target=self._run_counting_ws, daemon=True).start()
 
     def stop(self) -> None:
         """Stop all WebSocket listener threads."""
         self._stop_event.set()
+        # Force-close WebSocket connections to unblock run_forever() immediately
+        if self.mapping_ws:
+            self.mapping_ws.close()
+        if self.counting_ws:
+            self.counting_ws.close()
         logger.info("[SettingsSubscriber] Stopped all subscribers.")
