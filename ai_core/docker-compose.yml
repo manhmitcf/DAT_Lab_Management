@@ -9,6 +9,8 @@ services:
     container_name: dat_lab_deepstream
     runtime: nvidia
     restart: unless-stopped
+    entrypoint: ["bash", "/workspace/ai_core/docker_entrypoint.sh"]
+    command: ["python3", "main.py"]
 
     # Load env from config/.env
     env_file:
