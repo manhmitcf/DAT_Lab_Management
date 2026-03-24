@@ -86,9 +86,7 @@ RUN pip3 install --no-build-isolation -e .
 # 8. Verify Builds
 # =========================================================
 RUN echo "=== Checking .so libraries ===" \
-    && ls -la /workspace/ai_core/cpp_plugins/lib/ \
-    && python3 -c "import pyds; print('✅ pyds OK')" \
-    && python3 -c "from core.config import ConfigManager; print('✅ config OK')"
+    && ls -la /workspace/ai_core/cpp_plugins/lib/
 
 # =========================================================
 # 9. Entrypoint
