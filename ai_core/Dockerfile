@@ -1,49 +1,64 @@
-FROM nvcr.io/nvidia/tensorrt:21.09-py3
+# Sử dụng base image chính thức của Nvidia dành cho Jetson (Jetpack 6.x) đã cài sẵn PyTorch 2.2
+# Image này tương thích hoàn hảo với Jetson Orin Nano 8GB
+FROM nvcr.io/nvidia/l4t-pytorch:r36.3.0-pth2.2-py3
 
+# Tránh bị hỏi tương tác khi cài apt-get
 ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+
 WORKDIR /workspace/ai_core
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-        automake autoconf libpng-dev nano python3-pip \
-        curl zip unzip libtool swig zlib1g-dev pkg-config \
-        python3-mock libpython3-dev libpython3-all-dev \
-        g++ gcc cmake make pciutils cpio gosu wget \
-        libgtk-3-dev libxtst-dev sudo apt-transport-https \
-        build-essential gnupg git xz-utils vim \
-        libva-drm2 libva-x11-2 vainfo libva-wayland2 libva-glx2 \
-        libva-dev libdrm-dev xorg xorg-dev protobuf-compiler \
-        openbox libx11-dev libgl1-mesa-glx libgl1-mesa-dev \
-        libtbb2 libtbb-dev libopenblas-dev libopenmpi-dev \
-    && sed -i 's/# set linenumbers/set linenumbers/g' /etc/nanorc \
-    && apt clean \
+# =========================================================
+# 1. Cài đặt System Dependencies cho Ubuntu 22.04 (Jetpack 6)
+# =========================================================
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    wget git cmake curl build-essential pkg-config ninja-build \
+    # Các thư viện xử lý ảnh (OpenCV)
+    libgl1-mesa-glx libglib2.0-0 \
+    python3-opencv python3-pip python3-dev libopencv-dev \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy current directory contents into the container at /workspace/ai_core
-# Note: large folders like pretrained/ and videos/ are excluded via .dockerignore
+# =========================================================
+# 2. Xử lý Requirements cho kiến trúc ARM64 của Jetson
+# =========================================================
+# Copy requirements.txt hiện tại vào trước
+COPY requirements.txt .
+
+# LƯU Ý QUAN TRỌNG: 
+# Thư viện torch==1.9.1+cu111 và torchvision trong requirements.txt là bản x86 (của máy tính bàn).
+# Cài đặt trên Jetson ARM64 bằng pip sẽ dẫn đến lỗi không tìm thấy package.
+# Vì base image 'l4t-pytorch' đã CÓ SẴN PyTorch và Torchvision tối ưu hoàn toàn cho Jetson,
+# Ta dùng 'sed' xóa đi các dòng này khỏi file requirements.txt trước khi pip install
+RUN sed -i '/torch==/d' requirements.txt && \
+    sed -i '/torch>=/d' requirements.txt && \
+    sed -i '/torchvision/d' requirements.txt && \
+    sed -i '/onnxruntime==/d' requirements.txt
+
+# =========================================================
+# 3. Cài đặt Python Dependencies
+# =========================================================
+RUN pip3 install --upgrade pip setuptools wheel && \
+    pip3 install cython && \
+    pip3 install pycocotools cython_bbox && \
+    pip3 install onnxruntime-gpu --extra-index-url https://pypi.ngc.nvidia.com && \
+    pip3 install --no-cache-dir -r requirements.txt
+
+# =========================================================
+# 4. Copy Mã Nguồn Của Dự Án
+# =========================================================
 COPY . .
 
-# Create mount points for external volumes
-RUN mkdir -p pretrained videos YOLOX_outputs/yolox_x_mix_det/track_vis
+# =========================================================
+# 5. Tạo Thư Mục Cần Thiết & Build YOLOX
+# =========================================================
+RUN mkdir -p pretrained videos YOLOX_outputs
 
-# Install Python dependencies and setup project
-RUN sed -i 's/torch>=1.7/torch==1.9.1+cu111/g' requirements.txt \
-    && sed -i 's/torchvision==0.10.0/torchvision==0.10.1+cu111/g' requirements.txt \
-    && pip3 install pip --upgrade \
-    && pip3 install -r requirements.txt -f https://download.pytorch.org/whl/torch_stable.html \
-    && python3 setup.py develop \
-    && pip3 install cython \
-    && pip3 install 'git+https://github.com/cocodataset/cocoapi.git#subdirectory=PythonAPI' \
-    && pip3 install cython_bbox gdown \
-    && ldconfig \
-    && pip cache purge
+# Cài đặt YOLOX và build các C++ extensions nội bộ của YOLO (setup.py)
+RUN pip3 install --no-build-isolation -e .
 
-# Install torch2trt (Optional, kept for compatibility)
-RUN git clone https://github.com/NVIDIA-AI-IOT/torch2trt \
-    && cd torch2trt \
-    && git checkout 0400b38123d01cc845364870bdf0a0044ea2b3b2 \
-    # https://github.com/NVIDIA-AI-IOT/torch2trt/issues/619
-    && wget https://github.com/NVIDIA-AI-IOT/torch2trt/commit/8b9fb46ddbe99c2ddf3f1ed148c97435cbeb8fd3.patch \
-    && git apply 8b9fb46ddbe99c2ddf3f1ed148c97435cbeb8fd3.patch \
-    && python3 setup.py install \
-    && cd .. && rm -rf torch2trt
+# =========================================================
+# 6. Lệnh Chạy Ứng Dụng Mặc Định
+# =========================================================
+# Kích hoạt project chạy file main.py thay vì deepstream
+CMD ["python3", "main.py"]
