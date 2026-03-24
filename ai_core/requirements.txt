@@ -13,6 +13,7 @@ pydantic>=2.5.0
 python-dotenv
 torch
 torchvision
+onnxscript
 
 # --- YOLOX Dependencies ---
 scikit-image
