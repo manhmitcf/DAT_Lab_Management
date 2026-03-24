@@ -18,6 +18,7 @@ except ImportError:
 
 from core.config import ConfigManager
 from core.model_converter import check_and_convert_models
+from core.camera_validator import CameraValidator
 from services.analytics.tracking_service import TrackingService
 from services.analytics.counting_service import CountingService
 from services.analytics.mapping_service import MappingService
@@ -77,6 +78,14 @@ class AuraAnalyticsApp:
     def _setup_pipeline(self):
         """Assemble the GStreamer pipeline and attach the analytics probe."""
         video_source = os.getenv("VIDEO_SOURCE", "./videos/demo.mp4")
+        
+        # 0. Validate camera/video source before building pipeline
+        cam_info = CameraValidator.check(video_source)
+        if not cam_info.is_valid:
+            logger.critical(f"[App] Video source validation FAILED: {video_source}")
+            for err in cam_info.errors:
+                logger.error(f"  → {err}")
+            raise RuntimeError(f"Invalid video source: {video_source}")
         
         # 1. Initialize Probe
         probe = AnalyticsProbe(
