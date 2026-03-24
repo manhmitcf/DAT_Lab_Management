@@ -1,64 +1,58 @@
-# Sử dụng base image chính thức của Nvidia dành cho Jetson (Jetpack 6.x) đã cài sẵn PyTorch 2.2
-# Image này tương thích hoàn hảo với Jetson Orin Nano 8GB
+# =========================================================
+# Base image cho Jetson Nano (JetPack 4.x - Ubuntu 18.04)
+# =========================================================
 FROM nvcr.io/nvidia/l4t-pytorch:r32.7.1-pth1.10-py3
 
-# Tránh bị hỏi tương tác khi cài apt-get
+# =========================================================
+# Environment
+# =========================================================
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 
 WORKDIR /workspace/ai_core
 
-
 # =========================================================
-# 1. Cài đặt System Dependencies
+# 1. FIX repo lỗi + cài system dependencies
 # =========================================================
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    wget git cmake curl build-essential pkg-config ninja-build \
+RUN rm -rf /etc/apt/sources.list.d/*kitware* || true && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+    wget git curl build-essential pkg-config ninja-build \
+    cmake \
     libgl1-mesa-glx libglib2.0-0 \
     python3-opencv python3-pip python3-dev libopencv-dev \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 # =========================================================
-# 2. Xử lý Requirements cho kiến trúc ARM64 của Jetson
+# 2. Copy requirements
 # =========================================================
-# Copy requirements.txt hiện tại vào trước
 COPY requirements.txt .
 
-# LƯU Ý QUAN TRỌNG: 
-# Thư viện torch==1.9.1+cu111 và torchvision trong requirements.txt là bản x86 (của máy tính bàn).
-# Cài đặt trên Jetson ARM64 bằng pip sẽ dẫn đến lỗi không tìm thấy package.
-# Vì base image 'l4t-pytorch' đã CÓ SẴN PyTorch và Torchvision tối ưu hoàn toàn cho Jetson,
-# Ta dùng 'sed' xóa đi các dòng này khỏi file requirements.txt trước khi pip install
-RUN sed -i '/torch==/d' requirements.txt && \
-    sed -i '/torch>=/d' requirements.txt && \
+# =========================================================
+# 3. Remove incompatible packages (x86 / CUDA mismatch)
+# =========================================================
+RUN sed -i '/torch/d' requirements.txt && \
     sed -i '/torchvision/d' requirements.txt && \
-    sed -i '/onnxruntime==/d' requirements.txt
+    sed -i '/onnxruntime/d' requirements.txt
 
 # =========================================================
-# 3. Cài đặt Python Dependencies
+# 4. Python dependencies
 # =========================================================
 RUN pip3 install --upgrade pip setuptools wheel && \
     pip3 install cython && \
     pip3 install pycocotools cython_bbox && \
-    pip3 install onnxruntime-gpu --extra-index-url https://pypi.ngc.nvidia.com && \
     pip3 install --no-cache-dir -r requirements.txt
 
 # =========================================================
-# 4. Copy Mã Nguồn Của Dự Án
+# 5. Copy source code
 # =========================================================
 COPY . .
 
 # =========================================================
-# 5. Tạo Thư Mục Cần Thiết & Build YOLOX
+# 6. Setup project
 # =========================================================
 RUN mkdir -p pretrained videos YOLOX_outputs
 
-# Cài đặt YOLOX và build các C++ extensions nội bộ của YOLO (setup.py)
+# Build YOLOX
 RUN pip3 install --no-build-isolation -e .
-
-# =========================================================
-# 6. Lệnh Chạy Ứng Dụng Mặc Định
-# =========================================================
-# Kích hoạt project chạy file main.py thay vì deepstream
-CMD ["python3", "main.py"]
