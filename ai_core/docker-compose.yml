@@ -8,7 +8,6 @@ services:
       dockerfile: Dockerfile
     container_name: dat_lab_deepstream
     runtime: nvidia
-    restart: unless-stopped
 
     # Load env from config/.env
     env_file:
