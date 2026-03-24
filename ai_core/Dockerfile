@@ -1,6 +1,6 @@
 # Sử dụng base image chính thức của Nvidia dành cho Jetson (Jetpack 6.x) đã cài sẵn PyTorch 2.2
 # Image này tương thích hoàn hảo với Jetson Orin Nano 8GB
-FROM nvcr.io/nvidia/l4t-base:r36.2.0
+FROM nvcr.io/nvidia/l4t-pytorch:r32.7.1-pth1.10-py3
 
 # Tránh bị hỏi tương tác khi cài apt-get
 ENV DEBIAN_FRONTEND=noninteractive
@@ -8,23 +8,12 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /workspace/ai_core
 
-# =========================================================
-# FIX lỗi GPG key cho kitware (phải đặt TRƯỚC apt-get update)
-# =========================================================
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gnupg wget ca-certificates && \
-    mkdir -p /etc/apt/keyrings && \
-    wget -O /etc/apt/keyrings/kitware.asc https://apt.kitware.com/keys/kitware-archive-latest.asc && \
-    echo "deb [signed-by=/etc/apt/keyrings/kitware.asc] https://apt.kitware.com/ubuntu/ bionic main" \
-    > /etc/apt/sources.list.d/kitware.list
-
 
 # =========================================================
-# 1. Cài đặt System Dependencies cho Ubuntu 22.04 (Jetpack 6)
+# 1. Cài đặt System Dependencies
 # =========================================================
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget git cmake curl build-essential pkg-config ninja-build \
-    # Các thư viện xử lý ảnh (OpenCV)
     libgl1-mesa-glx libglib2.0-0 \
     python3-opencv python3-pip python3-dev libopencv-dev \
     && apt-get clean \
