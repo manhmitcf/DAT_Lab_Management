@@ -119,7 +119,8 @@ class AnalyticsProbe:
 
         # 2. Run Tracking (C++ OCSort)
         detections_np = np.array(detections, dtype=np.float32)
-        tracked_objects = self.tracking_service.update(detections_np)
+        img_size = (frame_meta.source_frame_width, frame_meta.source_frame_height)
+        tracked_objects = self.tracking_service.update(detections_np, img_size, img_size)
         
         # tracked_objects format: [x1, y1, x2, y2, track_id, class_id]
         bboxes_xyxy = tracked_objects[:, :4].tolist()
@@ -133,11 +134,11 @@ class AnalyticsProbe:
 
         # 5. Run Mapping Service
         video_size = (frame_meta.source_frame_width, frame_meta.source_frame_height)
-        # Assuming map_size is handled by MappingService.update_mapping or config
-        # We project to the internal map_size defined in MappingService
+        map_size = self.mapping_service._map_size
         map_coords = self.mapping_service.project_bboxes(
             bboxes=bboxes_xyxy, 
-            current_frame_size=video_size
+            frame_size=video_size,
+            map_size=map_size,
         )
 
         # 6. Construct Objects List for Backend
@@ -167,8 +168,8 @@ class AnalyticsProbe:
             occupancy=current_people,
             height_frame=video_size[1],
             width_frame=video_size[0],
-            height_2D=self.mapping_service.map_size[1] if self.mapping_service.map_size else 0,
-            width_2D=self.mapping_service.map_size[0] if self.mapping_service.map_size else 0,
+            height_2D=self.mapping_service._map_size[1] if self.mapping_service._map_size else 0,
+            width_2D=self.mapping_service._map_size[0] if self.mapping_service._map_size else 0,
             objects=objects,
             alert=alert
         )
