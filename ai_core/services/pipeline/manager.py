@@ -115,7 +115,6 @@ class PipelineManager:
                     "bitrate": int(os.getenv("VIDEO_BITRATE", "1200000")),
                     "preset-level": 1,
                     "insert-sps-pps": True,
-                    "bufapi-version": True,
                 }
             )
             self.elements["h264parse_janus"] = ElementFactory.create("h264parse", "janus-h264-parser")
