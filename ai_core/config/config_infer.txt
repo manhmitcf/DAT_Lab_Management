@@ -1,11 +1,21 @@
 [property]
 gpu-id=0
-net-scale-factor=1.0
+
+# ─── YOLOX Preprocessing (100% match with Python) ───
+# The ONNX model includes NormalizeWrapper which bakes ImageNet mean/std
+# normalization directly into the model graph.
+# DeepStream only needs to scale pixels from [0,255] to [0,1].
+net-scale-factor=0.00392156862
+# No offsets needed — mean/std handled inside the model ONNX graph
+
+# model-color-format: 0=BGR, 1=RGB, 2=GRAY
+# Python preproc does BGR → RGB, so model expects RGB input
+model-color-format=1
+
 model-engine-file=/workspace/ai_core/pretrained/model_trt.engine
 labelfile-path=/workspace/ai_core/config/labels.txt
 batch-size=1
 process-mode=1
-model-color-format=0
 network-mode=0
 parse-bbox-func-name=NvDsInferParseCustomYOLOX
 custom-lib-path=/workspace/ai_core/cpp_plugins/lib/libnvdsinfer_custombboxparser_yolox.so
@@ -13,6 +23,11 @@ infer-dims=3;640;640
 network-type=0
 num-detected-classes=1
 gie-unique-id=1
+
+# Letterbox: Python uses top-left aligned padding (not symmetric)
+maintain-aspect-ratio=1
+symmetric-padding=0
+
 output-blob-names=output
 
 [class-attrs-all]
