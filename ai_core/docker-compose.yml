@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  ai_core:
+    image: dat_lab_management_aicore:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dat_lab_aicore
+    runtime: nvidia
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all,video
+    volumes:
+      # Mount toàn bộ code để thuận tiện chỉnh sửa mà không cần build lại
+      # Lưu ý: Các thư mục kết quả hoặc pretrained nên có trong volume hoặc bind mount
+      - .:/workspace/ai_core
+    devices:
+      # Mount USB Camera (Điều chỉnh thành CSI camera hoặc số khác nếu Jetson dùng cổng khác)
+      - /dev/video0:/dev/video0
+    network_mode: "host"
+    # Thiết lập thư mục làm việc mặc định
+    working_dir: /workspace/ai_core
+    # Giữ cho container luôn chạy ngầm để bạn có thể vào thẳng terminal
+    command: tail -f /dev/null
+    
+    # Bật chế độ tương tác terminal (tương đương cờ -it trong lệnh docker run)
+    tty: true
+    stdin_open: true
