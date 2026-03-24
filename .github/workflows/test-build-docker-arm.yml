@@ -1,0 +1,56 @@
+name: Test Build Docker ARM64 (Jetson)
+
+on:
+  push:
+    branches:
+      - aicore/deploy_jetson
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch: # Cho phép trigger bằng tay từ giao diện GitHub
+
+jobs:
+  build-test:
+    # Lựa chọn 1: Dùng runner ARM native của GitHub (nhanh nhất, tránh lỗi QEMU timeout)
+    # GitHub gần đây hỗ trợ native ARM runners cho một số gói. Nếu repo không hỗ trợ, hãy đổi sang: runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04-arm 
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      # (Tùy chọn) Giải phóng bộ nhớ do Nvidia Image thường rất nặng (~10-15GB)
+      - name: Free Disk Space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      # Setup QEMU (cần thiết nếu sử dụng runs-on: ubuntu-latest thay vì ubuntu-22.04-arm)
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: image=moby/buildkit:master
+
+      - name: Test Build Docker Image for ARM64
+        uses: docker/build-push-action@v5
+        with:
+          context: ./ai_core
+          file: ./ai_core/Dockerfile
+          platforms: linux/arm64
+          push: false # Chỉ test build (build xong sẽ tự xóa), không đẩy lên Docker Hub
+          tags: dat_lab_management_aicore:test-arm
+          # Sử dụng cache trên Github Actions để tăng tốc cho các lần build sau
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
