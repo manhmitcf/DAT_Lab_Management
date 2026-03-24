@@ -62,7 +62,7 @@ class TrackingService(BaseTrackingService):
         # Determine library path (defaulting to the cpp_plugins build folder)
         if lib_path is None:
             # Adjust this path based on your actual build directory on Jetson
-            lib_path = os.path.join(os.getcwd(), "cpp_plugins", "ocsort", "build", "libocsort_api.so")
+            lib_path = os.path.join(os.getcwd(), "cpp_plugins", "lib", "libocsort_api.so")
             if not os.path.exists(lib_path):
                 # Fallback for Windows or common OS names
                 lib_path = lib_path.replace(".so", ".dll") if os.name == "nt" else lib_path
