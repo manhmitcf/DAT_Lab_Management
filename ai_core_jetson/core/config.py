@@ -29,7 +29,7 @@ class YOLOXConfig(BaseModel):
     """
     # Weights and Architectures (MOT20 / YOLOX-X Defaults)
     model_path: str = Field(default="./pretrained/ocsort_x_mot20.pth.tar", alias="ckpt")
-    engine_path: str = Field(default="./pretrained/model_trt.pth", alias="trt_file")
+    engine_path: str = Field(default="./pretrained/model_trt.engine", alias="trt_file")
     num_classes: int = Field(default=1)
     depth: float = Field(default=1.33)
     width: float = Field(default=1.25)
