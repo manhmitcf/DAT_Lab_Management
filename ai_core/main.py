@@ -52,7 +52,7 @@ class AuraAnalyticsApp:
     def _setup_services(self):
         """Initialize all business logic services."""
         logger.info("[App] Initializing core services...")
-        logger.info(f"[App] System: device={self.system_cfg.device}, fp16={self.system_cfg.fp16}, trt={self.system_cfg.trt}")
+        logger.info(f"[App] System: device={self.system_cfg.device}, fp16={self.system_cfg.fp16}")
         logger.info(f"[App] YOLOX:  engine={self.yolox_cfg.engine_path}, conf={self.yolox_cfg.conf_thresh}, nms={self.yolox_cfg.nms_thresh}")
         
         # 1. Load Configs via ConfigManager
@@ -90,7 +90,7 @@ class AuraAnalyticsApp:
                      f"correspondences={len(mapping_cfg.correspondences)}")
         logger.info(f"[Config] YOLOX: engine={self.yolox_cfg.engine_path}, input_size={self.yolox_cfg.input_size}, "
                      f"conf={self.yolox_cfg.conf_thresh}, nms={self.yolox_cfg.nms_thresh}")
-        logger.info(f"[Config] System: device={self.system_cfg.device}, fp16={self.system_cfg.fp16}, trt={self.system_cfg.trt}")
+        logger.info(f"[Config] System: device={self.system_cfg.device}, fp16={self.system_cfg.fp16}")
         logger.info(f"[Config] WS endpoint: {os.getenv('RESULTS_WS_URL', 'NOT SET')}")
         logger.info("=" * 60)
         
