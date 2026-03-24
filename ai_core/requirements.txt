@@ -1,5 +1,5 @@
 # TODO: Update with exact module version
-numpy==1.23.5
+numpy==1.19.5
 numba
 torch==1.9.1+cu111
 opencv_python
