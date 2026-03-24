@@ -58,13 +58,19 @@ class PipelineManager:
                 self.elements["h264parse"] = ElementFactory.create("h264parse", "h264-parser")
                 self.elements["decoder"] = ElementFactory.create("nvv4l2decoder", "decoder")
             else:
+                # USB Camera (Logitech C270 / MJPG webcam)
+                # Pipeline: v4l2src → caps(MJPG 1080p@30) → nvjpegdec → nvvideoconvert → muxer
                 self.elements["source"] = ElementFactory.create("v4l2src", "usb-source")
                 self.elements["source"].set_property("device", source_uri)
-                self.elements["videoconvert"] = ElementFactory.create("videoconvert", "raw-convert")
-                self.elements["capsfilter"] = ElementFactory.create("capsfilter", "raw-caps")
+                
+                self.elements["capsfilter"] = ElementFactory.create("capsfilter", "mjpg-caps")
                 self.elements["capsfilter"].set_property(
-                    "caps", Gst.Caps.from_string("video/x-raw, format=YUY2")
+                    "caps", Gst.Caps.from_string(
+                        "image/jpeg,format=MJPG,width=1920,height=1080,framerate=30/1"
+                    )
                 )
+                
+                self.elements["jpegdec"] = ElementFactory.create("nvjpegdec", "jpeg-decoder")
                 self.elements["decoder"] = ElementFactory.create("nvvideoconvert", "hw-convert")
 
             # DeepStream Core
@@ -130,9 +136,10 @@ class PipelineManager:
                 self.elements["qtdemux"].connect("pad-added", self._on_pad_added)
                 self.elements["h264parse"].link(self.elements["decoder"])
             else:
-                self._link(self.elements["source"], self.elements["videoconvert"])
-                self._link(self.elements["videoconvert"], self.elements["capsfilter"])
-                self._link(self.elements["capsfilter"], self.elements["decoder"])
+                # USB Camera (MJPG): source → caps → jpegdec → decoder → muxer
+                self._link(self.elements["source"], self.elements["capsfilter"])
+                self._link(self.elements["capsfilter"], self.elements["jpegdec"])
+                self._link(self.elements["jpegdec"], self.elements["decoder"])
 
             # Common StreamMux Link
             sink_pad = self.elements["muxer"].get_request_pad("sink_0")
