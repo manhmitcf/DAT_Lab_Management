@@ -73,6 +73,27 @@ class AuraAnalyticsApp:
             bearer_token=os.getenv("API_BEARER_TOKEN")
         )
         
+        # === Log all configs for debugging ===
+        logger.info("=" * 60)
+        logger.info("[Config] ===== LOADED CONFIGURATION =====")
+        logger.info(f"[Config] config_infer: {self.config_paths['infer']}")
+        logger.info(f"[Config] OCSort: track_thresh={tracking_cfg.track_thresh}, iou_thresh={tracking_cfg.iou_thresh}, "
+                     f"max_age={tracking_cfg.max_age}, min_hits={tracking_cfg.min_hits}, "
+                     f"delta_t={tracking_cfg.delta_t}, inertia={tracking_cfg.inertia}, "
+                     f"use_byte={tracking_cfg.use_byte}, asso_func={tracking_cfg.asso_func}")
+        logger.info(f"[Config] OCSort Post-filter: aspect_ratio_thresh={tracking_cfg.aspect_ratio_thresh}, "
+                     f"min_box_area={tracking_cfg.min_box_area}")
+        logger.info(f"[Config] Counting: line_start={counting_cfg.line_start}, line_end={counting_cfg.line_end}, "
+                     f"inside_point={counting_cfg.inside_point}, margin={counting_cfg.crossing_margin}, "
+                     f"frame={counting_cfg.frame_width}x{counting_cfg.frame_height}")
+        logger.info(f"[Config] Mapping: image_size={mapping_cfg.image_size}, map_size={mapping_cfg.map_size}, "
+                     f"correspondences={len(mapping_cfg.correspondences)}")
+        logger.info(f"[Config] YOLOX: engine={self.yolox_cfg.engine_path}, input_size={self.yolox_cfg.input_size}, "
+                     f"conf={self.yolox_cfg.conf_thresh}, nms={self.yolox_cfg.nms_thresh}")
+        logger.info(f"[Config] System: device={self.system_cfg.device}, fp16={self.system_cfg.fp16}, trt={self.system_cfg.trt}")
+        logger.info(f"[Config] WS endpoint: {os.getenv('RESULTS_WS_URL', 'NOT SET')}")
+        logger.info("=" * 60)
+        
         logger.success("[App] Services initialized.")
 
     def _setup_pipeline(self):
