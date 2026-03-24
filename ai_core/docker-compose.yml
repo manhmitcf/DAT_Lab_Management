@@ -2,11 +2,11 @@ version: '3.8'
 
 services:
   ai_core:
-    image: dat_lab_management_aicore:latest
+    image: dat_lab_management_aicore:deepstream
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: dat_lab_aicore
+    container_name: dat_lab_deepstream
     runtime: nvidia
     restart: unless-stopped
     env_file:
@@ -15,18 +15,42 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=all,video
     volumes:
-      # Mount toàn bộ code để thuận tiện chỉnh sửa mà không cần build lại
-      # Lưu ý: Các thư mục kết quả hoặc pretrained nên có trong volume hoặc bind mount
+      # Mount the entire current directory to get the latest code, requirements, and C++ source.
       - .:/workspace/ai_core
     devices:
-      # Mount USB Camera (Điều chỉnh thành CSI camera hoặc số khác nếu Jetson dùng cổng khác)
+      # Mount USB Camera (Adjust if using CSI Camera or different USB port)
       - /dev/video0:/dev/video0
-    network_mode: "host"
-    # Thiết lập thư mục làm việc mặc định
+    network_mode: "host" # Crucial for high-performance UDP/RTP streaming
     working_dir: /workspace/ai_core
-    # Giữ cho container luôn chạy ngầm để bạn có thể vào thẳng terminal
-    command: tail -f /dev/null
-    
+
+    # === START OF MODIFICATION ===
+    # Override the default command to build C++ libs, install Python packages, and then run.
+    command: >
+      sh -c "
+        if [ -d 'deploy/OCSort/cpp' ]; then
+          echo '>>> (1/3) Building C++ OCSort library...' &&
+          cd deploy/OCSort/cpp && mkdir -p build && cd build && cmake .. && make &&
+          cd /workspace/ai_core
+        else
+          echo '>>> (1/3) Skipping C++ OCSort library build (not found)'
+        fi;
+        
+        if [ -d 'deploy/DeepStream' ]; then
+          echo '>>> (2/3) Building C++ YOLOX Parser library...' &&
+          cd deploy/DeepStream && make &&
+          cd /workspace/ai_core
+        else
+          echo '>>> (2/3) Skipping C++ YOLOX Parser library build (not found)'
+        fi;
+
+        echo '>>> (3/3) Installing/updating Python dependencies...' &&
+        pip install -r requirements.txt &&
+
+        echo '>>> Setup complete. Starting application...' &&
+        GST_DEBUG=nvinfer:4 python3 main.py
+      "
+    # === END OF MODIFICATION ===
+
     # Bật chế độ tương tác terminal (tương đương cờ -it trong lệnh docker run)
     tty: true
     stdin_open: true

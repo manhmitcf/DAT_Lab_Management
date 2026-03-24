@@ -1,196 +1,106 @@
-import os
-import time
+from services.mapping_service import MappingService
+from services.counting_service import CountingService
+from services.tracking_service import TrackingService
+from services.video_service import VideoReader, VideoWriter
+from config.data_config import OCSortConfig
+from config.data_config import CountingConfig
+from config.data_config import MappingConfig
 import cv2
-import requests
-from datetime import datetime, timezone
+from yolox.utils.visualize import plot_tracking
+from utils.utils import scale_points
+import time
+
+args1 = OCSortConfig("config/tracking_config.json")
+args2 = CountingConfig("config/counting_config.json")
+tracking_service = TrackingService(args=args1)
+mapping_config = MappingConfig("config/mapping_config.json")
+mapping_service = MappingService(mapping_config=mapping_config)
+
+map_image = cv2.imread("videos/map2d.jpg")
+if map_image is None:
+    raise RuntimeError("Failed to read map image videos/map2d.jpg")
+map_height, map_width = map_image.shape[:2]
+
+reader = VideoReader("./videos/demo.mp4").start()
+if reader.width == 0 or reader.height == 0:
+    raise RuntimeError("Video has zero width/height; cannot scale points")
+
+fps = reader.fps
+video_size = (reader.width, reader.height)
+map_size = (int(map_width), int(map_height))
+
+camera_points = mapping_service.camera_points
+map_points = mapping_service.map_points
+if camera_points is None or map_points is None:
+    raise RuntimeError("Mapping config missing correspondence points")
+
+config_camera_size = mapping_service.camera_size or video_size
+config_map_size = mapping_service.map_size or map_size
+
+scaled_camera_points = camera_points
+scaled_map_points = map_points
+if tuple(config_camera_size) != video_size:
+    scaled_camera_points = scale_points(camera_points, src_size=config_camera_size, dst_size=video_size)
+if tuple(config_map_size) != map_size:
+    scaled_map_points = scale_points(map_points, src_size=config_map_size, dst_size=map_size)
+
+mapping_service.update_mapping(
+    camera_points=[tuple(pt) for pt in scaled_camera_points.tolist()],
+    map_points=[tuple(pt) for pt in scaled_map_points.tolist()],
+    camera_size=video_size,
+    map_size=map_size,
+)
+
+# Initialize counting service with built-in scaling to current frame size
+counting_service = CountingService.from_config(args2, current_frame_size=video_size)
+
+vid_writer = VideoWriter("./videos/result_demo.mp4", fps, video_size).start()
+map_writer = VideoWriter("./videos/result_map.mp4", fps, map_size).start()
+
+start = time.time()
 
 try:
-    # Load .env if python-dotenv is available
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass
-
-from config.data_config import OCSortConfig, CountingConfig, MappingConfig
-from services.pipeline_service import PipelineService
-from services.backend_gateway import ResultPublisher, SettingsSubscriber
-from loguru import logger
-
-def setup_pipeline(video_size, map_size):
-    """Initialize configuration and setup the main pipeline."""
-    logger.info("Setting up pipeline configurations...")
-    tracking_cfg = OCSortConfig("config/tracking_config.json")
-    counting_cfg = CountingConfig("config/counting_config.json")
-    mapping_cfg = MappingConfig("config/mapping_config.json")
-
-    pipeline = PipelineService(
-        tracking_config=tracking_cfg,
-        counting_config=counting_cfg,
-        mapping_config=mapping_cfg,
-        video_size=video_size,
-        map_size=map_size,
-    )
-    logger.success("Pipeline setup complete.")
-    return pipeline
-
-def create_settings_subscriber(pipeline, video_size):
-    """Create a subscriber to handle settings updates from backend."""
-    def handle_mapping_update(data):
-        logger.info("Received MAPPING update from backend")
+    while reader.more():
+        loop_start = time.time()
         try:
-            correspondences = data.get("correspondences", [])
-            camera_points = []
-            map_points = []
-            for item in correspondences:
-                cam = item.get("camera")
-                mp = item.get("map")
-                if cam and mp:
-                    camera_points.append((float(cam[0]), float(cam[1])))
-                    map_points.append((float(mp[0]), float(mp[1])))
-            
-            img_size = data.get("image_size", {})
-            camera_size_config = (int(img_size.get("width", 1920)), int(img_size.get("height", 1080)))
-            
-            m_size = data.get("map_size", {})
-            map_size_config = (int(m_size.get("width", 723)), int(m_size.get("height", 1266)))
-            
-            pipeline.mapping_service.update_mapping(
-                camera_points=camera_points,
-                map_points=map_points,
-                camera_size=camera_size_config,
-                map_size=map_size_config
-            )
-            logger.success("Mapping service updated successfully")
-        except Exception as e:
-            logger.error(f"Error updating Mapping service: {e}")
+            frame_id, frame = reader.read()
+        except: break
 
-    def handle_counting_update(data):
-        logger.info("Received COUNTING update from backend")
-        try:
-            pipeline.counting_service.update_config(
-                line_start=tuple(data.get("line_start")),
-                line_end=tuple(data.get("line_end")),
-                inside_point=tuple(data.get("inside_point")),
-                crossing_margin=data.get("crossing_margin", 10),
-                source_frame_size=(data.get("frame_width", 1920), data.get("frame_height", 1080)),
-                current_frame_size=video_size
-            )
-            logger.success("Counting service updated successfully")
-        except Exception as e:
-            logger.error(f"Error updating Counting service: {e}")
+        bboxes_tlwh, track_ids, exec_time = tracking_service.predict(frame_id=frame_id, frame=frame, box_type="tlwh")
+        counting_service.update(bboxes_tlwh, track_ids)
+        
+        system_fps = 1.0 / max(1e-5, time.time() - loop_start)
 
-    return SettingsSubscriber(
-        on_mapping_update=handle_mapping_update,
-        on_counting_update=handle_counting_update
-    )
+        result_frame = plot_tracking(frame, bboxes_tlwh, track_ids, frame_id=frame_id + 1, fps=system_fps)
 
-def main():
-    logger.info("Starting main application...")
-    video_path = "./videos/demo.mp4"
-    map_path = "videos/map2d.jpg"
+        # Overlay entry/exit counts on the frame
+        in_count = counting_service.count_in
+        out_count = counting_service.count_out
+        current = counting_service.current_people
+        cv2.putText(result_frame, f"In: {in_count}", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2, cv2.LINE_AA)
+        cv2.putText(result_frame, f"Out: {out_count}", (20, 80), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2, cv2.LINE_AA)
+        cv2.putText(result_frame, f"Current: {current}", (20, 120), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA)
 
-    # Read map image just to get its dimensions
-    logger.info(f"Loading map image from: {map_path}")
-    map_image = cv2.imread(map_path)
-    if map_image is None:
-        logger.error(f"Failed to read map image from {map_path}")
-        raise RuntimeError(f"Failed to read map image {map_path}")
-    map_h, map_w = map_image.shape[:2]
-    map_size = (int(map_w), int(map_h))
-    logger.info(f"Map size configured as: {map_size}")
+        vid_writer.put(frame_id, result_frame)
 
-    # Open video capture
-    logger.info(f"Opening video file: {video_path}")
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        logger.error(f"Failed to open video from {video_path}")
-        raise RuntimeError(f"Failed to open video {video_path}")
+        if mapping_service.is_ready:
+            # Convert tlwh -> xyxy for mapping (foot point uses x2/y2)
+            bboxes_xyxy = [(x, y, x + w, y + h) for (x, y, w, h) in bboxes_tlwh]
 
-    width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
-    height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
-    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-    target_fps = fps if fps and fps > 1e-3 else 30.0
-    target_dt = 1.0 / target_fps
-    
-    if width == 0 or height == 0:
-        logger.error("Video has zero width/height. Cannot process.")
-        raise RuntimeError("Video has zero width/height; cannot process")
+            map_frame = map_image.copy()
+            mapped_points = mapping_service.project_bboxes(bboxes_xyxy, current_frame_size=video_size, current_map_size=map_size)
+            for (mx, my), tid in zip(mapped_points, track_ids):
+                cv2.circle(map_frame, (int(round(mx)), int(round(my))), 6, (0, 0, 255), -1)
+                cv2.putText(map_frame, str(int(tid)), (int(round(mx)) + 8, int(round(my)) - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2, cv2.LINE_AA)
+            cv2.putText(map_frame, f"In: {in_count} Out: {out_count} Current: {current}", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA)
+            map_writer.put(frame_id, map_frame)
+finally:
+    reader.stop()
+    vid_writer.stop()
+    map_writer.stop()
 
-    video_size = (int(width), int(height))
-    logger.info(f"Video loaded successfully. Size: {video_size}, FPS: {fps:.2f}, Target dt: {target_dt:.4f}s")
+end = time.time()
 
-    # Initialize Pipeline and Publisher
-    pipeline = setup_pipeline(video_size, map_size)
-    publisher = ResultPublisher()
-    
-    # Initialize Settings Subscriber
-    logger.info("Starting settings subscriber for backend updates...")
-    settings_sub = create_settings_subscriber(pipeline, video_size)
-    settings_sub.start()
-
-    frame_id = 0
-    start_time = time.time()
-    
-    logger.info("Entering main processing loop...")
-    try:
-        while True:
-            loop_start = time.perf_counter()
-            
-            ret_val, frame = cap.read()
-            if not ret_val:
-                logger.info("End of video stream reached.")
-                break
-                
-            frame_id += 1
-
-            # Get timestamp for current frame
-            ts_msec = cap.get(cv2.CAP_PROP_POS_MSEC)
-            if ts_msec and ts_msec > 0:
-                ts_dt = datetime.fromtimestamp(ts_msec / 1000.0, tz=timezone.utc)
-            else:
-                ts_dt = datetime.now(timezone.utc)
-
-            # Process frame using pipeline
-            frame_data = pipeline.process_frame(frame=frame, frame_id=frame_id, timestamp=ts_dt)
-            
-            # Log periodic statistics (e.g., every 30 frames)
-            if frame_id % 30 == 0:
-                current_count = max(0, frame_data.count_in - frame_data.count_out)
-                logger.debug(
-                    f"Frame {frame_id:04d} | Tracks: {len(frame_data.objects):02d} | "
-                    f"In: {frame_data.count_in:02d} | Out: {frame_data.count_out:02d} | "
-                    f"Current: {current_count:02d}"
-                )
-
-            # Send processing results to backend
-            try:
-                publisher.send_frame(frame_data)
-            except requests.RequestException as exc:
-                logger.error(f"Failed to publish frame {frame_id}: {exc}")
-
-            # Match target FPS by sleeping if processing is faster than target dt
-            elapsed = time.perf_counter() - loop_start
-            if elapsed < target_dt:
-                time.sleep(target_dt - elapsed)
-
-    except KeyboardInterrupt:
-        logger.warning("Processing interrupted by user (KeyboardInterrupt).")
-    except Exception as e:
-        logger.exception(f"An unexpected error occurred during processing: {e}")
-    finally:
-        logger.info("Cleaning up resources...")
-        settings_sub.stop()
-        cap.release()
-
-    end_time = time.time()
-    total_time = end_time - start_time
-    avg_fps = frame_id / total_time if total_time > 0 else 0
-    logger.success(
-        f"Processing finished successfully.\n"
-        f"Total frames processed: {frame_id}\n"
-        f"Total time taken: {total_time:.2f}s\n"
-        f"Average FPS: {avg_fps:.2f}"
-    )
-
-if __name__ == "__main__":
-    main()
+print("Started:", start)
+print("Ended:", end)
+print("During:", end - start)
