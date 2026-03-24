@@ -3,6 +3,7 @@ Pipeline Manager for DeepStream.
 Orchestrates the assembly, execution, and lifecycle of the GStreamer pipeline.
 """
 
+import os
 import sys
 import gi
 
@@ -72,11 +73,35 @@ class PipelineManager:
             # Visualization & Sink
             self.elements["nvvidconv"] = ElementFactory.create("nvvideoconvert", "nvvideo-converter")
             self.elements["nvosd"] = ElementFactory.create("nvdsosd", "on-screen-display")
+            self.elements["tee"] = ElementFactory.create("tee", "stream-tee")
             
-            # Use fakesink for performance, or eglglessink for local display
+            # --- Branch 1: Local Display/Fakesink ---
+            self.elements["queue_sink"] = ElementFactory.create("queue", "queue-sink")
             self.elements["sink"] = ElementFactory.create_and_configure(
-                "fakesink", "sink", 
-                {"sync": True}
+                "fakesink", "sink", {"sync": True}
+            )
+
+            # --- Branch 2: Janus Streaming (720p H.264) ---
+            self.elements["janus_queue"] = ElementFactory.create("queue", "janus-queue")
+            self.elements["nvvidconv_scale"] = ElementFactory.create("nvvideoconvert", "janus-scaler")
+            self.elements["caps_scale"] = ElementFactory.create_and_configure(
+                "capsfilter", "janus-caps",
+                {"caps": Gst.Caps.from_string("video/x-raw(memory:NVMM), width=1280, height=720")}
+            )
+            self.elements["encoder"] = ElementFactory.create_and_configure(
+                "nvv4l2h264enc", "janus-h264-enc",
+                {"bitrate": 4000000, "preset-level": 1, "insert-sps-pps": True, "bufapi-version": True}
+            )
+            self.elements["h264parse_janus"] = ElementFactory.create("h264parse", "janus-h264-parser")
+            self.elements["rtppay"] = ElementFactory.create("rtph264pay", "janus-rtp-pay")
+            self.elements["udpsink"] = ElementFactory.create_and_configure(
+                "udpsink", "janus-udp-sink",
+                {
+                    "host": os.getenv("JANUS_HOST", "127.0.0.1"),
+                    "port": int(os.getenv("JANUS_PORT", "5004")),
+                    "async": False,
+                    "sync": True
+                }
             )
 
             # 2. Add elements to pipeline
@@ -84,33 +109,59 @@ class PipelineManager:
                 self.pipeline.add(el)
 
             # 3. Link elements (Sequential)
-            # Note: filesrc -> qtdemux is dynamic, will need pad-added signal
+            # Source -> Muxer
             if "qtdemux" in self.elements:
                 self.elements["source"].link(self.elements["qtdemux"])
                 self.elements["qtdemux"].connect("pad-added", self._on_pad_added)
-                # Link the rest from decoder onwards
                 self.elements["h264parse"].link(self.elements["decoder"])
             else:
-                self.elements["source"].link(self.elements["videoconvert"])
-                self.elements["videoconvert"].link(self.elements["capsfilter"])
-                self.elements["capsfilter"].link(self.elements["decoder"])
+                self._link(self.elements["source"], self.elements["videoconvert"])
+                self._link(self.elements["videoconvert"], self.elements["capsfilter"])
+                self._link(self.elements["capsfilter"], self.elements["decoder"])
 
             # Common StreamMux Link
             sink_pad = self.elements["muxer"].get_request_pad("sink_0")
             src_pad = self.elements["decoder"].get_static_pad("src")
             src_pad.link(sink_pad)
 
-            # Sequence: muxer -> pgie -> nvvidconv -> nvosd -> sink
-            self.elements["muxer"].link(self.elements["pgie"])
-            self.elements["pgie"].link(self.elements["nvvidconv"])
-            self.elements["nvvidconv"].link(self.elements["nvosd"])
-            self.elements["nvosd"].link(self.elements["sink"])
+            # Core: muxer -> pgie -> nvvidconv -> nvosd -> tee
+            self._link(self.elements["muxer"], self.elements["pgie"])
+            self._link(self.elements["pgie"], self.elements["nvvidconv"])
+            self._link(self.elements["nvvidconv"], self.elements["nvosd"])
+            self._link(self.elements["nvosd"], self.elements["tee"])
 
-            logger.success("[Pipeline] Pipeline linked successfully.")
+            # --- Link Branch 1: Fakesink ---
+            tee_pad_sink = self.elements["tee"].get_request_pad("src_%u")
+            queue_sink_pad = self.elements["queue_sink"].get_static_pad("sink")
+            tee_pad_sink.link(queue_sink_pad)
+            self._link(self.elements["queue_sink"], self.elements["sink"])
+
+            # --- Link Janus Streaming Branch (720p) ---
+            tee_pad_janus = self.elements["tee"].get_request_pad("src_%u")
+            janus_queue_pad = self.elements["janus_queue"].get_static_pad("sink")
+            if tee_pad_janus.link(janus_queue_pad) != Gst.PadLinkReturn.OK:
+                logger.error("[Pipeline] Failed to link tee to janus queue")
+                sys.exit(1)
+            
+            logger.debug("[Pipeline] Forked stream for Janus branch.")
+            self._link(self.elements["janus_queue"], self.elements["nvvidconv_scale"])
+            self._link(self.elements["nvvidconv_scale"], self.elements["caps_scale"])
+            self._link(self.elements["caps_scale"], self.elements["encoder"])
+            self._link(self.elements["encoder"], self.elements["h264parse_janus"])
+            self._link(self.elements["h264parse_janus"], self.elements["rtppay"])
+            self._link(self.elements["rtppay"], self.elements["udpsink"])
+
+            logger.success("[Pipeline] Pipeline linked successfully with Janus branch.")
 
         except Exception as e:
             logger.error(f"[Pipeline] Failed to build pipeline: {e}")
             raise
+
+    def _link(self, el1: Gst.Element, el2: Gst.Element):
+        """Helper to link two elements with error checking."""
+        if not el1.link(el2):
+            logger.error(f"[Pipeline] Failed to link {el1.get_name()} to {el2.get_name()}")
+            sys.exit(1)
 
     def attach_probe(self, probe_handler: AnalyticsProbe):
         """

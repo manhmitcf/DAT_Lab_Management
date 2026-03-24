@@ -1,46 +1,66 @@
-# PipelineManager: DeepStream Orchestrator
+# PipelineManager: Multi-Branch DeepStream Orchestrator
 
 ## 1. Responsibilities
-- **Architecture Assembly**: Connects all GStreamer elements (`source`, `muxer`, `nvinfer`, `nvdsosd`, `sink`).
-- **Lifecycle Management**: Handles `start()`, `stop()`, and error recovery.
-- **Dynamic Linking**: Handles pad-added signals for demuxers (supporting MP4/RTSP).
-- **Probe Injection**: Orchestrates where the `AnalyticsProbe` sits in the data flow.
+- **Multi-Branch Architecture**: Manages a complex pipeline with a main analytics branch and a streaming branch.
+- **Hardware-Accelerated Scaling & Encoding**: Scales the stream to 720p and encodes to H.264 using Jetson's NVENC.
+- **RTP/UDP Streaming**: Transmits the live processed video with OSD overlays to a Janus Gateway.
+- **Service Lifecycle**: Handles `start()`, `stop()`, and graceful signal management (SIGINT/SIGTERM).
 
 ## 2. Pipeline Structure
 ```mermaid
-graph LR
-    Src[Source: File/V4L2] --> Dec[Decoder]
+graph TD
+    Src[Source: File/V4L2/RTSP] --> Dec[nvv4l2decoder]
     Dec --> Mux[nvstreammux]
     Mux --> Infer[nvinfer: YOLOX]
-    Infer -->|Probe Attached| Conv[nvvideoconvert]
-    Conv --> OSD[nvdsosd]
-    OSD --> Sink[fakesink/eglsink]
+    Infer -->|Probe Attachment| Conv1[nvvideoconvert]
+    Conv1 --> OSD[nvdsosd]
+    OSD --> Tee{Tee}
+
+    subgraph "Main Branch (Analytics)"
+        Tee --> Q1[queue]
+        Q1 --> Sink[fakesink]
+    end
+
+    subgraph "Janus Streaming Branch (720p H.264)"
+        Tee --> Q2[queue]
+        Q2 --> Scale[nvvidconv-scaler]
+        Scale --> Caps[capsfilter: 720p]
+        Caps --> Enc[nvv4l2h264enc]
+        Enc --> Parse[h264parse]
+        Parse --> Pay[rtph264pay]
+        Pay --> UDP[udpsink: Janus Port]
+    end
 ```
 
-## 3. Usage Example
+## 3. Janus Branch Configuration
+The Janus branch is designed for high-performance low-latency streaming:
+- **Scaling**: Downscales to 1280x720 to reduce network bandwidth.
+- **Encoder**: `nvv4l2h264enc` with a target bitrate of 4Mbps.
+- **Protocol**: RTP over UDP, compatible with Janus/WebRTC streaming plugins.
+
+## 4. Key Implementation Details
+- **`_link` Helper**: Used to connect elements with strict error checking to prevent silent link failures.
+- **Dynamic Linking**: Supports `qtdemux` for MP4/RTSP files via the `pad-added` signal.
+- **Environment Variables**:
+    - `JANUS_HOST`: IP address of the Janus server.
+    - `JANUS_PORT`: Target UDP port.
+
+## 5. Usage Example
 
 ```python
-from services.pipeline_manager import PipelineManager
-from services.analytics_probe import AnalyticsProbe
+from services.pipeline.manager import PipelineManager
+from services.pipeline.probe import AnalyticsProbe
 
-# 1. Create Manager
 manager = PipelineManager()
-
-# 2. Build for a specific source
 manager.build_pipeline(
-    source_uri="/path/to/video.mp4",
+    source_uri="rtsp://...",
     config_infer="config/config_infer.txt"
 )
 
-# 3. Attach Analytics logic
+# Attach logic
 probe = AnalyticsProbe(...)
 manager.attach_probe(probe)
 
-# 4. Run (blocks until EOS or Error)
+# Run
 manager.run()
 ```
-
-## 4. Key Features
-- **Hybrid Input**: Support for local video files, USB cameras (`v4l2src`), and network streams.
-- **Hardware Acceleration**: Uses `nvvideoconvert` and `nvdsosd` for GPU-side processing.
-- **Error Resilient**: Integrated with `BusManager` to handle crashes or end-of-video events gracefully.
