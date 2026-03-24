@@ -1,6 +1,6 @@
 {
     "model_path": "./pretrained/ocsort_x_mot20.pth.tar",
-    "engine_path": "./pretrained/model_trt.pth",
+    "engine_path": "./pretrained/model_trt.engine",
     "num_classes": 1,
     "depth": 1.33,
     "width": 1.25,
