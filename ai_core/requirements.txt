@@ -4,7 +4,7 @@ numba
 torch==1.9.1+cu111
 opencv_python
 loguru
-pydantic>=2.5.0
+pydantic==1.9.2
 python-dotenv
 websocket-client
 scikit-image
