@@ -27,7 +27,7 @@ from loguru import logger
 DEFAULT_ENGINE_PATH = "pretrained/model_trt.engine"
 DEFAULT_ONNX_PATH   = "pretrained/model_trt.onnx"
 DEFAULT_PTH_PATH    = "pretrained/ocsort_x_mot20.pth.tar"
-DEFAULT_EXP_FILE    = "exps/yolox_x_mix_mot20_ch.py"
+DEFAULT_EXP_FILE    = "exps/yolox_x_mix_mot20_ch.py"    
 YOLOX_CONFIG_PATH   = "config/yolox_config.json"
 
 TRTEXEC_CANDIDATES = [
