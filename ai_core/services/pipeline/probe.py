@@ -2,6 +2,10 @@
 Analytics Probe for DeepStream.
 Orchestrates Tracking, Counting, Mapping, and Result Publishing.
 Handles metadata extraction and visual injection for OSD.
+
+Architecture (Multi-Threaded):
+  GStreamer Thread (fast):  Extract Meta → OCSort(C++) → Counting → Draw OSD → return frame
+  Analytics Thread (bg):   Mapping(Homography) → Serialize FrameData → Publish WebSocket
 """
 
 import gi
@@ -9,6 +13,8 @@ gi.require_version('Gst', '1.0')
 from gi.repository import Gst
 
 import time
+import queue
+import threading
 from datetime import datetime, timezone
 import numpy as np
 import pyds
@@ -55,6 +61,14 @@ class AnalyticsProbe:
         self.fps_start_time = time.time()
         self.current_fps = 0.0
 
+        # --- Background Analytics Thread ---
+        self._analytics_queue: queue.Queue = queue.Queue(maxsize=5)
+        self._stop_event = threading.Event()
+        self._analytics_thread = threading.Thread(
+            target=self._analytics_worker, name="analytics-worker", daemon=True
+        )
+        self._analytics_thread.start()
+
     @staticmethod
     def _generate_palette(n: int):
         """Generate colors with maximum contrast between consecutive IDs using golden angle."""
@@ -98,7 +112,10 @@ class AnalyticsProbe:
         return Gst.PadProbeReturn.OK
 
     def _process_frame_meta(self, frame_meta, batch_meta):
-        """Extract objects, run services, and update metadata."""
+        """
+        FAST PATH (GStreamer thread): Extract → OCSort → Counting → OSD.
+        Mapping + Publishing are offloaded to background thread.
+        """
         frame_id = frame_meta.frame_num
         timestamp = datetime.now(timezone.utc)
         
@@ -130,7 +147,7 @@ class AnalyticsProbe:
         if not detections:
             # Still need to update counters if no one is in frame
             self.counting_service.update([], [])
-            self._send_empty_frame(frame_meta, timestamp)
+            self._enqueue_analytics_job(timestamp, frame_meta, [], [])
             self._draw_osd(frame_meta, batch_meta)
             return
 
@@ -139,7 +156,7 @@ class AnalyticsProbe:
             for idx, d in enumerate(detections):
                 logger.debug(f"  [Frame {frame_id}] Det#{idx}: bbox=({d[0]:.0f},{d[1]:.0f},{d[2]:.0f},{d[3]:.0f}) score={d[4]:.4f} class={d[5]}")
 
-        # 2. Run Tracking (C++ OCSort)
+        # 2. Run Tracking (C++ OCSort) — extremely fast
         detections_np = np.array(detections, dtype=np.float32)
         img_size = (frame_meta.source_frame_width, frame_meta.source_frame_height)
         tracked_objects = self.tracking_service.update(detections_np, img_size, img_size)
@@ -155,26 +172,105 @@ class AnalyticsProbe:
             # Sync Track IDs back to NvDsObjectMeta for nvdsosd
             self._sync_track_ids(frame_meta, tracked_objects)
         else:
-            # OCSort hasn't confirmed any tracks yet — use raw detections
-            # This matches legacy Python behavior where detections are still counted
             bboxes_xyxy = [[d[0], d[1], d[2], d[3]] for d in detections]
-            track_ids = list(range(len(detections)))  # temporary IDs
+            track_ids = list(range(len(detections)))
 
-        # 4. Run Counting Service
+        # 4. Run Counting Service — lightweight Python
         self.counting_service.update(bboxes_xyxy, track_ids)
 
-        # 5. Run Mapping Service
-        video_size = (frame_meta.source_frame_width, frame_meta.source_frame_height)
+        # 5. Calculate FPS
+        self.frame_count += 1
+        if self.frame_count % 30 == 0:
+            elapsed = time.time() - self.fps_start_time
+            self.current_fps = 30.0 / elapsed if elapsed > 0 else 0.0
+            self.fps_start_time = time.time()
+            current_people = self.counting_service.current_people
+            logger.info(f"[Probe] Frame #{frame_id} | FPS: {self.current_fps:.1f} | Detections: {len(detections)} | Tracked: {len(tracked_objects)} | In: {self.counting_service.count_in} | Out: {self.counting_service.count_out} | Occ: {current_people}")
+
+        # 6. Draw OSD metadata (Counting Line, Counts) — lightweight
+        self._draw_osd(frame_meta, batch_meta)
+
+        # 7. Enqueue Mapping + Publishing to background thread (NON-BLOCKING)
+        self._enqueue_analytics_job(timestamp, frame_meta, bboxes_xyxy, track_ids)
+
+    # ─── Background Analytics Worker ─────────────────────────────
+
+    def _enqueue_analytics_job(self, timestamp, frame_meta, bboxes_xyxy, track_ids):
+        """
+        Push a lightweight job dict to the analytics queue.
+        We snapshot all needed data here because frame_meta is only valid
+        during this GStreamer callback.
+        """
+        job = {
+            "timestamp": timestamp,
+            "bboxes": bboxes_xyxy,
+            "track_ids": track_ids,
+            "video_size": (frame_meta.source_frame_width, frame_meta.source_frame_height),
+            "count_in": self.counting_service.count_in,
+            "count_out": self.counting_service.count_out,
+            "occupancy": self.counting_service.current_people,
+            "fps": self.current_fps if self.current_fps > 0 else None,
+        }
+        try:
+            self._analytics_queue.put_nowait(job)
+        except queue.Full:
+            # Drop oldest job to keep latest data
+            try:
+                self._analytics_queue.get_nowait()
+            except queue.Empty:
+                pass
+            self._analytics_queue.put_nowait(job)
+
+    def _analytics_worker(self):
+        """
+        SLOW PATH (background thread): Mapping → Serialize → Publish.
+        Runs independently from GStreamer to avoid blocking the pipeline.
+        """
+        logger.info("[Probe] Analytics worker thread started.")
+        while not self._stop_event.is_set():
+            try:
+                job = self._analytics_queue.get(timeout=1.0)
+            except queue.Empty:
+                continue
+
+            try:
+                self._process_analytics_job(job)
+            except Exception as e:
+                logger.error(f"[Probe:Worker] Error processing analytics job: {e}")
+
+    def _process_analytics_job(self, job: dict):
+        """Execute Mapping + Publishing for one frame's data."""
+        bboxes = job["bboxes"]
+        track_ids = job["track_ids"]
+        video_size = job["video_size"]
+        timestamp = job["timestamp"]
+
+        if not bboxes:
+            # Empty frame
+            frame_data = FrameData(
+                timestamp=timestamp,
+                count_in=job["count_in"],
+                count_out=job["count_out"],
+                occupancy=job["occupancy"],
+                height_frame=video_size[1],
+                width_frame=video_size[0],
+                objects=[],
+                alert="none"
+            )
+            self.publisher.send_frame(frame_data)
+            return
+
+        # 1. Run Mapping Service (Homography projection)
         map_size = self.mapping_service._map_size
         map_coords = self.mapping_service.project_bboxes(
-            bboxes=bboxes_xyxy, 
+            bboxes=bboxes,
             frame_size=video_size,
             map_size=map_size,
         )
 
-        # 6. Construct Objects List for Backend
+        # 2. Construct Objects List for Backend
         objects = []
-        for bbox, tid, coords in zip(bboxes_xyxy, track_ids, map_coords):
+        for bbox, tid, coords in zip(bboxes, track_ids, map_coords):
             objects.append(
                 ObjectDetection(
                     track_id=tid,
@@ -183,47 +279,46 @@ class AnalyticsProbe:
                 )
             )
 
-        # 7. Calculate Alert Status
-        current_people = self.counting_service.current_people
+        # 3. Calculate Alert Status
+        occupancy = job["occupancy"]
         alert = "info"
-        if current_people >= self.critical_threshold:
+        if occupancy >= self.critical_threshold:
             alert = "critical"
-        elif current_people >= self.warning_threshold:
+        elif occupancy >= self.warning_threshold:
             alert = "warning"
 
-        # 7.5. Calculate FPS
-        self.frame_count += 1
-        if self.frame_count % 30 == 0:
-            elapsed = time.time() - self.fps_start_time
-            self.current_fps = 30.0 / elapsed if elapsed > 0 else 0.0
-            self.fps_start_time = time.time()
-            
-            # Print to log
-            logger.info(f"[Probe] Frame #{frame_id} | FPS: {self.current_fps:.1f} | Detections: {len(detections)} | Tracked: {len(tracked_objects)} | In: {self.counting_service.count_in} | Out: {self.counting_service.count_out} | Occ: {current_people}")
-
-        # 8. Create FrameData
+        # 4. Create FrameData
         frame_data = FrameData(
             timestamp=timestamp,
-            count_in=self.counting_service.count_in,
-            count_out=self.counting_service.count_out,
-            occupancy=current_people,
+            count_in=job["count_in"],
+            count_out=job["count_out"],
+            occupancy=occupancy,
             height_frame=video_size[1],
             width_frame=video_size[0],
             height_2D=self.mapping_service._map_size[1] if self.mapping_service._map_size else 0,
             width_2D=self.mapping_service._map_size[0] if self.mapping_service._map_size else 0,
             objects=objects,
             alert=alert,
-            fps=self.current_fps if self.current_fps > 0 else None
+            fps=job["fps"]
         )
 
-        # 9. Publish results
+        # 5. Publish (non-blocking, goes to publisher's own queue)
         self.publisher.send_frame(frame_data)
 
-        # 10. Draw OSD metadata (Counting Line, Counts)
-        self._draw_osd(frame_meta, batch_meta)
-
     def _sync_track_ids(self, frame_meta, tracked_objects):
-        """Update NvDsObjectMeta with OCSort Track IDs and per-ID colors."""
+        """
+        Update NvDsObjectMeta with OCSort Track IDs and per-ID colors.
+        Uses vectorized NumPy distance matrix instead of O(N*M) Python loop.
+        """
+        if len(tracked_objects) == 0:
+            return
+
+        # Pre-compute ALL track centers as a NumPy array (M, 2)
+        track_cx = (tracked_objects[:, 0] + tracked_objects[:, 2]) / 2.0
+        track_cy = (tracked_objects[:, 1] + tracked_objects[:, 3]) / 2.0
+        track_centers = np.stack([track_cx, track_cy], axis=1)  # (M, 2)
+        track_ids_arr = tracked_objects[:, 4].astype(int)
+
         l_obj = frame_meta.obj_meta_list
         while l_obj is not None:
             try:
@@ -232,16 +327,11 @@ class AnalyticsProbe:
                 cx = rect.left + rect.width / 2.0
                 cy = rect.top + rect.height / 2.0
                 
-                # Find closest tracked object by center distance
-                best_dist = float('inf')
-                best_tid = -1
-                for obj in tracked_objects:
-                    tcx = (obj[0] + obj[2]) / 2.0
-                    tcy = (obj[1] + obj[3]) / 2.0
-                    dist = (cx - tcx) ** 2 + (cy - tcy) ** 2
-                    if dist < best_dist:
-                        best_dist = dist
-                        best_tid = int(obj[4])
+                # Vectorized distance: broadcast (1, 2) - (M, 2) → (M,)
+                det_center = np.array([cx, cy])
+                dists = np.sum((track_centers - det_center) ** 2, axis=1)
+                best_idx = np.argmin(dists)
+                best_tid = int(track_ids_arr[best_idx])
                 
                 if best_tid >= 0:
                     obj_meta.object_id = best_tid
@@ -296,16 +386,8 @@ class AnalyticsProbe:
         
         pyds.nvds_add_display_meta_to_frame(frame_meta, display_meta)
 
-    def _send_empty_frame(self, frame_meta, timestamp):
-        """Send empty metadata if no detections present."""
-        frame_data = FrameData(
-            timestamp=timestamp,
-            count_in=self.counting_service.count_in,
-            count_out=self.counting_service.count_out,
-            occupancy=self.counting_service.current_people,
-            height_frame=frame_meta.source_frame_height,
-            width_frame=frame_meta.source_frame_width,
-            objects=[],
-            alert="none"
-        )
-        self.publisher.send_frame(frame_data)
+    def stop(self):
+        """Stop the background analytics worker thread."""
+        self._stop_event.set()
+        self._analytics_thread.join(timeout=3.0)
+        logger.info("[Probe] Analytics worker thread stopped.")

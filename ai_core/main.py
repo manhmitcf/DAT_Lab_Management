@@ -35,6 +35,7 @@ class AuraAnalyticsApp:
     def __init__(self):
         self.pipeline_manager = PipelineManager()
         self.settings_sub = None
+        self.probe = None
         self.services = {}
         
         # Load System & YOLOX configs early (used by model_converter + pipeline)
@@ -109,7 +110,7 @@ class AuraAnalyticsApp:
             raise RuntimeError(f"Invalid video source: {video_source}")
         
         # 1. Initialize Probe
-        probe = AnalyticsProbe(
+        self.probe = AnalyticsProbe(
             tracking_service=self.services["tracking"],
             counting_service=self.services["counting"],
             mapping_service=self.services["mapping"],
@@ -117,7 +118,7 @@ class AuraAnalyticsApp:
             warning_threshold=int(os.getenv("ALERT_WARNING_THRESH", 25)),
             critical_threshold=int(os.getenv("ALERT_CRITICAL_THRESH", 50))
         )
-
+        
         # 2. Build Pipeline
         try:
             self.pipeline_manager.build_pipeline(
@@ -125,7 +126,7 @@ class AuraAnalyticsApp:
                 config_infer=self.config_paths["infer"],
                 yolox_cfg=self.yolox_cfg,
             )
-            self.pipeline_manager.attach_probe(probe)
+            self.pipeline_manager.attach_probe(self.probe)
         except Exception as e:
             logger.critical(f"[App] Failed to construct pipeline: {e}")
             raise
@@ -214,6 +215,15 @@ class AuraAnalyticsApp:
         
         if self.settings_sub:
             self.settings_sub.stop()
+        
+        # Stop background analytics worker thread
+        if self.probe:
+            self.probe.stop()
+        
+        # Stop publisher background send thread
+        publisher = self.services.get("publisher")
+        if publisher:
+            publisher.close()
             
         self.pipeline_manager.stop()
         

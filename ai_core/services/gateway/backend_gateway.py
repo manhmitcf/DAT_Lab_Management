@@ -10,6 +10,7 @@ Logic is preserved 100% from the legacy ai_core backend_gateway.py.
 import os
 import json
 import time
+import queue
 import threading
 from typing import Any, Callable, Dict, Optional
 
@@ -22,10 +23,11 @@ from schemas.schemas import FrameData
 
 class ResultPublisher(BaseResultPublisher):
     """
-    Publishes per-frame pipeline results to the Django backend via WebSocket.
+    Non-blocking WebSocket publisher with background send thread.
 
-    Input:  FrameData (Pydantic model containing tracks, counts, map positions).
-    Output: JSON payload sent over WebSocket to the server.
+    send_frame() pushes JSON into a queue and returns IMMEDIATELY,
+    so the GStreamer pipeline is never blocked by network I/O.
+    A daemon thread drains the queue and sends payloads over WebSocket.
     """
 
     def __init__(
@@ -33,20 +35,30 @@ class ResultPublisher(BaseResultPublisher):
         endpoint: Optional[str] = None,
         bearer_token: Optional[str] = None,
         reconnect: bool = True,
+        max_queue_size: int = 30,
     ) -> None:
         """
-        Initialize the WebSocket publisher.
+        Initialize the async WebSocket publisher.
 
         Args:
             endpoint: WebSocket URL (e.g., ws://server:8000/ws/results/).
-                      Falls back to RESULTS_WS_URL environment variable.
-            bearer_token: Authentication token. Falls back to API_BEARER_TOKEN env var.
+            bearer_token: Authentication token.
             reconnect: Whether to auto-reconnect on send failure.
+            max_queue_size: Max pending payloads. Old frames are dropped if full.
         """
         self.endpoint = endpoint or os.getenv("RESULTS_WS_URL")
         self.bearer_token = bearer_token or os.getenv("API_BEARER_TOKEN")
         self.reconnect = reconnect
         self.ws: Optional[websocket.WebSocket] = None
+
+        # --- Async Send Infrastructure ---
+        self._queue: queue.Queue = queue.Queue(maxsize=max_queue_size)
+        self._stop_event = threading.Event()
+        self._send_thread = threading.Thread(
+            target=self._send_loop, name="ws-publisher", daemon=True
+        )
+        self._send_thread.start()
+        self._drop_count = 0
 
     def _connect(self) -> None:
         """Establish WebSocket connection with optional auth header."""
@@ -62,29 +74,65 @@ class ResultPublisher(BaseResultPublisher):
 
     def send_frame(self, frame_data: FrameData) -> None:
         """
-        Serialize and send a FrameData payload over WebSocket.
+        Non-blocking: serialize FrameData and push to send queue.
+        Returns immediately — actual WebSocket I/O happens in background thread.
 
-        Args:
-            frame_data: Pydantic model with all frame-level results.
+        If the queue is full (network too slow), the OLDEST frame is dropped
+        to keep the pipeline running at full speed.
         """
         payload = frame_data.model_dump_json()
 
+        try:
+            self._queue.put_nowait(payload)
+        except queue.Full:
+            # Drop oldest frame to make room for the latest
+            try:
+                self._queue.get_nowait()
+            except queue.Empty:
+                pass
+            self._queue.put_nowait(payload)
+            self._drop_count += 1
+            if self._drop_count % 100 == 1:
+                logger.warning(f"[Publisher] Queue full — dropped {self._drop_count} frames total (network too slow?)")
+
+    def _send_loop(self) -> None:
+        """Background thread: drain the queue and send payloads over WebSocket."""
+        logger.info("[Publisher] Background send thread started.")
+        while not self._stop_event.is_set():
+            try:
+                payload = self._queue.get(timeout=1.0)
+            except queue.Empty:
+                continue
+
+            self._send_payload(payload)
+
+    def _send_payload(self, payload: str) -> None:
+        """Actually send one payload, with reconnection logic."""
         if self.ws is None:
-            self._connect()
+            try:
+                self._connect()
+            except Exception as e:
+                logger.error(f"[Publisher] Connect failed: {e}")
+                return
 
         try:
             self.ws.send(payload)
         except Exception as e:
             logger.warning(f"[Publisher] Send failed: {e}")
             if self.reconnect:
-                logger.info("[Publisher] Reconnecting...")
-                self._connect()
-                self.ws.send(payload)
+                try:
+                    logger.info("[Publisher] Reconnecting...")
+                    self._connect()
+                    self.ws.send(payload)
+                except Exception as e2:
+                    logger.error(f"[Publisher] Reconnect+send failed: {e2}")
             else:
                 raise
 
     def close(self) -> None:
-        """Gracefully close the WebSocket connection."""
+        """Gracefully stop the send thread and close the WebSocket connection."""
+        self._stop_event.set()
+        self._send_thread.join(timeout=3.0)
         if self.ws:
             self.ws.close()
             self.ws = None
