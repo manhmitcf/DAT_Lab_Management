@@ -158,17 +158,9 @@ class TrackingService(BaseTrackingService):
             results[i, 5] = self.tracks_buffer[i].class_id
             results[i, 6] = self.tracks_buffer[i].score
 
-        # Apply final post-filtering (Aspect Ratio & Min Area) from config
-        if n_results > 0:
-            # Calculate AR and Area
-            w = results[:, 2] - results[:, 0]
-            h = results[:, 3] - results[:, 1]
-            ar = w / (h + 1e-6)
-            area = w * h
-            
-            mask = (ar < self.config.aspect_ratio_thresh) & (area > self.config.min_box_area)
-            results = results[mask]
-
+        # Return raw tracked results — geometric filtering (aspect_ratio, min_box_area)
+        # is applied by the CALLER (probe.py), exactly like legacy Python code where
+        # tracking_service.predict() filters AFTER tracker.update() returns.
         return results
 
     def __del__(self):
