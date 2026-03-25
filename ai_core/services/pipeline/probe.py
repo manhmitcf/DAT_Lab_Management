@@ -102,17 +102,21 @@ class AnalyticsProbe:
         frame_id = frame_meta.frame_num
         timestamp = datetime.now(timezone.utc)
         
-        # 1. Extract raw detections from nvinfer metadata
+        # 1. Extract ALL raw detections from nvinfer metadata (no filtering!)
+        #    Legacy Python: outputs[0] was passed DIRECTLY to tracker.update()
         detections = []
         l_obj = frame_meta.obj_meta_list
+
         while l_obj is not None:
             try:
                 obj_meta = pyds.NvDsObjectMeta.cast(l_obj.data)
                 rect = obj_meta.rect_params
                 
-                # ALWAYS set border so bbox is visible on nvdsosd/Janus
-                rect.border_width = 3
-                rect.border_color.set(0.0, 1.0, 0.0, 1.0)  # Green
+                # Hide ALL raw YOLO boxes on OSD. Only OCSort-confirmed boxes will be drawn.
+                rect.border_width = 0
+                rect.border_color.set(0.0, 0.0, 0.0, 0.0)
+                obj_meta.text_params.display_text = ""
+                obj_meta.text_params.set_bg_clr = 0
                 
                 # Format: [x1, y1, x2, y2, score, class_id]
                 detections.append([
@@ -123,6 +127,7 @@ class AnalyticsProbe:
                     obj_meta.confidence, 
                     obj_meta.class_id
                 ])
+
                 l_obj = l_obj.next
             except StopIteration:
                 break
@@ -139,7 +144,7 @@ class AnalyticsProbe:
             for idx, d in enumerate(detections):
                 logger.debug(f"  [Frame {frame_id}] Det#{idx}: bbox=({d[0]:.0f},{d[1]:.0f},{d[2]:.0f},{d[3]:.0f}) score={d[4]:.4f} class={d[5]}")
 
-        # 2. Run Tracking (C++ OCSort)
+        # 2. Run Tracking (C++ OCSort) — receives ALL raw detections, just like Python legacy
         detections_np = np.array(detections, dtype=np.float32)
         img_size = (frame_meta.source_frame_width, frame_meta.source_frame_height)
         tracked_objects = self.tracking_service.update(detections_np, img_size, img_size)
@@ -148,17 +153,39 @@ class AnalyticsProbe:
         if frame_id <= 10:
             logger.debug(f"  [Frame {frame_id}] OCSort returned {len(tracked_objects)} tracks")
         
-        # 3. Use tracked results if available, otherwise fall back to raw detections
+        # 3. Apply Geometric Filter AFTER OCSort (exactly like Python legacy code!)
+        #    Legacy Python (tracking_service.py dòng 184-191):
+        #      for t in targets:
+        #          tlwh = [t[0], t[1], t[2]-t[0], t[3]-t[1]]
+        #          vertical = tlwh[2] / tlwh[3] > aspect_ratio_thresh
+        #          if tlwh[2]*tlwh[3] > min_box_area and not vertical:
+        #              bboxes.append(xyxy)
+        ar_thresh = self.tracking_service.config.aspect_ratio_thresh
+        area_thresh = self.tracking_service.config.min_box_area
+        
+        bboxes_xyxy = []
+        track_ids = []
+        filtered_tracked = []
+        
         if len(tracked_objects) > 0:
-            bboxes_xyxy = tracked_objects[:, :4].tolist()
-            track_ids = tracked_objects[:, 4].astype(int).tolist()
-            # Sync Track IDs back to NvDsObjectMeta for nvdsosd
-            self._sync_track_ids(frame_meta, tracked_objects)
-        else:
-            # OCSort hasn't confirmed any tracks yet — use raw detections
-            # This matches legacy Python behavior where detections are still counted
-            bboxes_xyxy = [[d[0], d[1], d[2], d[3]] for d in detections]
-            track_ids = list(range(len(detections)))  # temporary IDs
+            for t in tracked_objects:
+                x1, y1, x2, y2 = t[:4]
+                tid = int(t[4])
+                w = x2 - x1
+                h = y2 - y1
+                
+                # Exact same formula as Python legacy: vertical = tlwh[2] / tlwh[3] > aspect_ratio_thresh
+                vertical = w / (h + 1e-6) > ar_thresh
+                
+                # Exact same condition: if tlwh[2]*tlwh[3] > min_box_area and not vertical
+                if w * h > area_thresh and not vertical:
+                    bboxes_xyxy.append([float(x1), float(y1), float(x2), float(y2)])
+                    track_ids.append(tid)
+                    filtered_tracked.append(t)
+            
+            # Inject ONLY filtered OCSort targets as new NvDsObjectMeta instances
+            if filtered_tracked:
+                self._sync_track_ids(frame_meta, batch_meta, np.array(filtered_tracked))
 
         # 4. Run Counting Service
         self.counting_service.update(bboxes_xyxy, track_ids)
@@ -222,46 +249,59 @@ class AnalyticsProbe:
         # 10. Draw OSD metadata (Counting Line, Counts)
         self._draw_osd(frame_meta, batch_meta)
 
-    def _sync_track_ids(self, frame_meta, tracked_objects):
+    def _sync_track_ids(self, frame_meta, batch_meta, tracked_objects):
         """Update NvDsObjectMeta with OCSort Track IDs and per-ID colors."""
-        l_obj = frame_meta.obj_meta_list
-        while l_obj is not None:
-            try:
-                obj_meta = pyds.NvDsObjectMeta.cast(l_obj.data)
-                rect = obj_meta.rect_params
-                cx = rect.left + rect.width / 2.0
-                cy = rect.top + rect.height / 2.0
+        import pyds
+        
+        # In the original python code, OCSort's smoothed tracking `targets` were drawn directly,
+        # totally bypassing the raw YOLO boxes. Since raw YOLO boxes are already hidden 
+        # (border_width=0) in DeepStream, we allocate BRAND NEW DeepStream metadata 
+        # objects using the exact smoothed Kalman filter coordinates from OCSort.
+        
+        for t_box in tracked_objects:
+            tid = int(t_box[4])
+            x1, y1, x2, y2 = t_box[:4]
+            width = x2 - x1
+            height = y2 - y1
+            
+            # Avoid invalid geometries
+            if width <= 0 or height <= 0:
+                continue
                 
-                # Find closest tracked object by center distance
-                best_dist = float('inf')
-                best_tid = -1
-                for obj in tracked_objects:
-                    tcx = (obj[0] + obj[2]) / 2.0
-                    tcy = (obj[1] + obj[3]) / 2.0
-                    dist = (cx - tcx) ** 2 + (cy - tcy) ** 2
-                    if dist < best_dist:
-                        best_dist = dist
-                        best_tid = int(obj[4])
-                
-                if best_tid >= 0:
-                    obj_meta.object_id = best_tid
-                    
-                    # Unique color per track ID
-                    color = self.color_palette[best_tid % len(self.color_palette)]
-                    rect.border_color.set(*color)
-                    rect.border_width = 3
-                    
-                    # ID label with colored background
-                    obj_meta.text_params.display_text = f"ID:{best_tid}"
-                    obj_meta.text_params.font_params.font_name = "Serif"
-                    obj_meta.text_params.font_params.font_size = 12
-                    obj_meta.text_params.font_params.font_color.set(1.0, 1.0, 1.0, 1.0)
-                    obj_meta.text_params.set_bg_clr = 1
-                    obj_meta.text_params.text_bg_clr.set(color[0], color[1], color[2], 0.6)
-                
-                l_obj = l_obj.next
-            except StopIteration:
-                break
+            # 1. Acquire new object meta from batch
+            obj_meta = pyds.nvds_acquire_obj_meta_from_pool(batch_meta)
+            
+            # 2. Fill basic info
+            obj_meta.unique_component_id = 99  # Custom ID for injected tracks
+            obj_meta.confidence = 1.0
+            obj_meta.class_id = 0
+            obj_meta.object_id = tid
+            
+            # 3. Fill bounding box coordinates
+            rect = obj_meta.rect_params
+            rect.left = float(x1)
+            rect.top = float(y1)
+            rect.width = float(width)
+            rect.height = float(height)
+            
+            # 4. Fill UI styling
+            color = self.color_palette[tid % len(self.color_palette)]
+            rect.border_color.set(*color)
+            rect.border_width = 3
+            
+            # 5. Fill Text Display properties
+            txt = obj_meta.text_params
+            txt.display_text = f"ID:{tid}"
+            txt.x_offset = int(rect.left)
+            txt.y_offset = int(max(0, rect.top - 20))  # Position text above the box
+            txt.font_params.font_name = "Serif"
+            txt.font_params.font_size = 12
+            txt.font_params.font_color.set(1.0, 1.0, 1.0, 1.0)
+            txt.set_bg_clr = 1
+            txt.text_bg_clr.set(color[0], color[1], color[2], 0.6)
+            
+            # 6. Attach the new pristine tracking box back to the frame
+            pyds.nvds_add_obj_meta_to_frame(frame_meta, obj_meta, None)
 
     def _draw_osd(self, frame_meta, batch_meta):
         """Inject custom lines and text for nvdsosd."""
