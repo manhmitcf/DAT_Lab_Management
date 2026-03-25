@@ -33,7 +33,7 @@ output-blob-names=output
 operate-on-class-ids=0
 
 [class-attrs-all]
-pre-cluster-threshold=0.35
+pre-cluster-threshold=0.1
 nms-iou-threshold=0.7
 # MUST be 4. The custom YOLOX C++ parser natively executes NMS. 
 # Defaults (0: Group Rectangles or 2: NMS) will duplicate merge passes and spawn giant hallucinated phantom boxes out of backpacks.
