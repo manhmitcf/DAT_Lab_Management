@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
+import { formatDisplayInt } from '@/lib/formatDisplayInt';
 import { useTrackingStore } from '@/stores/trackingStore';
 
 const W = 400;
@@ -35,7 +36,7 @@ export default function MiniOccupancyChart() {
     return (
         <div
             className="ml-0 flex w-full min-w-0 flex-col items-end justify-center shrink-0 pl-0 pr-0"
-            title={`Occupancy trend (max ${Math.round(maxY)})`}
+            title={`Occupancy trend (max ${formatDisplayInt(maxY)})`}
         >
             <p className="text-[9px] uppercase tracking-wider text-gray-500 mb-0.5 w-full text-right">
                 Occupancy trend

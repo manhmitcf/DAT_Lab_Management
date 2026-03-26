@@ -6,7 +6,7 @@ export default function Header() {
     const isOnline = useTrackingStore((state) => state.isOnline);
 
     return (
-        <header className="flex items-center justify-between border-b border-[#283039] bg-[#111418] px-6 py-3 shrink-0 z-50">
+        <header className="flex items-center justify-between border-b border-[#283039] bg-[#111418] px-4 py-2.5 shrink-0 z-50">
             <div className="flex items-center gap-4 text-white">
                 {/* Logo */}
                 <div className="size-8 flex items-center justify-center bg-[#137fec]/20 text-[#137fec] rounded-lg">

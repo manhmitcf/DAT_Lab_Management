@@ -1,5 +1,6 @@
 'use client';
 
+import { formatDisplayInt } from '@/lib/formatDisplayInt';
 import { useTrackingStore } from '@/stores/trackingStore';
 
 export default function DetectionLog() {
@@ -21,7 +22,7 @@ export default function DetectionLog() {
 
     return (
         <>
-            <div className="p-4 border-b border-border-default flex justify-between items-center bg-surface-2/30">
+            <div className="px-3 py-3 border-b border-border-default flex justify-between items-center bg-surface-2/30">
                 <div>
                     <h3 className="text-text-primary text-sm font-bold uppercase tracking-tight">Detection Log</h3>
                     <p className="text-text-tertiary text-[9px] mt-0.5 uppercase tracking-wider">Live Event Stream</p>
@@ -29,7 +30,7 @@ export default function DetectionLog() {
                 <span className="material-symbols-outlined text-text-tertiary text-xl">refresh</span>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-2 space-y-1.5 stagger-children">
+            <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1.5 stagger-children">
                 {detections.map((detection) => (
                     <div
                         key={detection.id}
@@ -54,7 +55,7 @@ export default function DetectionLog() {
                             <span className="text-text-tertiary text-[10px] font-mono">{detection.timestamp}</span>
                         </div>
                         <p className="text-text-secondary text-[11px] mb-2">
-                            ID #{detection.track_id} · {detection.location}
+                            ID #{formatDisplayInt(detection.track_id)} · {detection.location}
                         </p>
                         {detection.confidence && (
                             <div className="h-1 bg-surface-3 rounded-full overflow-hidden">

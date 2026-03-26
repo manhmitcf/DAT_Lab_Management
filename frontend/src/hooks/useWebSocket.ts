@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useCallback } from 'react';
 import { FLOOR_PLAN_MAP_SIZE, WS_URLS } from '@/config/api';
+import { formatDisplayInt } from '@/lib/formatDisplayInt';
 import { useTrackingStore } from '@/stores/trackingStore';
 import type { FrameData, Person, FloorPlanMarker } from '@/types';
 
@@ -80,7 +81,7 @@ export function useWebSocket() {
             x: (obj.coordinates_2D[0] / mapW) * 100,
             y: (obj.coordinates_2D[1] / mapH) * 100,
             type: 'active' as const,
-            label: `Person #${obj.track_id}`,
+            label: `Person #${formatDisplayInt(obj.track_id)}`,
         }));
 
         store.setPersons(persons);

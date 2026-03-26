@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { formatDisplayInt } from '@/lib/formatDisplayInt';
 import { useSidebarStore } from '@/stores/sidebarStore';
 
 export function SidebarHamburger() {
@@ -10,7 +11,7 @@ export function SidebarHamburger() {
         <button
             type="button"
             onClick={toggleMobileOpen}
-            className="md:hidden ml-0 flex size-9 shrink-0 items-center justify-center rounded-lg border border-[#283039]/60 bg-[#1a222a]/40 pl-0 pr-2 text-gray-400 hover:text-white hover:bg-[#1f2937] transition-colors"
+            className="md:hidden flex size-9 shrink-0 items-center justify-center rounded-lg border border-[#283039]/60 bg-[#1a222a]/40 px-2 text-gray-400 hover:text-white hover:bg-[#1f2937] transition-colors"
             aria-label="Open menu"
         >
             <span className="material-symbols-outlined text-[22px]">menu</span>
@@ -59,7 +60,7 @@ export default function MainSidebar() {
                 `}
                 aria-label="Main navigation"
             >
-            <div className={`flex flex-col gap-1 pb-3 ${isCollapsed ? 'px-2 pt-3' : 'px-3 pt-3'}`}>
+            <div className={`flex flex-col gap-1 pb-2.5 ${isCollapsed ? 'px-2.5 pt-2.5' : 'px-2.5 pt-2.5'}`}>
                 {/* Narrow / expand — top of sidebar (easy to find, out of the nav flow) */}
                 <button
                     type="button"
@@ -126,15 +127,15 @@ export default function MainSidebar() {
                                     <>
                                         <span className="flex-1 text-[13px] font-medium">{item.label}</span>
                                         {item.badge ? (
-                                            <span className="flex min-w-[20px] items-center justify-center rounded-full bg-red-500/90 px-1.5 text-[10px] font-bold text-white">
-                                                {item.badge}
+                                            <span className="flex min-w-[20px] items-center justify-center rounded-full bg-red-500/90 px-1.5 text-[10px] font-bold text-white tabular-nums">
+                                                {formatDisplayInt(item.badge)}
                                             </span>
                                         ) : null}
                                     </>
                                 )}
                                 {isCollapsed && item.badge ? (
-                                    <span className="absolute -right-0.5 -top-0.5 flex size-4 items-center justify-center rounded-full bg-red-500 text-[8px] font-bold text-white">
-                                        {item.badge}
+                                    <span className="absolute -right-0.5 -top-0.5 flex size-4 items-center justify-center rounded-full bg-red-500 text-[8px] font-bold text-white tabular-nums">
+                                        {formatDisplayInt(item.badge)}
                                     </span>
                                 ) : null}
                             </Link>
@@ -143,7 +144,7 @@ export default function MainSidebar() {
                 </div>
             </div>
 
-            <div className={`flex flex-col gap-1 border-t border-[#283039] p-3 ${isCollapsed ? 'px-2' : ''}`}>
+            <div className="flex flex-col gap-1 border-t border-[#283039] px-2.5 py-2.5">
                 {bottomNavItems.map((item) => (
                     <Link
                         key={item.href}

@@ -1,5 +1,6 @@
 'use client';
 
+import { formatDisplayInt } from '@/lib/formatDisplayInt';
 import { useTrackingStore } from '@/stores/trackingStore';
 
 export default function Analytics() {
@@ -7,7 +8,7 @@ export default function Analytics() {
 
     return (
         <>
-            <div className="p-4 border-b border-[#283039] flex justify-between items-center bg-[#1a2027]/30">
+            <div className="px-3 py-3 border-b border-[#283039] flex justify-between items-center bg-[#1a2027]/30">
                 <div>
                     <h3 className="text-white text-sm font-bold uppercase tracking-tight">Analytics</h3>
                     <p className="text-gray-500 text-[9px] mt-0.5 uppercase">Real-time Performance</p>
@@ -18,35 +19,35 @@ export default function Analytics() {
                 </svg>
             </div>
 
-            <div className="p-4 space-y-4 overflow-y-auto">
+            <div className="px-3 py-3 space-y-3 overflow-y-auto">
                 {/* KPI Cards */}
-                <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-[#1a2027] border border-[#283039] p-3 rounded-lg">
+                <div className="grid grid-cols-2 gap-2">
+                    <div className="bg-[#1a2027] border border-[#283039] p-2.5 rounded-lg">
                         <p className="text-[9px] text-gray-500 uppercase font-bold mb-1">FPS</p>
                         <div className="flex items-end gap-2">
                             <span
                                 className="inline-block shrink-0 text-right text-lg font-bold tabular-nums text-white leading-none"
                                 style={{ width: '5ch', minWidth: '5ch' }}
                             >
-                                {stats.fps}
+                                {formatDisplayInt(stats.fps)}
                             </span>
                             <span className="text-[10px] text-green-500 font-mono mb-0.5">LIVE</span>
                         </div>
                     </div>
-                    <div className="bg-[#1a2027] border border-[#283039] p-3 rounded-lg">
+                    <div className="bg-[#1a2027] border border-[#283039] p-2.5 rounded-lg">
                         <p className="text-[9px] text-gray-500 uppercase font-bold mb-1">Person Count</p>
                         <div className="flex items-end gap-2">
                             <span
                                 className="inline-block shrink-0 text-right text-lg font-bold tabular-nums text-[#137fec] leading-none"
                                 style={{ width: '6ch', minWidth: '6ch' }}
                             >
-                                {stats.person_count}
+                                {formatDisplayInt(stats.person_count)}
                             </span>
                             <span
                                 className="inline-block shrink-0 text-right text-[10px] text-[#137fec]/70 font-mono mb-0.5 tabular-nums"
                                 style={{ width: '7ch', minWidth: '7ch' }}
                             >
-                                +{stats.person_count_change}%
+                                +{formatDisplayInt(stats.person_count_change)}%
                             </span>
                         </div>
                     </div>
@@ -62,7 +63,9 @@ export default function Analytics() {
                         <div>
                             <div className="flex justify-between text-[10px] mb-1">
                                 <span className="text-gray-300">WALKING</span>
-                                <span className="text-white font-mono">{stats.behavior_distribution.walking}%</span>
+                                <span className="text-white font-mono">
+                                    {formatDisplayInt(stats.behavior_distribution.walking)}%
+                                </span>
                             </div>
                             <div className="h-1.5 w-full bg-[#1a2027] rounded-full overflow-hidden">
                                 <div
@@ -74,7 +77,9 @@ export default function Analytics() {
                         <div>
                             <div className="flex justify-between text-[10px] mb-1">
                                 <span className="text-gray-300">STANDING</span>
-                                <span className="text-white font-mono">{stats.behavior_distribution.standing}%</span>
+                                <span className="text-white font-mono">
+                                    {formatDisplayInt(stats.behavior_distribution.standing)}%
+                                </span>
                             </div>
                             <div className="h-1.5 w-full bg-[#1a2027] rounded-full overflow-hidden">
                                 <div
@@ -86,7 +91,9 @@ export default function Analytics() {
                         <div>
                             <div className="flex justify-between text-[10px] mb-1">
                                 <span className="text-gray-300">LOITERING</span>
-                                <span className="text-white font-mono">{stats.behavior_distribution.loitering}%</span>
+                                <span className="text-white font-mono">
+                                    {formatDisplayInt(stats.behavior_distribution.loitering)}%
+                                </span>
                             </div>
                             <div className="h-1.5 w-full bg-[#1a2027] rounded-full overflow-hidden">
                                 <div
