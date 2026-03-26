@@ -1,7 +1,9 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { useJanusStream } from '@/hooks/useJanusStream';
 import { JANUS_URL } from '@/config/api';
+import { formatVietnamDateTime } from '@/lib/formatDateTime';
 import { useTrackingStore } from '@/stores/trackingStore';
 
 /** Optional MJPEG or still image when video is not sent on the metadata WebSocket (non-Janus path). */
@@ -11,7 +13,12 @@ export default function VideoPlayer() {
     const { videoRef, status: janusStatus, error: janusError } = useJanusStream();
     const currentFrame = useTrackingStore((state) => state.currentFrame);
     const wsStatus = useTrackingStore((state) => state.wsStatus);
-    const currentTime = new Date().toISOString().replace('T', ' ').slice(0, 23);
+    const [now, setNow] = useState(() => new Date());
+    useEffect(() => {
+        const id = setInterval(() => setNow(new Date()), 100);
+        return () => clearInterval(id);
+    }, []);
+    const currentTime = formatVietnamDateTime(now);
 
     const isConnecting = wsStatus === 'connecting';
     const isDisconnected = wsStatus === 'disconnected' || wsStatus === 'error';
