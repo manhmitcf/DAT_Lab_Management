@@ -24,15 +24,28 @@ export default function Analytics() {
                     <div className="bg-[#1a2027] border border-[#283039] p-3 rounded-lg">
                         <p className="text-[9px] text-gray-500 uppercase font-bold mb-1">FPS</p>
                         <div className="flex items-end gap-2">
-                            <span className="text-lg font-bold text-white leading-none">{stats.fps}</span>
+                            <span
+                                className="inline-block shrink-0 text-right text-lg font-bold tabular-nums text-white leading-none"
+                                style={{ width: '5ch', minWidth: '5ch' }}
+                            >
+                                {stats.fps}
+                            </span>
                             <span className="text-[10px] text-green-500 font-mono mb-0.5">LIVE</span>
                         </div>
                     </div>
                     <div className="bg-[#1a2027] border border-[#283039] p-3 rounded-lg">
                         <p className="text-[9px] text-gray-500 uppercase font-bold mb-1">Person Count</p>
                         <div className="flex items-end gap-2">
-                            <span className="text-lg font-bold text-[#137fec] leading-none">{stats.person_count}</span>
-                            <span className="text-[10px] text-[#137fec]/70 font-mono mb-0.5">
+                            <span
+                                className="inline-block shrink-0 text-right text-lg font-bold tabular-nums text-[#137fec] leading-none"
+                                style={{ width: '6ch', minWidth: '6ch' }}
+                            >
+                                {stats.person_count}
+                            </span>
+                            <span
+                                className="inline-block shrink-0 text-right text-[10px] text-[#137fec]/70 font-mono mb-0.5 tabular-nums"
+                                style={{ width: '7ch', minWidth: '7ch' }}
+                            >
                                 +{stats.person_count_change}%
                             </span>
                         </div>

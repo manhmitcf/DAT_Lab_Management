@@ -8,7 +8,7 @@ import { useWebSocket } from '@/hooks/useWebSocket';
 import { getAlertLevelDisplay } from '@/lib/alertLabels';
 import { useTrackingStore } from '@/stores/trackingStore';
 
-/** Caps numeric width so BE outliers do not expand the Live header; full value in title. */
+/** Fixed digit slot (ch) so realtime values do not shift sibling header items; full value in title. */
 function StatNumber({
   value,
   maxCh = 12,
@@ -19,10 +19,11 @@ function StatNumber({
   className?: string;
 }) {
   const s = String(value);
+  const w = `${maxCh}ch`;
   return (
     <span
-      className={`min-w-0 truncate text-right tabular-nums font-mono text-sm font-semibold ${className}`}
-      style={{ maxWidth: `${maxCh}ch` }}
+      className={`inline-block shrink-0 truncate text-right tabular-nums font-mono text-sm font-semibold ${className}`}
+      style={{ width: w, minWidth: w, maxWidth: w }}
       title={s}
     >
       {s}
@@ -62,12 +63,22 @@ export default function LiveViewPage() {
             <span className="material-symbols-outlined text-base text-sky-400 shrink-0">swap_horiz</span>
             <span className="text-xs text-gray-500 whitespace-nowrap">Entry/Exit</span>
             <span
-              className="flex min-w-0 max-w-[min(26ch,42vw)] items-baseline justify-end gap-0.5 font-mono text-sm font-semibold tabular-nums"
+              className="flex max-w-[min(26ch,42vw)] shrink-0 items-baseline justify-end gap-0.5 font-mono text-sm font-semibold tabular-nums"
               title={`${stats.entry_today} / ${stats.exit_today}`}
             >
-              <span className="min-w-0 max-w-[12ch] truncate text-right text-emerald-400">{stats.entry_today}</span>
+              <span
+                className="inline-block shrink-0 truncate text-right text-emerald-400 tabular-nums"
+                style={{ width: '12ch', minWidth: '12ch', maxWidth: '12ch' }}
+              >
+                {stats.entry_today}
+              </span>
               <span className="shrink-0 text-gray-500">/</span>
-              <span className="min-w-0 max-w-[12ch] truncate text-right text-orange-400">{stats.exit_today}</span>
+              <span
+                className="inline-block shrink-0 truncate text-right text-orange-400 tabular-nums"
+                style={{ width: '12ch', minWidth: '12ch', maxWidth: '12ch' }}
+              >
+                {stats.exit_today}
+              </span>
             </span>
           </div>
           <div className="hidden h-6 w-px shrink-0 bg-[#2a3441] sm:block" aria-hidden />
@@ -85,7 +96,7 @@ export default function LiveViewPage() {
             <span className="material-symbols-outlined text-base text-amber-400 shrink-0">warning</span>
             <span className="text-xs text-gray-500 whitespace-nowrap">Alert</span>
             <span
-              className={`min-w-0 max-w-[14ch] truncate text-right text-sm font-semibold tabular-nums ${alertUi.textClass}`}
+              className={`inline-block w-[12ch] shrink-0 truncate text-right text-sm font-semibold tabular-nums ${alertUi.textClass}`}
               title={alertUi.short}
             >
               {alertUi.short}
