@@ -11,6 +11,7 @@ import os
 import json
 import time
 import threading
+import queue
 from typing import Any, Callable, Dict, Optional
 
 import websocket
@@ -33,6 +34,7 @@ class ResultPublisher(BaseResultPublisher):
         endpoint: Optional[str] = None,
         bearer_token: Optional[str] = None,
         reconnect: bool = True,
+        max_queue_size: int = 150,
     ) -> None:
         """
         Initialize the WebSocket publisher.
@@ -42,11 +44,18 @@ class ResultPublisher(BaseResultPublisher):
                       Falls back to RESULTS_WS_URL environment variable.
             bearer_token: Authentication token. Falls back to API_BEARER_TOKEN env var.
             reconnect: Whether to auto-reconnect on send failure.
+            max_queue_size: Maximum frames to buffer before discarding oldest to avoid memory leaks.
         """
         self.endpoint = endpoint or os.getenv("RESULTS_WS_URL")
         self.bearer_token = bearer_token or os.getenv("API_BEARER_TOKEN")
         self.reconnect = reconnect
         self.ws: Optional[websocket.WebSocket] = None
+        
+        # Multithreading / Queue
+        self.queue = queue.Queue(maxsize=max_queue_size)
+        self._stop_event = threading.Event()
+        self._thread = threading.Thread(target=self._run_publisher, daemon=True)
+        self._thread.start()
 
     def _connect(self) -> None:
         """Establish WebSocket connection with optional auth header."""
@@ -62,29 +71,55 @@ class ResultPublisher(BaseResultPublisher):
 
     def send_frame(self, frame_data: FrameData) -> None:
         """
-        Serialize and send a FrameData payload over WebSocket.
+        Serialize and queue a FrameData payload to be sent asynchronously.
 
         Args:
             frame_data: Pydantic model with all frame-level results.
         """
         payload = frame_data.model_dump_json()
 
-        if self.ws is None:
-            self._connect()
-
         try:
-            self.ws.send(payload)
-        except Exception as e:
-            logger.warning(f"[Publisher] Send failed: {e}")
-            if self.reconnect:
-                logger.info("[Publisher] Reconnecting...")
-                self._connect()
+            self.queue.put_nowait(payload)
+        except queue.Full:
+            logger.warning("[Publisher] Queue is Full! Dropping frame data to prevent RAM leak.")
+
+    def _run_publisher(self) -> None:
+        """Background thread worker to offload network I/O from the main loop."""
+        logger.info("[Publisher] Background thread started.")
+        while not self._stop_event.is_set():
+            try:
+                # Block for 1 second so we can periodically check stop_event
+                payload = self.queue.get(timeout=1.0)
+            except queue.Empty:
+                continue
+                
+            if self.ws is None:
+                try:
+                    self._connect()
+                except Exception as e:
+                    logger.error(f"[Publisher] Initial connection failed: {e}")
+                    time.sleep(2)
+                    continue
+                    
+            try:
                 self.ws.send(payload)
-            else:
-                raise
+            except Exception as e:
+                logger.warning(f"[Publisher] Send failed: {e}")
+                if self.reconnect:
+                    logger.info("[Publisher] Reconnecting...")
+                    try:
+                        self._connect()
+                        self.ws.send(payload)
+                    except Exception as re:
+                        logger.error(f"[Publisher] Reconnect failed: {re}")
+                else:
+                    logger.error("[Publisher] Dropping payload due to send failure (reconnect=False)")
 
     def close(self) -> None:
-        """Gracefully close the WebSocket connection."""
+        """Gracefully close the WebSocket connection and thread."""
+        self._stop_event.set()
+        self._thread.join(timeout=2.0)
+        
         if self.ws:
             self.ws.close()
             self.ws = None

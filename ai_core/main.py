@@ -215,6 +215,9 @@ class AuraAnalyticsApp:
         if self.settings_sub:
             self.settings_sub.stop()
             
+        if "publisher" in self.services:
+            self.services["publisher"].close()
+            
         self.pipeline_manager.stop()
         
         logger.success("=== Aura Analytics Shutdown Complete ===")
