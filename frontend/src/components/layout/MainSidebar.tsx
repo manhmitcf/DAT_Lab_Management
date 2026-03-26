@@ -10,7 +10,7 @@ export function SidebarHamburger() {
         <button
             type="button"
             onClick={toggleMobileOpen}
-            className="md:hidden flex size-9 items-center justify-center rounded-lg border border-[#283039]/60 bg-[#1a222a]/40 text-gray-400 hover:text-white hover:bg-[#1f2937] transition-colors"
+            className="md:hidden ml-0 flex size-9 shrink-0 items-center justify-center rounded-lg border border-[#283039]/60 bg-[#1a222a]/40 pl-0 pr-2 text-gray-400 hover:text-white hover:bg-[#1f2937] transition-colors"
             aria-label="Open menu"
         >
             <span className="material-symbols-outlined text-[22px]">menu</span>

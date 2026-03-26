@@ -34,13 +34,20 @@ export default function MiniOccupancyChart() {
 
     return (
         <div
-            className="flex flex-col items-end justify-center shrink-0 pl-1"
+            className="ml-0 flex w-full min-w-0 flex-col items-end justify-center shrink-0 pl-0 pr-0"
             title={`Occupancy trend (max ${Math.round(maxY)})`}
         >
             <p className="text-[9px] uppercase tracking-wider text-gray-500 mb-0.5 w-full text-right">
                 Occupancy trend
             </p>
-            <svg width={W} height={H} className="overflow-visible" aria-hidden>
+            <svg
+                viewBox={`0 0 ${W} ${H}`}
+                width="100%"
+                height={H}
+                preserveAspectRatio="xMidYMid meet"
+                className="max-w-full overflow-visible"
+                aria-hidden
+            >
                 <defs>
                     <linearGradient id="miniOccGrad" x1="0" x2="0" y1="0" y2="1">
                         <stop offset="0%" stopColor="#137fec" stopOpacity="0.25" />
