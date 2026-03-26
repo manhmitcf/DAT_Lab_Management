@@ -31,6 +31,7 @@ symmetric-padding=0
 
 output-blob-names=output
 operate-on-class-ids=0
+interval=1
 
 [class-attrs-all]
 pre-cluster-threshold=0.1

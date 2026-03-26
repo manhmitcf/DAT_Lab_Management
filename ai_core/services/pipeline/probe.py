@@ -87,6 +87,9 @@ class AnalyticsProbe:
                 frame_meta = pyds.NvDsFrameMeta.cast(l_frame.data)
             except StopIteration:
                 break
+            FRAME_SKIP = 2
+            if frame_meta.frame_num % FRAME_SKIP != 0:
+                return Gst.PadProbeReturn.DROP
 
             self._process_frame_meta(frame_meta, batch_meta)
 
