@@ -1,24 +1,18 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { JANUS_URL, JANUS_MOUNTPOINT_ID } from '@/config/api';
-
-declare global {
-    interface Window {
-        Janus?: {
-            init: (opts: { debug?: string; callback: () => void }) => void;
-            attachMediaStream: (element: HTMLVideoElement, stream: MediaStream) => void;
-        };
-    }
-}
 
 export type JanusStatus = 'idle' | 'loading' | 'connecting' | 'connected' | 'error';
 
+/** Giống thứ tự trong index.html — jQuery, adapter, janus 1.3.0 */
 const SCRIPTS = [
     'https://code.jquery.com/jquery-3.7.1.min.js',
     'https://webrtc.github.io/adapter/adapter-latest.js',
-    'https://cdn.jsdelivr.net/npm/janus-gateway@1.4.0/npm/src/janus.js',
+    'https://cdn.jsdelivr.net/npm/janus-gateway@1.3.0/npm/src/janus.js',
 ];
+
+const JANUS_DEBUG = process.env.NEXT_PUBLIC_JANUS_DEBUG === 'true';
 
 function loadScript(src: string): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -35,15 +29,22 @@ function loadScript(src: string): Promise<void> {
 }
 
 export function useJanusStream() {
-    const videoRef = useRef<HTMLVideoElement>(null);
+    const videoRef = useRef<HTMLVideoElement | null>(null);
     const [status, setStatus] = useState<JanusStatus>('idle');
     const [error, setError] = useState<string | null>(null);
+    const [videoMounted, setVideoMounted] = useState(false);
     const janusRef = useRef<unknown>(null);
     const streamingRef = useRef<unknown>(null);
 
+    const setRef = useCallback((el: HTMLVideoElement | null) => {
+        (videoRef as React.MutableRefObject<HTMLVideoElement | null>).current = el;
+        setVideoMounted(!!el);
+    }, []);
+
     useEffect(() => {
+        if (!JANUS_URL || !videoMounted) return;
         const video = videoRef.current;
-        if (!video || !JANUS_URL) return;
+        if (!video) return;
 
         let cancelled = false;
 
@@ -64,7 +65,7 @@ export function useJanusStream() {
 
                 setStatus('connecting');
                 Janus.init({
-                    debug: 'none',
+                    debug: JANUS_DEBUG ? 'all' : 'none',
                     callback: () => {
                         if (cancelled) return;
                         janusRef.current = new Janus({
@@ -80,7 +81,13 @@ export function useJanusStream() {
                                             message: { request: 'watch', id: JANUS_MOUNTPOINT_ID },
                                         });
                                     },
-                                    onmessage: (msg: unknown, jsep: RTCSessionDescriptionInit | null) => {
+                                    error: (err: string) => {
+                                        if (!cancelled) {
+                                            setError(err || 'Plugin attach failed');
+                                            setStatus('error');
+                                        }
+                                    },
+                                    onmessage: (msg: any, jsep: RTCSessionDescriptionInit | null) => {
                                         if (cancelled || !jsep) return;
                                         const plugin = streamingRef.current as any;
                                         if (!plugin) return;
@@ -96,7 +103,13 @@ export function useJanusStream() {
                                         if (cancelled || !on || track.kind !== 'video') return;
                                         if (!video) return;
                                         const stream = new MediaStream([track]);
-                                        Janus.attachMediaStream(video, stream);
+                                        const Janus = (window as any).Janus;
+                                        if (Janus?.attachMediaStream) {
+                                            Janus.attachMediaStream(video, stream);
+                                        } else {
+                                            video.srcObject = stream;
+                                            video.play().catch(() => {});
+                                        }
                                         setStatus('connected');
                                     },
                                 });
@@ -124,7 +137,7 @@ export function useJanusStream() {
             const j = janusRef.current as any;
             if (j && j.destroy) j.destroy();
         };
-    }, [JANUS_URL, JANUS_MOUNTPOINT_ID]);
+    }, [JANUS_URL, JANUS_MOUNTPOINT_ID, videoMounted]);
 
-    return { videoRef, status, error };
+    return { videoRef: setRef, status, error };
 }
