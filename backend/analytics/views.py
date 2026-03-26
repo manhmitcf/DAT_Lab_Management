@@ -16,6 +16,12 @@ from .utils import parse_period, get_previous_period, DAY_NAMES, HOUR_LABELS
 # ---------------------------------------------------------------------------
 # 1. GET /analytics/summary?period={period}
 # ---------------------------------------------------------------------------
+def _analytics_cache_response(response):
+    """Short private cache — reduces repeat load when FE refetches same period."""
+    response['Cache-Control'] = 'private, max-age=30'
+    return response
+
+
 @api_view(['GET'])
 def summary_view(request):
     """KPI cards: current occupancy, peak, avg dwell, totals."""
@@ -24,11 +30,11 @@ def summary_view(request):
 
     frames = FrameData.objects.filter(timestamp__range=(start, end))
 
-    # Latest frame for current occupancy
-    latest_frame = frames.order_by('-timestamp').first()
-    current_occupancy = 0
-    if latest_frame:
-        current_occupancy = latest_frame.detections.count()
+    annotated = frames.annotate(det_count=Count('detections'))
+
+    # Latest frame for current occupancy (single query with annotation)
+    latest = annotated.order_by('-timestamp').first()
+    current_occupancy = latest.det_count if latest else 0
 
     # Aggregates
     agg = frames.aggregate(
@@ -44,20 +50,15 @@ def summary_view(request):
         total_in = latest_counts['count_in']
         total_out = latest_counts['count_out']
 
-    # Peak occupancy (max number of detections per frame)
-    peak_occupancy = 0
-    peak_time = None
-    frame_ids = frames.values_list('id', 'timestamp')
-    for fid, ts in frame_ids:
-        det_count = ObjectDetection.objects.filter(frame_data_id=fid).count()
-        if det_count > peak_occupancy:
-            peak_occupancy = det_count
-            peak_time = ts
+    # Peak occupancy — one annotated query instead of N+1 counts
+    peak_row = annotated.order_by('-det_count', '-timestamp').first()
+    peak_occupancy = peak_row.det_count if peak_row else 0
+    peak_time = peak_row.timestamp if peak_row else None
 
     # Avg dwell time: average duration each track_id appears in
     dwell_data = _compute_avg_dwell(start, end)
 
-    return Response({
+    return _analytics_cache_response(Response({
         'current_occupancy': current_occupancy,
         'peak_occupancy': peak_occupancy,
         'peak_time': peak_time.strftime('%H:%M') if peak_time else None,
@@ -65,7 +66,7 @@ def summary_view(request):
         'total_in': total_in,
         'total_out': total_out,
         'net_flow': total_in - total_out,
-    })
+    }))
 
 
 # ---------------------------------------------------------------------------
@@ -81,10 +82,10 @@ def occupancy_trends_view(request):
     current = _build_trend_data(start, end)
     previous = _build_trend_data(prev_start, prev_end)
 
-    return Response({
+    return _analytics_cache_response(Response({
         'current': current,
         'previous': previous,
-    })
+    }))
 
 
 # ---------------------------------------------------------------------------
@@ -96,17 +97,21 @@ def heatmap_view(request):
     period = request.query_params.get('period', '7d')
     start, end = parse_period(period)
 
-    frames = FrameData.objects.filter(timestamp__range=(start, end))
+    frames = (
+        FrameData.objects.filter(timestamp__range=(start, end))
+        .annotate(det_count=Count('detections'))
+        .values('timestamp', 'det_count')
+    )
 
-    # Collect detection counts per (weekday, hour)
+    # Collect detection counts per (weekday, hour) — no per-frame N+1
     counts = defaultdict(lambda: [0] * 24)
     max_count = 1  # avoid division by zero
 
-    for frame in frames.values('id', 'timestamp'):
+    for frame in frames:
         ts = frame['timestamp']
         weekday = ts.weekday()  # 0=Mon, 6=Sun
         hour = ts.hour
-        det_count = ObjectDetection.objects.filter(frame_data_id=frame['id']).count()
+        det_count = frame['det_count']
         counts[weekday][hour] += det_count
         if counts[weekday][hour] > max_count:
             max_count = counts[weekday][hour]
@@ -117,7 +122,7 @@ def heatmap_view(request):
         hours = [round(counts[day_idx][h] / max_count, 2) for h in range(24)]
         data.append({'day': day_name, 'hours': hours})
 
-    return Response({'data': data})
+    return _analytics_cache_response(Response({'data': data}))
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +154,7 @@ def traffic_daily_view(request):
         for d in DAY_NAMES if d in day_totals
     ]
 
-    return Response({'data': data})
+    return _analytics_cache_response(Response({'data': data}))
 
 
 # ---------------------------------------------------------------------------
@@ -175,7 +180,7 @@ def flow_ratio_view(request):
     dwell_minutes_list = _compute_dwell_list(start, end)
     dwell_dist = _categorize_dwell(dwell_minutes_list)
 
-    return Response({
+    return _analytics_cache_response(Response({
         'entry_exit': {
             'total_in': total_in,
             'total_out': total_out,
@@ -183,7 +188,7 @@ def flow_ratio_view(request):
             'out_percentage': out_pct,
         },
         'dwell_distribution': dwell_dist,
-    })
+    }))
 
 
 # ---------------------------------------------------------------------------
@@ -195,30 +200,30 @@ def peak_daily_view(request):
     period = request.query_params.get('period', '7d')
     start, end = parse_period(period)
 
-    frames = FrameData.objects.filter(
-        timestamp__range=(start, end)
-    ).annotate(date=TruncDate('timestamp'))
+    rows = (
+        FrameData.objects.filter(timestamp__range=(start, end))
+        .annotate(det_count=Count('detections'))
+        .annotate(date=TruncDate('timestamp'))
+        .values('date', 'timestamp', 'det_count')
+    )
 
-    # Calculate peak per date
-    dates = frames.values_list('date', flat=True).distinct()
+    best_per_day = {}
+    for r in rows:
+        d = r['date']
+        if d not in best_per_day or r['det_count'] > best_per_day[d]['det_count']:
+            best_per_day[d] = r
+
     data = []
-    for d in sorted(set(dates)):
-        day_frames = frames.filter(date=d)
-        peak = 0
-        peak_time = None
-        for f in day_frames.values('id', 'timestamp'):
-            det_count = ObjectDetection.objects.filter(frame_data_id=f['id']).count()
-            if det_count > peak:
-                peak = det_count
-                peak_time = f['timestamp']
-
+    for d in sorted(best_per_day.keys()):
+        b = best_per_day[d]
+        ts = b['timestamp']
         data.append({
             'day': DAY_NAMES[d.weekday()],
-            'peak': peak,
-            'time': peak_time.strftime('%H:%M') if peak_time else None,
+            'peak': b['det_count'],
+            'time': ts.strftime('%H:%M') if ts else None,
         })
 
-    return Response({'data': data})
+    return _analytics_cache_response(Response({'data': data}))
 
 
 # ---------------------------------------------------------------------------
@@ -246,7 +251,7 @@ def cumulative_traffic_view(request):
         for entry in frames
     ]
 
-    return Response({'data': data})
+    return _analytics_cache_response(Response({'data': data}))
 
 
 # ---------------------------------------------------------------------------
@@ -283,7 +288,7 @@ def dwell_by_hour_view(request):
         else:
             data.append({'time': hour, 'avg_dwell': 0})
 
-    return Response({'data': data})
+    return _analytics_cache_response(Response({'data': data}))
 
 
 # ---------------------------------------------------------------------------
@@ -305,9 +310,11 @@ def export_view(request):
         'num_detections', 'height_frame', 'width_frame',
     ])
 
-    frames = FrameData.objects.filter(
-        timestamp__range=(start, end)
-    ).order_by('timestamp')
+    frames = (
+        FrameData.objects.filter(timestamp__range=(start, end))
+        .annotate(det_count=Count('detections'))
+        .order_by('timestamp')
+    )
 
     for frame in frames:
         writer.writerow([
@@ -315,7 +322,7 @@ def export_view(request):
             frame.count_in,
             frame.count_out,
             frame.alert,
-            frame.detections.count(),
+            frame.det_count,
             frame.height_frame,
             frame.width_frame,
         ])
