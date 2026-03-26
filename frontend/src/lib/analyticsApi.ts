@@ -64,38 +64,38 @@ export interface CumulativeTrafficPoint {
     cumulative_out: number;
 }
 
-async function fetchJson<T>(url: string): Promise<T> {
-    const res = await fetch(url);
+async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
+    const res = await fetch(url, { ...init, cache: 'default' });
     if (!res.ok) throw new Error(`Analytics API error: ${res.status}`);
     return res.json();
 }
 
-export async function fetchSummary(period: Period): Promise<SummaryResponse> {
-    return fetchJson(`${ANALYTICS_BASE}/summary?period=${period}`);
+export async function fetchSummary(period: Period, init?: RequestInit): Promise<SummaryResponse> {
+    return fetchJson(`${ANALYTICS_BASE}/summary?period=${period}`, init);
 }
 
-export async function fetchOccupancyTrends(period: Period): Promise<OccupancyTrendsResponse> {
-    return fetchJson(`${ANALYTICS_BASE}/occupancy-trends?period=${period}`);
+export async function fetchOccupancyTrends(period: Period, init?: RequestInit): Promise<OccupancyTrendsResponse> {
+    return fetchJson(`${ANALYTICS_BASE}/occupancy-trends?period=${period}`, init);
 }
 
-export async function fetchHeatmap(period: Period = '7d'): Promise<{ data: HeatmapRow[] }> {
-    return fetchJson(`${ANALYTICS_BASE}/heatmap?period=${period}`);
+export async function fetchHeatmap(period: Period = '7d', init?: RequestInit): Promise<{ data: HeatmapRow[] }> {
+    return fetchJson(`${ANALYTICS_BASE}/heatmap?period=${period}`, init);
 }
 
-export async function fetchTrafficDaily(period: Period = '7d'): Promise<{ data: TrafficDailyPoint[] }> {
-    return fetchJson(`${ANALYTICS_BASE}/traffic-daily?period=${period}`);
+export async function fetchTrafficDaily(period: Period = '7d', init?: RequestInit): Promise<{ data: TrafficDailyPoint[] }> {
+    return fetchJson(`${ANALYTICS_BASE}/traffic-daily?period=${period}`, init);
 }
 
-export async function fetchFlowRatio(period: Period): Promise<FlowRatioResponse> {
-    return fetchJson(`${ANALYTICS_BASE}/flow-ratio?period=${period}`);
+export async function fetchFlowRatio(period: Period, init?: RequestInit): Promise<FlowRatioResponse> {
+    return fetchJson(`${ANALYTICS_BASE}/flow-ratio?period=${period}`, init);
 }
 
-export async function fetchPeakDaily(period: Period = '7d'): Promise<{ data: PeakDailyPoint[] }> {
-    return fetchJson(`${ANALYTICS_BASE}/peak-daily?period=${period}`);
+export async function fetchPeakDaily(period: Period = '7d', init?: RequestInit): Promise<{ data: PeakDailyPoint[] }> {
+    return fetchJson(`${ANALYTICS_BASE}/peak-daily?period=${period}`, init);
 }
 
-export async function fetchCumulativeTraffic(period: Period): Promise<{ data: CumulativeTrafficPoint[] }> {
-    return fetchJson(`${ANALYTICS_BASE}/cumulative-traffic?period=${period}`);
+export async function fetchCumulativeTraffic(period: Period, init?: RequestInit): Promise<{ data: CumulativeTrafficPoint[] }> {
+    return fetchJson(`${ANALYTICS_BASE}/cumulative-traffic?period=${period}`, init);
 }
 
 /** Returns CSV blob for download */

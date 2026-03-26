@@ -322,7 +322,7 @@ export default function AnalyticsPage() {
                 {error && (
                     <div className="mx-4 md:mx-6 mt-3 px-4 py-2 rounded-lg bg-warning/10 border border-warning/30 flex items-center justify-between gap-3">
                         <span className="text-sm text-warning">{error}</span>
-                        <Button variant="ghost" size="sm" onClick={() => refetch()}>Retry</Button>
+                        <Button variant="ghost" size="sm" onClick={() => refetch(true)}>Retry</Button>
                     </div>
                 )}
 

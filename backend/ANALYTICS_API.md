@@ -1,6 +1,6 @@
 # Analytics API Documentation
 
-API phân tích occupancy, traffic và dwell time cho hệ thống Lab Management. Tất cả endpoint **tính toán trực tiếp từ database** (PostgreSQL/SQLite) mỗi request — không sử dụng cache hay Redis.
+API phân tích occupancy, traffic và dwell time cho hệ thống Lab Management. Tính toán trực tiếp từ database (PostgreSQL/SQLite) với truy vấn đã tối ưu (`annotate` / `Count`). Response JSON có **`Cache-Control: private, max-age=30`** (cache ngắn hạn phía client; không dùng Redis trên server).
 
 ---
 
