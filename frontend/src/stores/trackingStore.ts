@@ -53,80 +53,34 @@ interface TrackingState {
 
 // Initial mock data
 const initialStats: SystemStats = {
-    person_count: 104,
-    person_count_change: 5.2,
-    entry_today: 847,
-    exit_today: 743,
-    fps: 30,
+    person_count: 0,
+    person_count_change: 0,
+    entry_today: 0,
+    exit_today: 0,
+    fps: 0,
     behavior_distribution: {
-        walking: 68,
-        standing: 24,
-        loitering: 8,
+        walking: 0,
+        standing: 0,
+        loitering: 0,
         other: 0,
     },
-    throughput: [40, 60, 85, 45, 70, 95, 30, 50],
+    throughput: [0, 0, 0, 0, 0, 0, 0, 0],
 };
 
-const initialPersons: Person[] = [
-    {
-        track_id: 42,
-        bbox: { x: 0.42, y: 0.25, width: 0.12, height: 0.45 },
-        keypoints: [
-            { x: 0.5, y: 0.15, confidence: 0.99 },
-            { x: 0.5, y: 0.35, confidence: 0.98 },
-            { x: 0.3, y: 0.35, confidence: 0.95 },
-            { x: 0.7, y: 0.35, confidence: 0.96 },
-            { x: 0.5, y: 0.55, confidence: 0.97 },
-            { x: 0.35, y: 0.85, confidence: 0.94 },
-            { x: 0.65, y: 0.85, confidence: 0.93 },
-        ],
-        behavior: 'walking',
-        confidence: 0.992,
-        timestamp: new Date().toISOString(),
-    },
-];
+const initialPersons: Person[] = [];
 
-const initialDetections: Detection[] = [
-    {
-        id: '1',
-        type: 'alert',
-        event: 'Posture Alert',
-        track_id: 88,
-        location: 'West Gate',
-        confidence: 0.94,
-        timestamp: '14:24:12',
-    },
-    {
-        id: '2',
-        type: 'entry',
-        event: 'New Entry',
-        track_id: 92,
-        location: 'North Lobby',
-        confidence: 0.98,
-        timestamp: '14:23:55',
-    },
-    {
-        id: '3',
-        type: 'tracking',
-        event: 'Tracking',
-        track_id: 42,
-        location: 'Moving to Zone B',
-        confidence: 0.96,
-        timestamp: '14:23:30',
-    },
-];
+const initialDetections: Detection[] = [];
 
-const initialMarkers: FloorPlanMarker[] = [
-    { id: 42, x: 45, y: 35, type: 'active', label: 'Person #42 (Primary)' },
-    { id: 88, x: 70, y: 45, type: 'inactive' },
-    { id: 99, x: 25, y: 70, type: 'alert' },
-];
+const initialMarkers: FloorPlanMarker[] = [];
 
 export const useTrackingStore = create<TrackingState>((set) => ({
     persons: initialPersons,
     setPersons: (persons) => set({ persons }),
 
     detections: initialDetections,
+    addDetection: (detection) => set((state) => ({
+        detections: [detection, ...state.detections].slice(0, 50),
+    })),
     addDetection: (detection) => set((state) => ({
         detections: [detection, ...state.detections].slice(0, 50),
     })),
@@ -138,7 +92,7 @@ export const useTrackingStore = create<TrackingState>((set) => ({
     markers: initialMarkers,
     setMarkers: (markers) => set({ markers }),
 
-    selectedPersonId: 42,
+    selectedPersonId: null,
     setSelectedPersonId: (id) => set({ selectedPersonId: id }),
 
     isOnline: false,

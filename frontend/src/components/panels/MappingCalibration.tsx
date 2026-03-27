@@ -1374,7 +1374,6 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
                             <ZoomableCanvas 
                                 ref={camZoom} 
                                 label="Camera Frame"
-                                labelExtra={wsStatus !== 'connected' && <span className="text-warning normal-case font-normal ml-1">(no stream)</span>}
                                 isPicking={mode === 'mapping' ? isMappingCamPicking : isCntPicking} 
                                 isDragTool={mode === 'mapping' ? false : isCntLinePicking}
                                 activeTool={mode === 'mapping' ? 'point' : (cntPick === 'line' ? 'line' : 'point')}

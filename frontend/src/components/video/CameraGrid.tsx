@@ -19,7 +19,8 @@ export default function CameraGrid({ layout }: CameraGridProps) {
     };
 
     const cameras = Array.from({ length: layout }, (_, i) => {
-        const feed = cameraFeeds[i % cameraFeeds.length];
+        const defaultFeed = { id: 'empty', name: 'CAM', location: 'Offline', imageUrl: '', status: 'offline', resolution: 'N/A' };
+        const feed = cameraFeeds.length > 0 ? cameraFeeds[i % cameraFeeds.length] : defaultFeed;
         return { ...feed, id: `${feed.id}-${i}`, name: `CAM-${String(i + 1).padStart(2, '0')}` };
     });
 
