@@ -897,6 +897,12 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
 
     const nextId  = useRef(1);
     const camRef  = useRef<HTMLImageElement | HTMLVideoElement | null>(null);
+
+    const handleVideoRef = useCallback((el: HTMLVideoElement | null) => {
+        (camRef as React.MutableRefObject<HTMLImageElement | HTMLVideoElement | null>).current = el;
+        janusVideoRef(el);
+    }, [janusVideoRef]);
+
     const fpRef   = useRef<HTMLImageElement>(null);
     const camZoom = useRef<ZoomHandle>(null);
     const fpZoom  = useRef<ZoomHandle>(null);
@@ -1396,102 +1402,86 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
                         </p>
 
                         <div className="flex flex-col lg:flex-row gap-3 lg:gap-4 flex-1 min-h-0">
-                            <ZoomableCanvas 
-                                ref={camZoom} 
-                                label="Camera Frame"
-                                isPicking={mode === 'mapping' ? isMappingCamPicking : isCntPicking} 
-                                isDragTool={mode === 'mapping' ? false : isCntLinePicking}
-                                activeTool={mode === 'mapping' ? 'point' : (cntPick === 'line' ? 'line' : 'point')}
-                                onNormClick={mode === 'mapping' ? onCamMapClick : handleCntClick}
-                                onNormDragEnd={mode === 'mapping' ? () => {} : handleCntDrag}
-                                onCanvasClick={() => setSel(null)}
-                                overlay={mode === 'mapping' ? camMapOverlay : camCntOverlay}
-                            >
-                                {useJanus ? (
-                                    <>
-                                        <video
-                                            ref={(el) => {
-                                                (camRef as React.MutableRefObject<HTMLImageElement | HTMLVideoElement | null>).current = el;
-                                                janusVideoRef(el);
-                                            }}
-                                            autoPlay playsInline muted
+                            <div className="flex-1 min-w-0 relative group/cam">
+                                <ZoomableCanvas 
+                                    ref={camZoom} 
+                                    label="Camera Frame"
+                                    isPicking={mode === 'mapping' ? isMappingCamPicking : isCntPicking} 
+                                    isDragTool={mode === 'mapping' ? false : isCntLinePicking}
+                                    activeTool={mode === 'mapping' ? 'point' : (cntPick === 'line' ? 'line' : 'point')}
+                                    onNormClick={mode === 'mapping' ? onCamMapClick : handleCntClick}
+                                    onNormDragEnd={mode === 'mapping' ? () => {} : handleCntDrag}
+                                    onCanvasClick={() => setSel(null)}
+                                    overlay={mode === 'mapping' ? camMapOverlay : camCntOverlay}
+                                >
+                                    {/* Video/Image Content (Zoomed) */}
+                                    {useJanus ? (
+                                        <>
+                                            <video
+                                                ref={handleVideoRef}
+                                                autoPlay playsInline muted
                                                 className={`absolute inset-0 w-full h-full object-contain bg-black ${janusStatus === 'connected' ? '' : 'opacity-0'}`}
                                             />
-
-                                            {/* Pause/Resume Toggle */}
-                                            {janusStatus === 'connected' && (
-                                                <div className="absolute top-3 right-3 z-50 flex items-center gap-2">
-                                                    {isPaused && (
-                                                        <div className="px-2 py-1 bg-danger/80 backdrop-blur-md rounded-[var(--radius-sm)] text-[10px] font-bold text-white flex items-center gap-1.5 shadow-lg border border-white/20">
-                                                            <span className="material-symbols-outlined text-xs">pause_circle</span>
-                                                            PAUSED
-                                                        </div>
-                                                    )}
-                                                    <button 
-                                                        onClick={(e) => { e.stopPropagation(); setIsPaused(!isPaused); }}
-                                                        className={`size-9 rounded-full flex items-center justify-center shadow-lg border transition-all active:scale-90 
-                                                            ${isPaused 
-                                                                ? 'bg-success text-white border-success/40' 
-                                                                : 'bg-black/60 backdrop-blur-md text-white border-white/20 hover:bg-black/80'}`}
-                                                        title={isPaused ? "Resume Stream" : "Pause Stream"}
-                                                    >
-                                                        <span className="material-symbols-outlined text-xl">
-                                                            {isPaused ? 'play_arrow' : 'pause'}
-                                                        </span>
-                                                    </button>
+                                            {janusStatus === 'error' && (
+                                                <div className="absolute inset-0 bg-surface-0 flex flex-col items-center justify-center gap-2">
+                                                    <span className="material-symbols-outlined text-5xl text-danger">videocam_off</span>
+                                                    <p className="text-xs text-text-tertiary">{janusError || 'Janus error'}</p>
                                                 </div>
                                             )}
-
-                                            {janusStatus === 'error' && (
-                                            <div className="absolute inset-0 bg-surface-0 flex flex-col items-center justify-center gap-2">
-                                                <span className="material-symbols-outlined text-5xl text-danger">videocam_off</span>
-                                                <p className="text-xs text-text-tertiary">{janusError || 'Janus error'}</p>
-                                            </div>
-                                        )}
-                                        {['loading', 'connecting'].includes(janusStatus) && (
-                                            <div className="absolute inset-0 bg-surface-0 flex flex-col items-center justify-center gap-2">
-                                                <span className="material-symbols-outlined text-5xl text-accent animate-spin">progress_activity</span>
-                                                <p className="text-xs text-text-tertiary">Connecting Janus…</p>
-                                            </div>
-                                        )}
-                                    </>
-                                ) : (frozenFrame || currentFrame || CAMERA_STREAM_URL) ? (
-                                    <>
+                                            {['loading', 'connecting'].includes(janusStatus) && (
+                                                <div className="absolute inset-0 bg-surface-0 flex flex-col items-center justify-center gap-2">
+                                                    <span className="material-symbols-outlined text-5xl text-accent animate-spin">progress_activity</span>
+                                                    <p className="text-xs text-text-tertiary">Connecting Janus…</p>
+                                                </div>
+                                            )}
+                                        </>
+                                    ) : (frozenFrame || currentFrame || CAMERA_STREAM_URL) ? (
                                         <img ref={camRef as React.RefObject<HTMLImageElement>} 
                                             src={frozenFrame || currentFrame || CAMERA_STREAM_URL} 
                                             alt="" draggable={false} 
                                             className="absolute inset-0 w-full h-full object-contain bg-black" 
                                         />
-                                        {/* Pause/Resume Toggle for Image Stream */}
-                                        <div className="absolute top-3 right-3 z-50 flex items-center gap-2">
-                                            {isPaused && (
-                                                <div className="px-2 py-1 bg-danger/80 backdrop-blur-md rounded-[var(--radius-sm)] text-[10px] font-bold text-white flex items-center gap-1.5 shadow-lg border border-white/20">
-                                                    <span className="material-symbols-outlined text-xs">pause_circle</span>
-                                                    PAUSED
-                                                </div>
-                                            )}
-                                            <button 
-                                                onClick={(e) => { e.stopPropagation(); setIsPaused(!isPaused); }}
-                                                className={`size-9 rounded-full flex items-center justify-center shadow-lg border transition-all active:scale-90 
-                                                    ${isPaused 
-                                                        ? 'bg-success text-white border-success/40' 
-                                                        : 'bg-black/60 backdrop-blur-md text-white border-white/20 hover:bg-black/80'}`}
-                                                title={isPaused ? "Resume Stream" : "Pause Stream"}
-                                            >
-                                                <span className="material-symbols-outlined text-xl">
-                                                    {isPaused ? 'play_arrow' : 'pause'}
-                                                </span>
-                                            </button>
+                                    ) : (
+                                        <div className="absolute inset-0 bg-surface-0 flex flex-col items-center justify-center gap-2">
+                                            <span className="material-symbols-outlined text-5xl text-text-tertiary">videocam_off</span>
+                                            <p className="text-xs text-text-tertiary">No live frame</p>
                                         </div>
-                                    </>
-                                ) : (
-                                    <div className="absolute inset-0 bg-surface-0 flex flex-col items-center justify-center gap-2">
-                                        <span className="material-symbols-outlined text-5xl text-text-tertiary">videocam_off</span>
-                                        <p className="text-xs text-text-tertiary">No live frame</p>
-                                    </div>
-                                )}
-                                {mode === 'counting' && <CountingShapeLayer counting={counting} />}
-                            </ZoomableCanvas>
+                                    )}
+                                    {mode === 'counting' && (
+                                        <CountingDotsOverlay 
+                                            counting={counting} sel={sel} cntPick={cntPick} 
+                                            onSelect={setSel} onMovePoint={moveCntPoint} 
+                                            onMoveLine={moveCntLine} 
+                                            clientToNorm={camZoom.current?.clientToNorm || (() => null)}
+                                            view={camZoom.current?.view || { scale: 1, tx: 0, ty: 0 }}
+                                            cW={camZoom.current?.cSize.w || 0}
+                                            cH={camZoom.current?.cSize.h || 0}
+                                        />
+                                    )}
+                                </ZoomableCanvas>
+
+                                {/* Fixed Overlays (Unzoomed) */}
+                                <div className="absolute top-12 right-4 z-[60] flex items-center gap-2 opacity-0 group-hover/cam:opacity-100 transition-opacity">
+                                    {isPaused && (
+                                        <div className="px-2.5 py-1 bg-danger/90 backdrop-blur-xl rounded-[var(--radius-md)] text-[10px] font-bold text-white flex items-center gap-1.5 shadow-2xl border border-white/20 animate-fade-in">
+                                            <span className="material-symbols-outlined text-[14px]">pause_circle</span>
+                                            PAUSED
+                                        </div>
+                                    )}
+                                    <button 
+                                        onClick={(e) => { e.stopPropagation(); setIsPaused(!isPaused); }}
+                                        className={`size-9 rounded-full flex items-center justify-center shadow-2xl border transition-all active:scale-95
+                                            ${isPaused 
+                                                ? 'bg-success text-white border-success/40' 
+                                                : 'bg-surface-1/80 backdrop-blur-xl text-text-primary border-border-default hover:border-accent hover:text-accent shadow-lg'}`}
+                                        title={isPaused ? "Resume Stream" : "Pause Stream"}
+                                    >
+                                        <span className="material-symbols-outlined text-xl">
+                                            {isPaused ? 'play_arrow' : 'pause'}
+                                        </span>
+                                    </button>
+                                </div>
+                            </div>
 
                             {mode === 'mapping' && (
                                 <ZoomableCanvas ref={fpZoom} label="Floor Plan (Map)"
