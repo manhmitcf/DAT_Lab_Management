@@ -1352,126 +1352,85 @@ function CalibrationModal({ onClose }: { onClose(): void }) {
                 {/* ── Body ── */}
                 <div className="flex flex-col lg:flex-row flex-1 min-h-0 overflow-hidden">
                     <div className="flex-1 min-w-0 p-3 sm:p-4 flex flex-col gap-2 sm:gap-3 min-h-0">
-
-                        {/* ── Mapping mode ── */}
-                        {mode === 'mapping' && (
-                            <>
-                                <p className="shrink-0 text-[11px] text-text-tertiary">
+                        <p className="shrink-0 text-[11px] text-text-tertiary">
+                            {mode === 'mapping' ? (
+                                <>
                                     <span className="text-accent font-medium">Scroll / ±</span> zoom ·
                                     <span className="text-accent font-medium ml-1">Drag</span> pan ·
                                     <span className="text-accent font-medium ml-1">Click dot</span> → ↑↓←→ ·
                                     <span className="text-accent font-medium ml-1">Hover 0.5s or hold 0.3s</span> → drag to move
-                                </p>
-                                <div className="flex flex-col lg:flex-row gap-3 lg:gap-4 flex-1 min-h-0">
-                                    <ZoomableCanvas ref={camZoom} label="Camera Frame"
-                                        labelExtra={wsStatus !== 'connected' && <span className="text-warning normal-case font-normal ml-1">(no stream)</span>}
-                                        isPicking={isMappingCamPicking} isDragTool={false}
-                                        activeTool="point"
-                                        onNormClick={onCamMapClick}
-                                        onNormDragEnd={() => {}}
-                                        onCanvasClick={() => setSel(null)}
-                                        overlay={camMapOverlay}>
-                                        {useJanus ? (
-                                            <>
-                                                <video
-                                                    ref={(el) => {
-                                                        (camRef as React.MutableRefObject<HTMLImageElement | HTMLVideoElement | null>).current = el;
-                                                        janusVideoRef(el);
-                                                    }}
-                                                    autoPlay playsInline muted
-                                                    className={`absolute inset-0 w-full h-full object-contain bg-black ${janusStatus === 'connected' ? '' : 'opacity-0'}`}
-                                                />
-                                                {janusStatus === 'error' && (
-                                                    <div className="absolute inset-0 bg-surface-0 flex flex-col items-center justify-center gap-2">
-                                                        <span className="material-symbols-outlined text-5xl text-danger">videocam_off</span>
-                                                        <p className="text-xs text-text-tertiary">{janusError || 'Janus error'}</p>
-                                                    </div>
-                                                )}
-                                                {['loading', 'connecting'].includes(janusStatus) && (
-                                                    <div className="absolute inset-0 bg-surface-0 flex flex-col items-center justify-center gap-2">
-                                                        <span className="material-symbols-outlined text-5xl text-accent animate-spin">progress_activity</span>
-                                                        <p className="text-xs text-text-tertiary">Connecting Janus…</p>
-                                                    </div>
-                                                )}
-                                            </>
-                                        ) : (currentFrame || CAMERA_STREAM_URL) ? (
-                                            <img ref={camRef as React.RefObject<HTMLImageElement>} src={currentFrame || CAMERA_STREAM_URL} alt="" draggable={false} className="absolute inset-0 w-full h-full object-contain bg-black" />
-                                        ) : (
-                                            <div className="absolute inset-0 bg-surface-0 flex flex-col items-center justify-center gap-2">
-                                                <span className="material-symbols-outlined text-5xl text-text-tertiary">videocam_off</span>
-                                                <p className="text-xs text-text-tertiary">No live frame</p>
-                                            </div>
-                                        )}
-                                    </ZoomableCanvas>
-
-                                    <ZoomableCanvas ref={fpZoom} label="Floor Plan (Map)"
-                                        isPicking={isMappingMapPicking} isDragTool={false}
-                                        activeTool="point"
-                                        onNormClick={onFpMapClick}
-                                        onNormDragEnd={() => {}}
-                                        onCanvasClick={() => setSel(null)}
-                                        overlay={fpMapOverlay}>
-                                        <img ref={fpRef} src="/labmap.svg" alt="" draggable={false} className="absolute inset-0 w-full h-full object-contain bg-surface-0" />
-                                    </ZoomableCanvas>
-                                </div>
-                            </>
-                        )}
-
-                        {/* ── Counting mode ── */}
-                        {mode === 'counting' && (
-                            <>
-                                <p className="shrink-0 text-[11px] text-text-tertiary">
+                                </>
+                            ) : (
+                                <>
                                     <span className="text-accent font-medium">Draw Line:</span> drag to set tripwire ·
-                                    <span className="text-accent font-medium ml-1">Inside Point:</span> click the "entry" side ·
+                                    <span className="text-accent font-medium ml-1">Inside Point:</span> click the &quot;entry&quot; side ·
                                     <span className="text-accent font-medium ml-1">Click dot</span> → ↑↓←→ ·
                                     <span className="text-accent font-medium ml-1">Hover 0.5s or hold 0.3s</span> → drag point/line
-                                </p>
-                                <ZoomableCanvas ref={camZoom} label="Camera Frame"
-                                    labelExtra={wsStatus !== 'connected' && <span className="text-warning normal-case font-normal ml-1">(no stream)</span>}
-                                    isPicking={isCntPicking} isDragTool={isCntLinePicking}
-                                    activeTool={cntPick === 'line' ? 'line' : 'point'}
-                                    onNormClick={handleCntClick}
-                                    onNormDragEnd={handleCntDrag}
+                                </>
+                            )}
+                        </p>
+
+                        <div className="flex flex-col lg:flex-row gap-3 lg:gap-4 flex-1 min-h-0">
+                            <ZoomableCanvas 
+                                ref={camZoom} 
+                                label="Camera Frame"
+                                labelExtra={wsStatus !== 'connected' && <span className="text-warning normal-case font-normal ml-1">(no stream)</span>}
+                                isPicking={mode === 'mapping' ? isMappingCamPicking : isCntPicking} 
+                                isDragTool={mode === 'mapping' ? false : isCntLinePicking}
+                                activeTool={mode === 'mapping' ? 'point' : (cntPick === 'line' ? 'line' : 'point')}
+                                onNormClick={mode === 'mapping' ? onCamMapClick : handleCntClick}
+                                onNormDragEnd={mode === 'mapping' ? () => {} : handleCntDrag}
+                                onCanvasClick={() => setSel(null)}
+                                overlay={mode === 'mapping' ? camMapOverlay : camCntOverlay}
+                            >
+                                {useJanus ? (
+                                    <>
+                                        <video
+                                            ref={(el) => {
+                                                (camRef as React.MutableRefObject<HTMLImageElement | HTMLVideoElement | null>).current = el;
+                                                janusVideoRef(el);
+                                            }}
+                                            autoPlay playsInline muted
+                                            className={`absolute inset-0 w-full h-full object-contain bg-black ${janusStatus === 'connected' ? '' : 'opacity-0'}`}
+                                        />
+                                        {janusStatus === 'error' && (
+                                            <div className="absolute inset-0 bg-surface-0 flex flex-col items-center justify-center gap-2">
+                                                <span className="material-symbols-outlined text-5xl text-danger">videocam_off</span>
+                                                <p className="text-xs text-text-tertiary">{janusError || 'Janus error'}</p>
+                                            </div>
+                                        )}
+                                        {['loading', 'connecting'].includes(janusStatus) && (
+                                            <div className="absolute inset-0 bg-surface-0 flex flex-col items-center justify-center gap-2">
+                                                <span className="material-symbols-outlined text-5xl text-accent animate-spin">progress_activity</span>
+                                                <p className="text-xs text-text-tertiary">Connecting Janus…</p>
+                                            </div>
+                                        )}
+                                    </>
+                                ) : (currentFrame || CAMERA_STREAM_URL) ? (
+                                    <img ref={camRef as React.RefObject<HTMLImageElement>} src={currentFrame || CAMERA_STREAM_URL} alt="" draggable={false} className="absolute inset-0 w-full h-full object-contain bg-black" />
+                                ) : (
+                                    <div className="absolute inset-0 bg-surface-0 flex flex-col items-center justify-center gap-2">
+                                        <span className="material-symbols-outlined text-5xl text-text-tertiary">videocam_off</span>
+                                        <p className="text-xs text-text-tertiary">No live frame</p>
+                                    </div>
+                                )}
+                                {mode === 'counting' && <CountingShapeLayer counting={counting} />}
+                            </ZoomableCanvas>
+
+                            {mode === 'mapping' && (
+                                <ZoomableCanvas ref={fpZoom} label="Floor Plan (Map)"
+                                    isPicking={isMappingMapPicking} isDragTool={false}
+                                    activeTool="point"
+                                    onNormClick={onFpMapClick}
+                                    onNormDragEnd={() => {}}
                                     onCanvasClick={() => setSel(null)}
-                                    overlay={camCntOverlay}>
-                                    {useJanus ? (
-                                        <>
-                                            <video
-                                                ref={(el) => {
-                                                    (camRef as React.MutableRefObject<HTMLImageElement | HTMLVideoElement | null>).current = el;
-                                                    janusVideoRef(el);
-                                                }}
-                                                autoPlay playsInline muted
-                                                className={`absolute inset-0 w-full h-full object-contain bg-black ${janusStatus === 'connected' ? '' : 'opacity-0'}`}
-                                            />
-                                            {janusStatus === 'error' && (
-                                                <div className="absolute inset-0 bg-surface-0 flex flex-col items-center justify-center gap-2">
-                                                    <span className="material-symbols-outlined text-5xl text-danger">videocam_off</span>
-                                                    <p className="text-xs text-text-tertiary">{janusError || 'Janus error'}</p>
-                                                </div>
-                                            )}
-                                            {['loading', 'connecting'].includes(janusStatus) && (
-                                                <div className="absolute inset-0 bg-surface-0 flex flex-col items-center justify-center gap-2">
-                                                    <span className="material-symbols-outlined text-5xl text-accent animate-spin">progress_activity</span>
-                                                    <p className="text-xs text-text-tertiary">Connecting Janus…</p>
-                                                </div>
-                                            )}
-                                        </>
-                                    ) : (currentFrame || CAMERA_STREAM_URL) ? (
-                                        <img ref={camRef as React.RefObject<HTMLImageElement>} src={currentFrame || CAMERA_STREAM_URL} alt="" draggable={false} className="absolute inset-0 w-full h-full object-contain bg-black" />
-                                    ) : (
-                                        <div className="absolute inset-0 bg-surface-0 flex flex-col items-center justify-center gap-2">
-                                            <span className="material-symbols-outlined text-5xl text-text-tertiary">videocam_off</span>
-                                            <p className="text-xs text-text-tertiary">No live frame</p>
-                                        </div>
-                                    )}
-                                    <CountingShapeLayer counting={counting} />
+                                    overlay={fpMapOverlay}>
+                                    <img ref={fpRef} src="/labmap.svg" alt="" draggable={false} className="absolute inset-0 w-full h-full object-contain bg-surface-0" />
                                 </ZoomableCanvas>
-                            </>
-                        )}
+                            )}
+                        </div>
                     </div>
 
-                    {/* ── Sidebar (mode-specific) ── */}
                     {mode === 'mapping' && (
                         <MappingSidebar pairs={pairs} mapPick={mapPick} sel={sel}
                             onRemove={removePair} onEditPx={editMapPx}
