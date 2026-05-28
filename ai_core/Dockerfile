@@ -1,83 +1,94 @@
 FROM nvcr.io/nvidia/deepstream:7.0-triton-multiarch
 
-# Set non-interactive to avoid prompts during apt-get
+# =========================================================
+# Environment
+# =========================================================
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
+ENV LD_LIBRARY_PATH=/workspace/ai_core/cpp_plugins/lib:${LD_LIBRARY_PATH}
 
-# Set primary working directory
 WORKDIR /workspace/ai_core
 
 # =========================================================
-# 1. Install System Dependencies (Least frequent change)
+# 1. System Dependencies (least frequent change → cached)
 # =========================================================
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    wget git cmake curl \
-    build-essential pkg-config \
-    # Python & OpenCV Tools
-    python3-opencv python3-pip python3-dev \
-    # Python GStreamer Bindings & C++ Headers for pip compiling PyCairo/PyGObject on ARM64
+    # Build Tools
+    wget git cmake curl build-essential pkg-config \
+    # Python Core
+    python3-pip python3-dev \
+    # GStreamer Python Bindings (pyds/gi)
     python3-gi python3-gst-1.0 gir1.2-gst-plugins-base-1.0 \
     libcairo2-dev libgirepository1.0-dev \
-    # OpenCV Dev Headers (Required for C++ OCSort Tracker)
-    libopencv-dev \
-    # Eigen3 (Required for OCSort CMake compilation)
+    # OpenCV (C++ headers for OCSort + Python bindings)
+    python3-opencv libopencv-dev \
+    # Eigen3 (OCSort KalmanFilter)
     libeigen3-dev \
+    # CUDA tools (nvjpegdec needs this)
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # =========================================================
-# 2. Install PYDS (DeepStream Python Bindings for DS 7.0)
+# 2. PYDS — DeepStream Python Bindings (DS 7.0 / JetPack 6)
 # =========================================================
 RUN pip3 install --upgrade pip \
-    && wget https://github.com/NVIDIA-AI-IOT/deepstream_python_apps/releases/download/v1.1.11/pyds-1.1.11-py3-none-linux_aarch64.whl \
+    && wget -q https://github.com/NVIDIA-AI-IOT/deepstream_python_apps/releases/download/v1.1.11/pyds-1.1.11-py3-none-linux_aarch64.whl \
     && pip3 install pyds-1.1.11-py3-none-linux_aarch64.whl \
     && rm pyds-1.1.11-py3-none-linux_aarch64.whl
 
 # =========================================================
-# 3. Configure PIP and Install Core Python Dependencies
+# 3. Python Dependencies
 # =========================================================
 COPY requirements.txt .
-ENV PIP_INDEX_URL=https://pypi.org/simple
-ENV PIP_EXTRA_INDEX_URL=""
 
-RUN rm -f /etc/pip.conf \
-    && pip3 install --upgrade pip setuptools wheel \
-    && pip3 install cython \
-    && pip3 install pycocotools \
-    && pip3 install cython_bbox \
-    && pip3 install ninja \
+RUN pip3 install --upgrade pip setuptools wheel \
+    && pip3 install cython ninja \
     && pip3 install --no-cache-dir -r requirements.txt
 
 # =========================================================
 # 4. Copy Application Code
 # =========================================================
-# (Unnecessary folders will be excluded via .dockerignore)
 COPY . .
 
 # =========================================================
-# 5. Create Necessary Directories
+# 5. Directories (mount points for volumes)
 # =========================================================
-RUN mkdir -p pretrained videos YOLOX_outputs weights config
+RUN mkdir -p pretrained videos logs
 
 # =========================================================
-# 6. Build C++ Extensions (Custom YOLOX Parser + OCSort NvMOT)
+# 6. Build C++ Plugins
 # =========================================================
-# Compile the custom YOLOX BBox parser for DeepStream (libnvdsinfer_custom_impl_YoloX.so)
-RUN if [ -d "deploy/DeepStream" ]; then cd deploy/DeepStream && make; fi
+# 6a. YOLOX Custom BBox Parser → libnvdsinfer_custombboxparser_yolox.so
+RUN cd cpp_plugins/yolox_parser \
+    && mkdir -p build && cd build \
+    && cmake .. && make -j$(nproc) \
+    && mkdir -p /workspace/ai_core/cpp_plugins/lib \
+    && cp *.so /workspace/ai_core/cpp_plugins/lib/
 
-# Compile the OCSort Tracker wrapped in NvMOT API (libnvds_ocsort.so)
-RUN if [ -d "deploy/OCSort/cpp" ]; then cd deploy/OCSort/cpp && mkdir -p build && cd build && cmake .. && make; fi
+# 6b. YOLOX CUDA Preprocess → libyolox_preprocess.so
+RUN cd cpp_plugins/preprocess \
+    && mkdir -p build && cd build \
+    && cmake .. && make -j$(nproc) \
+    && cp *.so /workspace/ai_core/cpp_plugins/lib/
 
-# [REMOVED] The C++ Counting & Mapping Probe is no longer used.
-# The logic is now handled by Python services.
+# 6c. OCSort C-API Tracker → libocsort_api.so
+RUN cd cpp_plugins/ocsort \
+    && mkdir -p build && cd build \
+    && cmake .. && make -j$(nproc) \
+    && cp *.so /workspace/ai_core/cpp_plugins/lib/
 
 # =========================================================
-# 7. Setup Project in Editable Mode
+# 7. Install YOLOX in editable mode (Python C++ extensions)
 # =========================================================
-# Install setup.py to build C++ extensions (e.g., YOLOX/OCSort Python bindings if any)
 RUN pip3 install --no-build-isolation -e .
 
 # =========================================================
-# 8. Default Command
+# 8. Verify Builds
+# =========================================================
+RUN echo "=== Checking .so libraries ===" \
+    && ls -la /workspace/ai_core/cpp_plugins/lib/
+
+# =========================================================
+# 9. Entrypoint
 # =========================================================
 CMD ["python3", "main.py"]
