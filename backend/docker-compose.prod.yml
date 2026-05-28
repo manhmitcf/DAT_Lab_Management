@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  backend:
+    image: manhmitcf/dat_lab_management_backend:latest
+    container_name: lab_backend
+    command: daphne -b 0.0.0.0 -p 8000 config.asgi:application
+    ports:
+      - "8000:8000"
+    environment:
+      - WEBSITES_PORT=8000
+      - DJANGO_SETTINGS_MODULE=config.settings
+    restart: always
+    depends_on:
+      - redis
+
+  celery_worker:
+    image: manhmitcf/dat_lab_management_backend:latest
+    container_name: lab_celery
+    command: celery -A config worker -l info
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings
+    restart: always
+    depends_on:
+      - redis
+      - backend
+
+  redis:
+    image: redis:7-alpine
+    container_name: lab_redis
+    ports:
+      - "6379:6379"
+    restart: always
